@@ -1,11 +1,12 @@
-import type { Tables } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/types";
 
-export type Template = Tables<"templates">;
-export type Campaign = Tables<"campaigns">;
-export type CampaignItem = Tables<"campaign_items">;
-export type Asset = Tables<"assets">;
-export type YoutubeConnection = Tables<"youtube_connections">;
-export type AutomationLog = Tables<"automation_logs">;
+type T = Database["public"]["Tables"];
+export type Template = T["templates"]["Row"];
+export type Campaign = T["campaigns"]["Row"];
+export type CampaignItem = T["campaign_items"]["Row"];
+export type Asset = T["assets"]["Row"];
+export type YoutubeConnection = T["youtube_connections"]["Row"];
+export type AutomationLog = T["automation_logs"]["Row"];
 
 export type AspectRatio = "9:16" | "16:9" | "1:1";
 
