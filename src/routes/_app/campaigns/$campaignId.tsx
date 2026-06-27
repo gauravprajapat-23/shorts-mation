@@ -24,7 +24,7 @@ function CampaignDetail() {
     queryFn: async () => (await supabase.from("campaign_items").select("*").eq("campaign_id", campaignId).order("created_at", { ascending: true })).data ?? [],
   });
   const setStatus = useMutation({
-    mutationFn: async (status: string) => {
+    mutationFn: async (status: "active" | "paused" | "completed" | "failed" | "draft") => {
       const { error } = await supabase.from("campaigns").update({ status }).eq("id", campaignId);
       if (error) throw error;
     },
