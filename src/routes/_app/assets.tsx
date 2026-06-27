@@ -12,11 +12,11 @@ export const Route = createFileRoute("/_app/assets")({
   component: AssetsPage,
 });
 
-function detectType(mime: string): "image" | "video" | "audio" | "font" | "other" {
+function detectType(mime: string): "image" | "video" | "audio" | "logo" {
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "audio";
-  return "other";
+  return "image";
 }
 
 function AssetsPage() {
@@ -33,8 +33,6 @@ function AssetsPage() {
       const path = `${u.user.id}/${Date.now()}-${file.name}`;
       const { error: upErr } = await supabase.storage.from("assets").upload(path, file);
       if (upErr) throw upErr;
-      const { data: pub } = supabase.storage.from("assets").createSignedUrl ? { data: { signedUrl: "" } } : { data: { signedUrl: "" } };
-      void pub;
       const { error } = await supabase.from("assets").insert({
         user_id: u.user.id,
         type: detectType(file.type),
