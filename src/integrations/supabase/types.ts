@@ -14,16 +14,393 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      assets: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_url: string
+          id: string
+          mime_type: string | null
+          size: number | null
+          storage_path: string | null
+          type: Database["public"]["Enums"]["asset_type"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_url: string
+          id?: string
+          mime_type?: string | null
+          size?: number | null
+          storage_path?: string | null
+          type: Database["public"]["Enums"]["asset_type"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_url?: string
+          id?: string
+          mime_type?: string | null
+          size?: number | null
+          storage_path?: string | null
+          type?: Database["public"]["Enums"]["asset_type"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      automation_logs: {
+        Row: {
+          campaign_id: string | null
+          campaign_item_id: string | null
+          created_at: string
+          id: string
+          level: Database["public"]["Enums"]["log_level"]
+          message: string
+          metadata_json: Json
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          campaign_item_id?: string | null
+          created_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["log_level"]
+          message: string
+          metadata_json?: Json
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          campaign_item_id?: string | null
+          created_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["log_level"]
+          message?: string
+          metadata_json?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_logs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "automation_logs_campaign_item_id_fkey"
+            columns: ["campaign_item_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_items: {
+        Row: {
+          asset_json: Json
+          audio_json: Json
+          campaign_id: string
+          content_json: Json
+          created_at: string
+          error_message: string | null
+          id: string
+          rendered_video_url: string | null
+          retry_count: number
+          schedule_at: string | null
+          seo_json: Json
+          status: Database["public"]["Enums"]["item_status"]
+          thumbnail_url: string | null
+          updated_at: string
+          user_id: string
+          video_file_name: string | null
+          youtube_settings_json: Json
+          youtube_url: string | null
+          youtube_video_id: string | null
+        }
+        Insert: {
+          asset_json?: Json
+          audio_json?: Json
+          campaign_id: string
+          content_json?: Json
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          rendered_video_url?: string | null
+          retry_count?: number
+          schedule_at?: string | null
+          seo_json?: Json
+          status?: Database["public"]["Enums"]["item_status"]
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id: string
+          video_file_name?: string | null
+          youtube_settings_json?: Json
+          youtube_url?: string | null
+          youtube_video_id?: string | null
+        }
+        Update: {
+          asset_json?: Json
+          audio_json?: Json
+          campaign_id?: string
+          content_json?: Json
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          rendered_video_url?: string | null
+          retry_count?: number
+          schedule_at?: string | null
+          seo_json?: Json
+          status?: Database["public"]["Enums"]["item_status"]
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id?: string
+          video_file_name?: string | null
+          youtube_settings_json?: Json
+          youtube_url?: string | null
+          youtube_video_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_items_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          created_at: string
+          failed_count: number
+          generated_count: number
+          id: string
+          name: string
+          scheduled_count: number
+          settings_json: Json
+          status: Database["public"]["Enums"]["campaign_status"]
+          template_id: string | null
+          timezone: string
+          total_videos: number
+          updated_at: string
+          uploaded_count: number
+          user_id: string
+          youtube_connection_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          failed_count?: number
+          generated_count?: number
+          id?: string
+          name: string
+          scheduled_count?: number
+          settings_json?: Json
+          status?: Database["public"]["Enums"]["campaign_status"]
+          template_id?: string | null
+          timezone?: string
+          total_videos?: number
+          updated_at?: string
+          uploaded_count?: number
+          user_id: string
+          youtube_connection_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          failed_count?: number
+          generated_count?: number
+          id?: string
+          name?: string
+          scheduled_count?: number
+          settings_json?: Json
+          status?: Database["public"]["Enums"]["campaign_status"]
+          template_id?: string | null
+          timezone?: string
+          total_videos?: number
+          updated_at?: string
+          uploaded_count?: number
+          user_id?: string
+          youtube_connection_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_youtube_connection_id_fkey"
+            columns: ["youtube_connection_id"]
+            isOneToOne: false
+            referencedRelation: "youtube_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          onboarding_state: Json
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          onboarding_state?: Json
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          onboarding_state?: Json
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      templates: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          id: string
+          is_default: boolean
+          name: string
+          template_json: Json
+          thumbnail_url: string | null
+          type: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name: string
+          template_json?: Json
+          thumbnail_url?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name?: string
+          template_json?: Json
+          thumbnail_url?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      youtube_connections: {
+        Row: {
+          access_token_encrypted: string | null
+          channel_avatar: string | null
+          channel_id: string
+          channel_name: string
+          created_at: string
+          id: string
+          is_connected: boolean
+          refresh_token_encrypted: string | null
+          token_expiry: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          channel_avatar?: string | null
+          channel_id: string
+          channel_name: string
+          created_at?: string
+          id?: string
+          is_connected?: boolean
+          refresh_token_encrypted?: string | null
+          token_expiry?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          channel_avatar?: string | null
+          channel_id?: string
+          channel_name?: string
+          created_at?: string
+          id?: string
+          is_connected?: boolean
+          refresh_token_encrypted?: string | null
+          token_expiry?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
+      asset_type: "image" | "video" | "audio" | "logo"
+      campaign_status: "draft" | "active" | "paused" | "completed" | "failed"
+      item_status:
+        | "pending"
+        | "rendering"
+        | "rendered"
+        | "upload_pending"
+        | "uploading"
+        | "uploaded"
+        | "scheduled"
+        | "failed"
+      log_level: "info" | "warn" | "error"
+      privacy_status: "private" | "unlisted" | "public"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +527,22 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+      asset_type: ["image", "video", "audio", "logo"],
+      campaign_status: ["draft", "active", "paused", "completed", "failed"],
+      item_status: [
+        "pending",
+        "rendering",
+        "rendered",
+        "upload_pending",
+        "uploading",
+        "uploaded",
+        "scheduled",
+        "failed",
+      ],
+      log_level: ["info", "warn", "error"],
+      privacy_status: ["private", "unlisted", "public"],
+    },
   },
 } as const
