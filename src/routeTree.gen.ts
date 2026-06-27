@@ -9,38 +9,210 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppYoutubeConnectRouteImport } from './routes/_app/youtube-connect'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppAssetsRouteImport } from './routes/_app/assets'
+import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates/index'
+import { Route as AppCampaignsIndexRouteImport } from './routes/_app/campaigns/index'
+import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new'
+import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
+import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
+import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
+import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppYoutubeConnectRoute = AppYoutubeConnectRouteImport.update({
+  id: '/youtube-connect',
+  path: '/youtube-connect',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAssetsRoute = AppAssetsRouteImport.update({
+  id: '/assets',
+  path: '/assets',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTemplatesIndexRoute = AppTemplatesIndexRouteImport.update({
+  id: '/templates/',
+  path: '/templates/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTemplatesNewRoute = AppTemplatesNewRouteImport.update({
+  id: '/templates/new',
+  path: '/templates/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEditorTemplateIdRoute = AppEditorTemplateIdRouteImport.update({
+  id: '/editor/$templateId',
+  path: '/editor/$templateId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
+  id: '/campaigns/new',
+  path: '/campaigns/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsCampaignIdRoute = AppCampaignsCampaignIdRouteImport.update({
+  id: '/campaigns/$campaignId',
+  path: '/campaigns/$campaignId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsCampaignIdQueueRoute =
+  AppCampaignsCampaignIdQueueRouteImport.update({
+    id: '/queue',
+    path: '/queue',
+    getParentRoute: () => AppCampaignsCampaignIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/assets': typeof AppAssetsRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/settings': typeof AppSettingsRoute
+  '/youtube-connect': typeof AppYoutubeConnectRoute
+  '/campaigns/$campaignId': typeof AppCampaignsCampaignIdRouteWithChildren
+  '/campaigns/new': typeof AppCampaignsNewRoute
+  '/editor/$templateId': typeof AppEditorTemplateIdRoute
+  '/templates/new': typeof AppTemplatesNewRoute
+  '/campaigns/': typeof AppCampaignsIndexRoute
+  '/templates/': typeof AppTemplatesIndexRoute
+  '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/assets': typeof AppAssetsRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/settings': typeof AppSettingsRoute
+  '/youtube-connect': typeof AppYoutubeConnectRoute
+  '/campaigns/$campaignId': typeof AppCampaignsCampaignIdRouteWithChildren
+  '/campaigns/new': typeof AppCampaignsNewRoute
+  '/editor/$templateId': typeof AppEditorTemplateIdRoute
+  '/templates/new': typeof AppTemplatesNewRoute
+  '/campaigns': typeof AppCampaignsIndexRoute
+  '/templates': typeof AppTemplatesIndexRoute
+  '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_app/assets': typeof AppAssetsRoute
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/youtube-connect': typeof AppYoutubeConnectRoute
+  '/_app/campaigns/$campaignId': typeof AppCampaignsCampaignIdRouteWithChildren
+  '/_app/campaigns/new': typeof AppCampaignsNewRoute
+  '/_app/editor/$templateId': typeof AppEditorTemplateIdRoute
+  '/_app/templates/new': typeof AppTemplatesNewRoute
+  '/_app/campaigns/': typeof AppCampaignsIndexRoute
+  '/_app/templates/': typeof AppTemplatesIndexRoute
+  '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/assets'
+    | '/dashboard'
+    | '/settings'
+    | '/youtube-connect'
+    | '/campaigns/$campaignId'
+    | '/campaigns/new'
+    | '/editor/$templateId'
+    | '/templates/new'
+    | '/campaigns/'
+    | '/templates/'
+    | '/campaigns/$campaignId/queue'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/assets'
+    | '/dashboard'
+    | '/settings'
+    | '/youtube-connect'
+    | '/campaigns/$campaignId'
+    | '/campaigns/new'
+    | '/editor/$templateId'
+    | '/templates/new'
+    | '/campaigns'
+    | '/templates'
+    | '/campaigns/$campaignId/queue'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/auth'
+    | '/_app/assets'
+    | '/_app/dashboard'
+    | '/_app/settings'
+    | '/_app/youtube-connect'
+    | '/_app/campaigns/$campaignId'
+    | '/_app/campaigns/new'
+    | '/_app/editor/$templateId'
+    | '/_app/templates/new'
+    | '/_app/campaigns/'
+    | '/_app/templates/'
+    | '/_app/campaigns/$campaignId/queue'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +220,133 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/youtube-connect': {
+      id: '/_app/youtube-connect'
+      path: '/youtube-connect'
+      fullPath: '/youtube-connect'
+      preLoaderRoute: typeof AppYoutubeConnectRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/assets': {
+      id: '/_app/assets'
+      path: '/assets'
+      fullPath: '/assets'
+      preLoaderRoute: typeof AppAssetsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/templates/': {
+      id: '/_app/templates/'
+      path: '/templates'
+      fullPath: '/templates/'
+      preLoaderRoute: typeof AppTemplatesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/': {
+      id: '/_app/campaigns/'
+      path: '/campaigns'
+      fullPath: '/campaigns/'
+      preLoaderRoute: typeof AppCampaignsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/templates/new': {
+      id: '/_app/templates/new'
+      path: '/templates/new'
+      fullPath: '/templates/new'
+      preLoaderRoute: typeof AppTemplatesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/editor/$templateId': {
+      id: '/_app/editor/$templateId'
+      path: '/editor/$templateId'
+      fullPath: '/editor/$templateId'
+      preLoaderRoute: typeof AppEditorTemplateIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/new': {
+      id: '/_app/campaigns/new'
+      path: '/campaigns/new'
+      fullPath: '/campaigns/new'
+      preLoaderRoute: typeof AppCampaignsNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/$campaignId': {
+      id: '/_app/campaigns/$campaignId'
+      path: '/campaigns/$campaignId'
+      fullPath: '/campaigns/$campaignId'
+      preLoaderRoute: typeof AppCampaignsCampaignIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/$campaignId/queue': {
+      id: '/_app/campaigns/$campaignId/queue'
+      path: '/queue'
+      fullPath: '/campaigns/$campaignId/queue'
+      preLoaderRoute: typeof AppCampaignsCampaignIdQueueRouteImport
+      parentRoute: typeof AppCampaignsCampaignIdRoute
+    }
   }
 }
 
+interface AppCampaignsCampaignIdRouteChildren {
+  AppCampaignsCampaignIdQueueRoute: typeof AppCampaignsCampaignIdQueueRoute
+}
+
+const AppCampaignsCampaignIdRouteChildren: AppCampaignsCampaignIdRouteChildren =
+  {
+    AppCampaignsCampaignIdQueueRoute: AppCampaignsCampaignIdQueueRoute,
+  }
+
+const AppCampaignsCampaignIdRouteWithChildren =
+  AppCampaignsCampaignIdRoute._addFileChildren(
+    AppCampaignsCampaignIdRouteChildren,
+  )
+
+interface AppRouteChildren {
+  AppAssetsRoute: typeof AppAssetsRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppYoutubeConnectRoute: typeof AppYoutubeConnectRoute
+  AppCampaignsCampaignIdRoute: typeof AppCampaignsCampaignIdRouteWithChildren
+  AppCampaignsNewRoute: typeof AppCampaignsNewRoute
+  AppEditorTemplateIdRoute: typeof AppEditorTemplateIdRoute
+  AppTemplatesNewRoute: typeof AppTemplatesNewRoute
+  AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
+  AppTemplatesIndexRoute: typeof AppTemplatesIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAssetsRoute: AppAssetsRoute,
+  AppDashboardRoute: AppDashboardRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppYoutubeConnectRoute: AppYoutubeConnectRoute,
+  AppCampaignsCampaignIdRoute: AppCampaignsCampaignIdRouteWithChildren,
+  AppCampaignsNewRoute: AppCampaignsNewRoute,
+  AppEditorTemplateIdRoute: AppEditorTemplateIdRoute,
+  AppTemplatesNewRoute: AppTemplatesNewRoute,
+  AppCampaignsIndexRoute: AppCampaignsIndexRoute,
+  AppTemplatesIndexRoute: AppTemplatesIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
