@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock } from "lucide-react";
+import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId")({
@@ -52,6 +52,13 @@ function CampaignDetail() {
         description={`Created ${new Date(c.created_at).toLocaleString()} · ${c.total_videos} videos`}
         action={
           <div className="flex gap-2">
+            <Link
+              to="/campaigns/$campaignId/test-render"
+              params={{ campaignId }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-brand/40 text-brand text-sm font-semibold hover:bg-brand/10"
+            >
+              <Sparkles className="size-3.5" /> Test render 1 video
+            </Link>
             {c.status === "active" ? (
               <button onClick={() => setStatus.mutate("paused")} className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-semibold hover:bg-white/5"><Pause className="size-3.5" /> Pause</button>
             ) : (
