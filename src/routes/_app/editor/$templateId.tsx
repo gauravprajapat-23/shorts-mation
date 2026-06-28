@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye } from "lucide-react";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
@@ -35,6 +35,7 @@ function EditorPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>("elements");
   const [previewVars, setPreviewVars] = useState<Record<string, string>>({});
+  const [zoom, setZoom] = useState<number | "fit">("fit");
 
   useEffect(() => {
     if (!template) return;
@@ -82,6 +83,29 @@ function EditorPage() {
     updateScene((s) => ({ ...s, elements: s.elements.filter((e) => e.id !== id) }));
     if (selectedId === id) setSelectedId(null);
   };
+  const duplicateElement = (id: string) => {
+    if (!doc) return;
+    const s = doc.scenes[sceneIndex];
+    const el = s.elements.find((e) => e.id === id);
+    if (!el) return;
+    const copy = { ...el, id: uid(el.type), x: el.x + 24, y: el.y + 24 } as EditorElement;
+    updateScene((sc) => ({ ...sc, elements: [...sc.elements, copy] }));
+    setSelectedId(copy.id);
+  };
+  const reorderElement = (id: string, dir: -1 | 1) => {
+    updateScene((s) => {
+      const idx = s.elements.findIndex((e) => e.id === id);
+      if (idx < 0) return s;
+      const next = [...s.elements];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= next.length) return s;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return { ...s, elements: next };
+    });
+  };
+  const toggleLock = (id: string) => {
+    updateElement(id, (e) => ({ ...e, locked: !e.locked }));
+  };
   const addScene = () => {
     if (!doc) return;
     commit({ ...doc, scenes: [...doc.scenes, { id: uid("scene"), name: `Scene ${doc.scenes.length + 1}`, durationMs: 5000, background: "#0A0A0A", elements: [] }] });
@@ -97,6 +121,33 @@ function EditorPage() {
     onSuccess: () => { toast.success("Template saved"); qc.invalidateQueries({ queryKey: ["template", templateId] }); },
     onError: (e) => toast.error(e.message),
   });
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) { e.preventDefault(); redo(); return; }
+      if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save.mutate(); return; }
+      if (mod && e.key.toLowerCase() === "d" && selectedId) { e.preventDefault(); duplicateElement(selectedId); return; }
+      if (!selectedId) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteElement(selectedId); return; }
+      const step = e.shiftKey ? 20 : 2;
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        updateElement(selectedId, (el) => ({
+          ...el,
+          x: el.x + (e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0),
+          y: el.y + (e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0),
+        }));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, selectedId, history, future, sceneIndex]);
 
   if (!doc || !scene) return <div className="p-10 text-zinc-400">Loading editor…</div>;
   const dims = CANVAS_DIMS[doc.aspect];
@@ -118,11 +169,11 @@ function EditorPage() {
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">{doc.aspect}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
-          <button onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
+          <button title="Undo (⌘Z)" onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
+          <button title="Redo (⌘⇧Z)" onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
           <div className="w-px h-6 bg-border mx-1" />
           <button className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"><Eye className="size-3.5" /> Preview</button>
-          <button onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
+          <button title="Save (⌘S)" onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
             <Save className="size-3.5" /> {save.isPending ? "Saving…" : "Save"}
           </button>
         </div>
@@ -179,13 +230,22 @@ function EditorPage() {
           <Canvas
             doc={doc} sceneIndex={sceneIndex} previewVars={previewVars}
             selectedId={selectedId} setSelectedId={setSelectedId}
-            updateElement={updateElement}
+            updateElement={updateElement} zoom={zoom} setZoom={setZoom}
           />
         </div>
 
         {/* Right panel */}
         <aside className="w-72 shrink-0 border-l border-border bg-panel overflow-y-auto">
-          <RightPanel selected={selected} update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))} scene={scene} updateScene={updateScene} />
+          <RightPanel
+            selected={selected}
+            update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))}
+            scene={scene} updateScene={updateScene}
+            onDuplicate={() => selected && duplicateElement(selected.id)}
+            onDelete={() => selected && deleteElement(selected.id)}
+            onLayerUp={() => selected && reorderElement(selected.id, 1)}
+            onLayerDown={() => selected && reorderElement(selected.id, -1)}
+            onToggleLock={() => selected && toggleLock(selected.id)}
+          />
         </aside>
       </div>
 
