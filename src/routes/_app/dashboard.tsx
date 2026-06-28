@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { Rocket, Video, CalendarClock, Upload, AlertTriangle, Youtube, Plus, FileUp, Wand2, ListChecks } from "lucide-react";
 
 export const Route = createFileRoute("/_app/dashboard")({
@@ -21,6 +22,7 @@ function DashboardPage() {
         supabase.from("campaign_items").select("status"),
         supabase.from("youtube_connections").select("channel_name,channel_avatar,is_connected").eq("is_connected", true).maybeSingle(),
       ]);
+      const tpl = await supabase.from("templates").select("id,user_id").limit(50);
       const itemsArr = items.data ?? [];
       return {
         campaigns: campaigns.data ?? [],
@@ -29,11 +31,21 @@ function DashboardPage() {
         uploaded: itemsArr.filter((i) => i.status === "uploaded").length,
         failed: itemsArr.filter((i) => i.status === "failed").length,
         yt: yt.data,
+        userTemplates: (tpl.data ?? []).filter((t) => t.user_id).length,
+        totalTemplates: (tpl.data ?? []).length,
       };
     },
   });
 
   const d = stats.data;
+
+  const onboarding = {
+    connectedYouTube: !!d?.yt,
+    hasTemplate: (d?.userTemplates ?? 0) > 0 || (d?.totalTemplates ?? 0) > 0,
+    hasUpload: (d?.campaigns.length ?? 0) > 0,
+    previewed: (d?.campaigns.length ?? 0) > 0,
+    started: !!d?.campaigns.some((c) => c.status === "active" || c.status === "completed"),
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -47,19 +59,7 @@ function DashboardPage() {
         }
       />
 
-      {/* Onboarding strip */}
-      {!d?.yt && (
-        <div className="mb-6 p-4 rounded-xl border border-brand/30 bg-gradient-to-r from-brand/10 to-transparent flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-brand/15 grid place-items-center"><Youtube className="size-4 text-brand" /></div>
-            <div>
-              <div className="text-sm font-semibold">Connect your YouTube channel</div>
-              <div className="text-xs text-zinc-400">Required to schedule and upload videos automatically.</div>
-            </div>
-          </div>
-          <Link to="/youtube-connect" className="text-xs font-bold px-3 py-2 rounded-md bg-brand text-white">Connect</Link>
-        </div>
-      )}
+      {d && <OnboardingChecklist status={onboarding} />}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <StatCard label="Campaigns" value={d?.campaigns.length ?? 0} icon={Rocket} accent />
