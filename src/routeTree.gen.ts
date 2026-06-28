@@ -22,6 +22,7 @@ import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new
 import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
 import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
 import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
+import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
 import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
 
 const AuthRoute = AuthRouteImport.update({
@@ -88,6 +89,12 @@ const AppCampaignsCampaignIdRoute = AppCampaignsCampaignIdRouteImport.update({
   path: '/campaigns/$campaignId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCampaignsCampaignIdTestRenderRoute =
+  AppCampaignsCampaignIdTestRenderRouteImport.update({
+    id: '/test-render',
+    path: '/test-render',
+    getParentRoute: () => AppCampaignsCampaignIdRoute,
+  } as any)
 const AppCampaignsCampaignIdQueueRoute =
   AppCampaignsCampaignIdQueueRouteImport.update({
     id: '/queue',
@@ -109,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/campaigns/': typeof AppCampaignsIndexRoute
   '/templates/': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -124,6 +132,7 @@ export interface FileRoutesByTo {
   '/campaigns': typeof AppCampaignsIndexRoute
   '/templates': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -141,6 +150,7 @@ export interface FileRoutesById {
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/campaigns/'
     | '/templates/'
     | '/campaigns/$campaignId/queue'
+    | '/campaigns/$campaignId/test-render'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/campaigns'
     | '/templates'
     | '/campaigns/$campaignId/queue'
+    | '/campaigns/$campaignId/test-render'
   id:
     | '__root__'
     | '/'
@@ -189,6 +201,7 @@ export interface FileRouteTypes {
     | '/_app/campaigns/'
     | '/_app/templates/'
     | '/_app/campaigns/$campaignId/queue'
+    | '/_app/campaigns/$campaignId/test-render'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -290,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsCampaignIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/campaigns/$campaignId/test-render': {
+      id: '/_app/campaigns/$campaignId/test-render'
+      path: '/test-render'
+      fullPath: '/campaigns/$campaignId/test-render'
+      preLoaderRoute: typeof AppCampaignsCampaignIdTestRenderRouteImport
+      parentRoute: typeof AppCampaignsCampaignIdRoute
+    }
     '/_app/campaigns/$campaignId/queue': {
       id: '/_app/campaigns/$campaignId/queue'
       path: '/queue'
@@ -302,11 +322,14 @@ declare module '@tanstack/react-router' {
 
 interface AppCampaignsCampaignIdRouteChildren {
   AppCampaignsCampaignIdQueueRoute: typeof AppCampaignsCampaignIdQueueRoute
+  AppCampaignsCampaignIdTestRenderRoute: typeof AppCampaignsCampaignIdTestRenderRoute
 }
 
 const AppCampaignsCampaignIdRouteChildren: AppCampaignsCampaignIdRouteChildren =
   {
     AppCampaignsCampaignIdQueueRoute: AppCampaignsCampaignIdQueueRoute,
+    AppCampaignsCampaignIdTestRenderRoute:
+      AppCampaignsCampaignIdTestRenderRoute,
   }
 
 const AppCampaignsCampaignIdRouteWithChildren =

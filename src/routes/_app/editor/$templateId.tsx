@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye } from "lucide-react";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
@@ -35,6 +35,7 @@ function EditorPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>("elements");
   const [previewVars, setPreviewVars] = useState<Record<string, string>>({});
+  const [zoom, setZoom] = useState<number | "fit">("fit");
 
   useEffect(() => {
     if (!template) return;
@@ -82,6 +83,29 @@ function EditorPage() {
     updateScene((s) => ({ ...s, elements: s.elements.filter((e) => e.id !== id) }));
     if (selectedId === id) setSelectedId(null);
   };
+  const duplicateElement = (id: string) => {
+    if (!doc) return;
+    const s = doc.scenes[sceneIndex];
+    const el = s.elements.find((e) => e.id === id);
+    if (!el) return;
+    const copy = { ...el, id: uid(el.type), x: el.x + 24, y: el.y + 24 } as EditorElement;
+    updateScene((sc) => ({ ...sc, elements: [...sc.elements, copy] }));
+    setSelectedId(copy.id);
+  };
+  const reorderElement = (id: string, dir: -1 | 1) => {
+    updateScene((s) => {
+      const idx = s.elements.findIndex((e) => e.id === id);
+      if (idx < 0) return s;
+      const next = [...s.elements];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= next.length) return s;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return { ...s, elements: next };
+    });
+  };
+  const toggleLock = (id: string) => {
+    updateElement(id, (e) => ({ ...e, locked: !e.locked }));
+  };
   const addScene = () => {
     if (!doc) return;
     commit({ ...doc, scenes: [...doc.scenes, { id: uid("scene"), name: `Scene ${doc.scenes.length + 1}`, durationMs: 5000, background: "#0A0A0A", elements: [] }] });
@@ -97,6 +121,33 @@ function EditorPage() {
     onSuccess: () => { toast.success("Template saved"); qc.invalidateQueries({ queryKey: ["template", templateId] }); },
     onError: (e) => toast.error(e.message),
   });
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) { e.preventDefault(); redo(); return; }
+      if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save.mutate(); return; }
+      if (mod && e.key.toLowerCase() === "d" && selectedId) { e.preventDefault(); duplicateElement(selectedId); return; }
+      if (!selectedId) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteElement(selectedId); return; }
+      const step = e.shiftKey ? 20 : 2;
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        updateElement(selectedId, (el) => ({
+          ...el,
+          x: el.x + (e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0),
+          y: el.y + (e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0),
+        }));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, selectedId, history, future, sceneIndex]);
 
   if (!doc || !scene) return <div className="p-10 text-zinc-400">Loading editor…</div>;
   const dims = CANVAS_DIMS[doc.aspect];
@@ -118,11 +169,11 @@ function EditorPage() {
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">{doc.aspect}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
-          <button onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
+          <button title="Undo (⌘Z)" onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
+          <button title="Redo (⌘⇧Z)" onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
           <div className="w-px h-6 bg-border mx-1" />
           <button className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"><Eye className="size-3.5" /> Preview</button>
-          <button onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
+          <button title="Save (⌘S)" onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
             <Save className="size-3.5" /> {save.isPending ? "Saving…" : "Save"}
           </button>
         </div>
@@ -179,13 +230,22 @@ function EditorPage() {
           <Canvas
             doc={doc} sceneIndex={sceneIndex} previewVars={previewVars}
             selectedId={selectedId} setSelectedId={setSelectedId}
-            updateElement={updateElement}
+            updateElement={updateElement} zoom={zoom} setZoom={setZoom}
           />
         </div>
 
         {/* Right panel */}
         <aside className="w-72 shrink-0 border-l border-border bg-panel overflow-y-auto">
-          <RightPanel selected={selected} update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))} scene={scene} updateScene={updateScene} />
+          <RightPanel
+            selected={selected}
+            update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))}
+            scene={scene} updateScene={updateScene}
+            onDuplicate={() => selected && duplicateElement(selected.id)}
+            onDelete={() => selected && deleteElement(selected.id)}
+            onLayerUp={() => selected && reorderElement(selected.id, 1)}
+            onLayerDown={() => selected && reorderElement(selected.id, -1)}
+            onToggleLock={() => selected && toggleLock(selected.id)}
+          />
         </aside>
       </div>
 
@@ -203,15 +263,18 @@ function EditorPage() {
   );
 }
 
-function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updateElement }: {
+function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updateElement, zoom, setZoom }: {
   doc: EditorDocument; sceneIndex: number; previewVars: Record<string, string>;
   selectedId: string | null; setSelectedId: (id: string | null) => void;
   updateElement: (id: string, mut: (e: EditorElement) => EditorElement) => void;
+  zoom: number | "fit"; setZoom: (z: number | "fit") => void;
 }) {
   const scene = doc.scenes[sceneIndex];
   const dims = CANVAS_DIMS[doc.aspect];
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.3);
+  const [fitScale, setFitScale] = useState(0.3);
+  const [guides, setGuides] = useState<{ v?: number; h?: number }>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     const calc = () => {
@@ -220,21 +283,57 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
       const pad = 32;
       const sx = (wrap.clientWidth - pad) / dims.w;
       const sy = (wrap.clientHeight - pad) / dims.h;
-      setScale(Math.min(sx, sy));
+      setFitScale(Math.min(sx, sy));
     };
     calc();
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);
   }, [dims.w, dims.h]);
 
+  const scale = zoom === "fit" ? fitScale : zoom;
+
   const startDrag = (e: React.PointerEvent, el: EditorElement) => {
+    if (el.locked) { setSelectedId(el.id); return; }
     e.stopPropagation();
     setSelectedId(el.id);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y };
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - start.x) / scale;
       const dy = (ev.clientY - start.y) / scale;
-      updateElement(el.id, (cur) => ({ ...cur, x: start.ex + dx, y: start.ey + dy }));
+      let nx = start.ex + dx;
+      let ny = start.ey + dy;
+      const cx = nx + el.w / 2;
+      const cy = ny + el.h / 2;
+      const next: { v?: number; h?: number } = {};
+      const snap = 8 / scale;
+      if (Math.abs(cx - dims.w / 2) < snap) { nx = dims.w / 2 - el.w / 2; next.v = dims.w / 2; }
+      if (Math.abs(cy - dims.h / 2) < snap) { ny = dims.h / 2 - el.h / 2; next.h = dims.h / 2; }
+      setGuides(next);
+      updateElement(el.id, (cur) => ({ ...cur, x: nx, y: ny }));
+    };
+    const up = () => {
+      setGuides({});
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const startResize = (e: React.PointerEvent, el: EditorElement, corner: "nw" | "ne" | "sw" | "se") => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(el.id);
+    const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y, ew: el.w, eh: el.h };
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - start.x) / scale;
+      const dy = (ev.clientY - start.y) / scale;
+      let { ex, ey, ew, eh } = start;
+      if (corner === "se") { ew = Math.max(20, start.ew + dx); eh = Math.max(20, start.eh + dy); }
+      if (corner === "sw") { ex = start.ex + dx; ew = Math.max(20, start.ew - dx); eh = Math.max(20, start.eh + dy); }
+      if (corner === "ne") { ey = start.ey + dy; ew = Math.max(20, start.ew + dx); eh = Math.max(20, start.eh - dy); }
+      if (corner === "nw") { ex = start.ex + dx; ey = start.ey + dy; ew = Math.max(20, start.ew - dx); eh = Math.max(20, start.eh - dy); }
+      updateElement(el.id, (cur) => ({ ...cur, x: ex, y: ey, w: ew, h: eh }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -245,38 +344,113 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   };
 
   return (
-    <div ref={wrapRef} className="w-full h-full grid place-items-center" onPointerDown={() => setSelectedId(null)}>
+    <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }}>
       <div
         className="relative shadow-2xl shadow-black/60 origin-center"
         style={{ width: dims.w, height: dims.h, transform: `scale(${scale})`, background: scene.background, outline: "1px solid #262626" }}
       >
         {scene.elements.map((el) => (
-          <ElementView key={el.id} el={el} selected={el.id === selectedId} onPointerDown={(e) => startDrag(e, el)} previewVars={previewVars} />
+          <ElementView
+            key={el.id} el={el} selected={el.id === selectedId}
+            editing={editingId === el.id}
+            onPointerDown={(e) => startDrag(e, el)}
+            onDoubleClick={() => { if (el.type === "text" && !el.locked) setEditingId(el.id); }}
+            onTextChange={(text) => updateElement(el.id, (cur) => cur.type === "text" ? { ...cur, text } : cur)}
+            onEndEdit={() => setEditingId(null)}
+            onResizeStart={(e, corner) => startResize(e, el, corner)}
+            previewVars={previewVars}
+          />
         ))}
+        {guides.v != null && <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: guides.v, width: 1, background: "#FF0033" }} />}
+        {guides.h != null && <div className="absolute left-0 right-0 pointer-events-none" style={{ top: guides.h, height: 1, background: "#FF0033" }} />}
+      </div>
+
+      {/* Zoom controls */}
+      <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-panel border border-border rounded-md px-1 py-1 text-xs">
+        <button title="Zoom out" onClick={(e) => { e.stopPropagation(); setZoom(Math.max(0.1, (typeof scale === "number" ? scale : fitScale) - 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
+        <button onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="px-2 h-7 hover:bg-white/5 rounded font-mono tabular-nums text-zinc-400">{Math.round(scale * 100)}%</button>
+        <button title="Zoom in" onClick={(e) => { e.stopPropagation(); setZoom(Math.min(2, (typeof scale === "number" ? scale : fitScale) + 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
+        <button title="Fit" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
       </div>
     </div>
   );
 }
 
-function ElementView({ el, selected, onPointerDown, previewVars }: { el: EditorElement; selected: boolean; onPointerDown: (e: React.PointerEvent) => void; previewVars: Record<string, string> }) {
+function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTextChange, onEndEdit, onResizeStart, previewVars }: {
+  el: EditorElement; selected: boolean; editing: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onDoubleClick: () => void;
+  onTextChange: (text: string) => void;
+  onEndEdit: () => void;
+  onResizeStart: (e: React.PointerEvent, corner: "nw" | "ne" | "sw" | "se") => void;
+  previewVars: Record<string, string>;
+}) {
   const baseStyle: React.CSSProperties = {
     position: "absolute",
     left: el.x, top: el.y, width: el.w, height: el.h,
     transform: `rotate(${el.rotation}deg)`, opacity: el.opacity,
     outline: selected ? "3px solid #FF0033" : "none",
-    cursor: "move",
+    cursor: el.locked ? "not-allowed" : "move",
   };
+  const handles = selected && !el.locked ? (
+    <>
+      {(["nw","ne","sw","se"] as const).map((c) => (
+        <div
+          key={c}
+          onPointerDown={(e) => onResizeStart(e, c)}
+          className="absolute bg-brand border-2 border-white rounded-sm"
+          style={{
+            width: 16, height: 16,
+            left: c.includes("w") ? -8 : undefined, right: c.includes("e") ? -8 : undefined,
+            top: c.includes("n") ? -8 : undefined, bottom: c.includes("s") ? -8 : undefined,
+            cursor: c === "nw" || c === "se" ? "nwse-resize" : "nesw-resize",
+          }}
+        />
+      ))}
+    </>
+  ) : null;
+
   if (el.type === "text") {
+    const sharedTextStyle: React.CSSProperties = {
+      color: el.color, fontFamily: el.fontFamily, fontSize: el.fontSize, fontWeight: el.fontWeight,
+      textAlign: el.align, background: el.background, padding: 8, lineHeight: 1.1,
+      textShadow: el.shadow, WebkitTextStroke: el.stroke,
+    };
     return (
-      <div onPointerDown={onPointerDown} style={{ ...baseStyle, display: "flex", alignItems: "center", justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center", color: el.color, fontFamily: el.fontFamily, fontSize: el.fontSize, fontWeight: el.fontWeight, textAlign: el.align, background: el.background, padding: 8, lineHeight: 1.1, textShadow: el.shadow, WebkitTextStroke: el.stroke }}>
-        {renderText(el.text, previewVars)}
+      <div
+        onPointerDown={editing ? (e) => e.stopPropagation() : onPointerDown}
+        onDoubleClick={onDoubleClick}
+        style={{ ...baseStyle, display: "flex", alignItems: "center", justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center" }}
+      >
+        {editing ? (
+          <textarea
+            autoFocus
+            value={el.text}
+            onChange={(e) => onTextChange(e.target.value)}
+            onBlur={onEndEdit}
+            onKeyDown={(e) => { if (e.key === "Escape") onEndEdit(); }}
+            style={{ ...sharedTextStyle, width: "100%", height: "100%", background: "transparent", border: "1px dashed #FF0033", outline: "none", resize: "none" }}
+          />
+        ) : (
+          <div style={sharedTextStyle}>{renderText(el.text, previewVars)}</div>
+        )}
+        {handles}
       </div>
     );
   }
   if (el.type === "shape") {
-    return <div onPointerDown={onPointerDown} style={{ ...baseStyle, background: el.fill, borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0 }} />;
+    return (
+      <div onPointerDown={onPointerDown} style={{ ...baseStyle, background: el.fill, borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0 }}>
+        {handles}
+      </div>
+    );
   }
-  return <img onPointerDown={onPointerDown} draggable={false} style={{ ...baseStyle, objectFit: el.fit }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />;
+  return (
+    <div onPointerDown={onPointerDown} style={baseStyle}>
+      <img draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none" }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />
+      {handles}
+    </div>
+  );
 }
 
 function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
@@ -352,11 +526,16 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
   );
 }
 
-function RightPanel({ selected, update, scene, updateScene }: {
+function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelete, onLayerUp, onLayerDown, onToggleLock }: {
   selected: EditorElement | null;
   update: (patch: Partial<EditorElement>) => void;
   scene: EditorScene;
   updateScene: (mut: (s: EditorScene) => EditorScene) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onLayerUp: () => void;
+  onLayerDown: () => void;
+  onToggleLock: () => void;
 }) {
   if (!selected) {
     return (
@@ -374,7 +553,16 @@ function RightPanel({ selected, update, scene, updateScene }: {
   }
   return (
     <div className="p-4 space-y-4">
-      <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">{selected.type} properties</div>
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">{selected.type}</div>
+        <div className="flex items-center gap-1">
+          <button title="Bring forward" onClick={onLayerUp} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowUp className="size-3.5" /></button>
+          <button title="Send backward" onClick={onLayerDown} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowDown className="size-3.5" /></button>
+          <button title="Duplicate (⌘D)" onClick={onDuplicate} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><Copy className="size-3.5" /></button>
+          <button title={selected.locked ? "Unlock" : "Lock"} onClick={onToggleLock} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400">{selected.locked ? <Lock className="size-3.5 text-brand" /> : <Unlock className="size-3.5" />}</button>
+          <button title="Delete (⌫)" onClick={onDelete} className="size-7 grid place-items-center rounded-md hover:bg-brand/10 text-brand"><Trash2 className="size-3.5" /></button>
+        </div>
+      </div>
       {selected.type === "text" && (
         <>
           <Row label="Content">
