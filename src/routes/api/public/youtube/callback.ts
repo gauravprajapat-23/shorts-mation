@@ -18,7 +18,7 @@ async function verifyStateSig(payload: string, sig: string, secret: string): Pro
   } catch {
     return false;
   }
-  return crypto.subtle.verify("HMAC", key, bytes, new TextEncoder().encode(payload));
+  return crypto.subtle.verify("HMAC", key, bytes.buffer as ArrayBuffer, new TextEncoder().encode(payload));
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
