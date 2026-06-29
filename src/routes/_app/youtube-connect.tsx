@@ -1,17 +1,35 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useServerFn } from "@tanstack/react-start";
+import { getYouTubeAuthUrl } from "@/lib/youtube-oauth.functions";
 import { PageHeader } from "@/components/page-header";
 import { Youtube, ShieldCheck, AlertTriangle, Unlink } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/youtube-connect")({
   head: () => ({ meta: [{ title: "YouTube — ShortsForge" }] }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    yt_connected: s.yt_connected ? String(s.yt_connected) : undefined,
+    yt_error: s.yt_error ? String(s.yt_error) : undefined,
+  }),
   component: YoutubeConnectPage,
 });
 
 function YoutubeConnectPage() {
   const qc = useQueryClient();
+  const search = useSearch({ from: "/_app/youtube-connect" });
+  const getAuthUrl = useServerFn(getYouTubeAuthUrl);
+
+  useEffect(() => {
+    if (search.yt_connected) {
+      toast.success("YouTube channel connected");
+      qc.invalidateQueries({ queryKey: ["yt"] });
+    }
+    if (search.yt_error) toast.error(`YouTube connect failed: ${search.yt_error}`);
+  }, [search.yt_connected, search.yt_error, qc]);
+
   const { data: conn } = useQuery({
     queryKey: ["yt"],
     queryFn: async () => (await supabase.from("youtube_connections").select("*").eq("is_connected", true).maybeSingle()).data,
@@ -19,8 +37,7 @@ function YoutubeConnectPage() {
 
   const connect = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("connect-youtube", { body: {} });
-      if (error) throw error;
+      const data = await getAuthUrl({ data: { origin: window.location.origin } });
       if (data?.authUrl) window.location.href = data.authUrl;
     },
     onError: (e) => toast.error(e.message),

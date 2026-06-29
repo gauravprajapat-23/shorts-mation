@@ -1,8 +1,10 @@
 import { createFileRoute, useParams, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2 } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { startRenderJob, pollRenderJob } from "@/lib/render-jobs.functions";
+import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2 } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement } from "@/lib/types";
 import { toast } from "sonner";
@@ -18,7 +20,9 @@ function TestRenderPage() {
   const { campaignId } = useParams({ from: "/_app/campaigns/$campaignId/test-render" });
   const [sceneIndex, setSceneIndex] = useState(0);
   const [rowIndex, setRowIndex] = useState(0);
-  const [simulating, setSimulating] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const startFn = useServerFn(startRenderJob);
+  const pollFn = useServerFn(pollRenderJob);
 
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
@@ -40,6 +44,16 @@ function TestRenderPage() {
   const settings = (campaign.data?.settings_json ?? {}) as Settings;
   const mapping = settings.field_mapping ?? {};
   const item = items.data?.[rowIndex];
+
+  const job = useQuery({
+    queryKey: ["render-job", jobId],
+    enabled: !!jobId,
+    refetchInterval: (q) => {
+      const d = q.state.data as { status?: string } | undefined;
+      return d?.status === "completed" || d?.status === "failed" ? false : 700;
+    },
+    queryFn: async () => pollFn({ data: { jobId: jobId! } }),
+  });
 
   const previewVars = useMemo<Record<string, string>>(() => {
     if (!item) return {};
@@ -74,13 +88,28 @@ function TestRenderPage() {
   const mappedKeys = Object.keys(mapping);
   const seo = (item?.seo_json ?? {}) as { title?: string; description?: string };
 
-  const runSimulation = async () => {
-    setSimulating(true);
-    toast.info("Simulating render…", { description: `Stitching ${doc.scenes.length} scene(s) for "${item?.video_file_name ?? "first row"}"` });
-    await new Promise((r) => setTimeout(r, 1400));
-    setSimulating(false);
-    toast.success("Test render complete", { description: "Live render backend is stubbed in v1 — visual preview only." });
+  const runRender = async () => {
+    if (!item) return;
+    try {
+      const res = await startFn({ data: { campaignId, campaignItemId: item.id } });
+      setJobId(res.jobId);
+      toast.info("Render queued", { description: `Job ${res.jobId.slice(0, 8)}…` });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start render");
+    }
   };
+
+  const notifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const j = job.data as { id: string; status: string } | undefined;
+    if (j?.status === "completed" && notifiedRef.current !== j.id) {
+      notifiedRef.current = j.id;
+      toast.success("Render complete");
+    }
+  }, [job.data]);
+
+  const j = job.data as { status: string; progress: number; preview_url: string | null } | undefined;
+  const rendering = j ? j.status !== "completed" && j.status !== "failed" : false;
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -91,12 +120,12 @@ function TestRenderPage() {
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">Test render · row {rowIndex + 1}/{items.data?.length ?? 0}</span>
           <button
-            onClick={runSimulation}
-            disabled={simulating || !item}
+            onClick={runRender}
+            disabled={rendering || !item}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 disabled:opacity-50"
           >
-            {simulating ? <RefreshCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-            {simulating ? "Rendering…" : "Render this video"}
+            {rendering ? <RefreshCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+            {rendering ? `Rendering ${j?.progress ?? 0}%` : "Render this video"}
           </button>
         </div>
       </header>
@@ -171,8 +200,32 @@ function TestRenderPage() {
             </div>
           </div>
 
+          {/* Render output */}
+          {j && (
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
+                {j.status === "completed" ? <CheckCircle2 className="size-3 text-emerald-400" /> : <RefreshCw className="size-3 animate-spin text-brand" />}
+                Render output · {j.status}
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                  <div className="h-full bg-brand transition-all" style={{ width: `${j.progress}%` }} />
+                </div>
+                <div className="text-[10px] font-mono text-zinc-500">{j.progress}% · {j.status === "completed" ? "Ready" : "Compositing frames…"}</div>
+                {j.preview_url && (
+                  <>
+                    <img src={j.preview_url} alt="Render preview" className="w-full rounded border border-border" />
+                    <a href={j.preview_url} download={`render-${jobId}.svg`} className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
+                      <Download className="size-3" /> Download preview
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-100 text-xs">
-            <strong className="font-bold">Heads up:</strong> v1 ships the visual preview only. Actual MP4 rendering hooks in when you wire a render worker.
+            <strong className="font-bold">Heads up:</strong> v1 renders a still-frame preview from your template + row data. MP4 stitching activates when you connect a render worker.
           </div>
         </aside>
       </div>
