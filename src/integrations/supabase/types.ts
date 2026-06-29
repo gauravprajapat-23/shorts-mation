@@ -271,6 +271,82 @@ export type Database = {
         }
         Relationships: []
       }
+      render_jobs: {
+        Row: {
+          campaign_id: string | null
+          campaign_item_id: string | null
+          created_at: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          input_vars: Json
+          preview_url: string | null
+          progress: number
+          started_at: string
+          status: string
+          template_id: string | null
+          thumbnail_url: string | null
+          total_ms: number
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          campaign_item_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          input_vars?: Json
+          preview_url?: string | null
+          progress?: number
+          started_at?: string
+          status?: string
+          template_id?: string | null
+          thumbnail_url?: string | null
+          total_ms?: number
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          campaign_item_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          input_vars?: Json
+          preview_url?: string | null
+          progress?: number
+          started_at?: string
+          status?: string
+          template_id?: string | null
+          thumbnail_url?: string | null
+          total_ms?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "render_jobs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "render_jobs_campaign_item_id_fkey"
+            columns: ["campaign_item_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "render_jobs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       templates: {
         Row: {
           aspect_ratio: string
