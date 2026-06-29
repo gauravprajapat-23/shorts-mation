@@ -49,9 +49,9 @@ export const Route = createFileRoute("/api/public/youtube/callback")({
           channel_id: ch.id,
           channel_name: ch.snippet.title,
           channel_avatar: ch.snippet.thumbnails?.default?.url ?? null,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token ?? null,
-          token_expires_at: expiresAt,
+          access_token_encrypted: tokens.access_token,
+          refresh_token_encrypted: tokens.refresh_token ?? null,
+          token_expiry: expiresAt,
           is_connected: true,
         }, { onConflict: "user_id,channel_id" });
         if (upErr) return Response.redirect(`${back}?yt_error=${encodeURIComponent(upErr.message)}`, 302);
