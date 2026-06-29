@@ -200,8 +200,32 @@ function TestRenderPage() {
             </div>
           </div>
 
+          {/* Render output */}
+          {j && (
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
+                {j.status === "completed" ? <CheckCircle2 className="size-3 text-emerald-400" /> : <RefreshCw className="size-3 animate-spin text-brand" />}
+                Render output · {j.status}
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                  <div className="h-full bg-brand transition-all" style={{ width: `${j.progress}%` }} />
+                </div>
+                <div className="text-[10px] font-mono text-zinc-500">{j.progress}% · {j.status === "completed" ? "Ready" : "Compositing frames…"}</div>
+                {j.preview_url && (
+                  <>
+                    <img src={j.preview_url} alt="Render preview" className="w-full rounded border border-border" />
+                    <a href={j.preview_url} download={`render-${jobId}.svg`} className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
+                      <Download className="size-3" /> Download preview
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-100 text-xs">
-            <strong className="font-bold">Heads up:</strong> v1 ships the visual preview only. Actual MP4 rendering hooks in when you wire a render worker.
+            <strong className="font-bold">Heads up:</strong> v1 renders a still-frame preview from your template + row data. MP4 stitching activates when you connect a render worker.
           </div>
         </aside>
       </div>
