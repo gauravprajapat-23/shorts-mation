@@ -83,10 +83,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "Design once, upload one CSV, and ShortsForge auto-renders and schedules hundreds of YouTube Shorts to your channel." },
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "ShortsForge — YouTube Bulk Video Automation" },
-      { property: "og:description", content: "Design once, upload one CSV, and ShortsForge auto-renders and schedules hundreds of YouTube Shorts." },
+      { property: "og:description", content: "Design once, upload one CSV, and ShortsForge auto-renders and schedules hundreds of YouTube Shorts to your channel." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "ShortsForge — YouTube Bulk Video Automation" },
+      { name: "twitter:description", content: "Design once, upload one CSV, and ShortsForge auto-renders and schedules hundreds of YouTube Shorts to your channel." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/9133761c-5a39-4d15-ae9d-8ae39c6af176" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/9133761c-5a39-4d15-ae9d-8ae39c6af176" },
     ],
     links: [
       {
