@@ -22,6 +22,7 @@ import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new
 import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
 import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
 import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
+import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/public/youtube/callback'
 import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
 import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
 
@@ -89,6 +90,12 @@ const AppCampaignsCampaignIdRoute = AppCampaignsCampaignIdRouteImport.update({
   path: '/campaigns/$campaignId',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiPublicYoutubeCallbackRoute =
+  ApiPublicYoutubeCallbackRouteImport.update({
+    id: '/api/public/youtube/callback',
+    path: '/api/public/youtube/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AppCampaignsCampaignIdTestRenderRoute =
   AppCampaignsCampaignIdTestRenderRouteImport.update({
     id: '/test-render',
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/templates/': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -133,6 +141,7 @@ export interface FileRoutesByTo {
   '/templates': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -151,6 +160,7 @@ export interface FileRoutesById {
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/templates/'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/youtube/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/templates'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/youtube/callback'
   id:
     | '__root__'
     | '/'
@@ -202,12 +214,14 @@ export interface FileRouteTypes {
     | '/_app/templates/'
     | '/_app/campaigns/$campaignId/queue'
     | '/_app/campaigns/$campaignId/test-render'
+    | '/api/public/youtube/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicYoutubeCallbackRoute: typeof ApiPublicYoutubeCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -303,6 +317,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsCampaignIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/public/youtube/callback': {
+      id: '/api/public/youtube/callback'
+      path: '/api/public/youtube/callback'
+      fullPath: '/api/public/youtube/callback'
+      preLoaderRoute: typeof ApiPublicYoutubeCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/campaigns/$campaignId/test-render': {
       id: '/_app/campaigns/$campaignId/test-render'
       path: '/test-render'
@@ -369,6 +390,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicYoutubeCallbackRoute: ApiPublicYoutubeCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
