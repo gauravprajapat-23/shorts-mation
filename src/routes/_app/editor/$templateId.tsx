@@ -24,11 +24,10 @@ async function uploadToAssets(file: File): Promise<string> {
   const path = `${u.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await supabase.storage.from("assets").upload(path, file, { upsert: false, contentType: file.type });
   if (error) throw error;
-  const { data } = supabase.storage.from("assets").createSignedUrl ? await supabase.storage.from("assets").createSignedUrl(path, 60 * 60 * 24 * 365) : { data: null };
-  if (!data?.signedUrl) throw new Error("Failed to sign URL");
-  // also persist as asset row (best-effort)
-  const kind = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image";
-  await supabase.from("assets").insert({ user_id: u.user.id, name: file.name, type: kind, storage_path: path, mime_type: file.type, size_bytes: file.size });
+  const { data, error: signErr } = await supabase.storage.from("assets").createSignedUrl(path, 60 * 60 * 24 * 365);
+  if (signErr || !data?.signedUrl) throw signErr ?? new Error("Failed to sign URL");
+  const kind: "image" | "video" | "audio" = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image";
+  await supabase.from("assets").insert({ user_id: u.user.id, file_name: file.name, file_url: data.signedUrl, type: kind, storage_path: path, mime_type: file.type, size: file.size });
   return data.signedUrl;
 }
 
