@@ -641,11 +641,17 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
           <Row label="Content">
             <textarea value={(selected as TextElement).text} onChange={(e) => update({ text: e.target.value } as Partial<TextElement>)} rows={3} className="w-full px-2 py-1.5 rounded-md bg-zinc-950 border border-border text-sm font-mono" />
           </Row>
+          <Row label="Font">
+            <select value={(selected as TextElement).fontFamily} onChange={(e) => update({ fontFamily: e.target.value } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm">
+              {FONT_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Row>
           <div className="grid grid-cols-2 gap-2">
             <Row label="Size"><input type="number" value={(selected as TextElement).fontSize} onChange={(e) => update({ fontSize: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
             <Row label="Weight"><input type="number" step={100} min={100} max={900} value={(selected as TextElement).fontWeight} onChange={(e) => update({ fontWeight: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
           </div>
           <Row label="Color"><input type="color" value={(selected as TextElement).color} onChange={(e) => update({ color: e.target.value } as Partial<TextElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+          <Row label="Background"><input type="text" placeholder="transparent or #000" value={(selected as TextElement).background ?? ""} onChange={(e) => update({ background: e.target.value || undefined } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
           <Row label="Align">
             <div className="grid grid-cols-3 gap-1">
               {(["left","center","right"] as const).map((a) => (
@@ -664,7 +670,33 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
         </>
       )}
       {selected.type === "image" && (
-        <Row label="Source / variable"><input value={(selected as ImageElement).src} onChange={(e) => update({ src: e.target.value } as Partial<ImageElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+        <>
+          <Row label="Source / variable"><input value={(selected as ImageElement).src} onChange={(e) => update({ src: e.target.value } as Partial<ImageElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+          <Row label="Fit">
+            <div className="grid grid-cols-2 gap-1">
+              {(["cover","contain"] as const).map((f) => (
+                <button key={f} onClick={() => update({ fit: f } as Partial<ImageElement>)} className={`h-8 rounded-md text-xs border ${(selected as ImageElement).fit===f?"border-brand text-brand":"border-border text-zinc-400"}`}>{f}</button>
+              ))}
+            </div>
+          </Row>
+        </>
+      )}
+      {selected.type === "video" && (
+        <>
+          <Row label="Source / variable"><input value={(selected as VideoElement).src} onChange={(e) => update({ src: e.target.value } as Partial<VideoElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+          <Row label="Fit">
+            <div className="grid grid-cols-2 gap-1">
+              {(["cover","contain"] as const).map((f) => (
+                <button key={f} onClick={() => update({ fit: f } as Partial<VideoElement>)} className={`h-8 rounded-md text-xs border ${(selected as VideoElement).fit===f?"border-brand text-brand":"border-border text-zinc-400"}`}>{f}</button>
+              ))}
+            </div>
+          </Row>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).muted ?? true} onChange={(e) => update({ muted: e.target.checked } as Partial<VideoElement>)} /> Muted</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).loop ?? true} onChange={(e) => update({ loop: e.target.checked } as Partial<VideoElement>)} /> Loop</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).autoplay ?? true} onChange={(e) => update({ autoplay: e.target.checked } as Partial<VideoElement>)} /> Auto</label>
+          </div>
+        </>
       )}
       <div className="grid grid-cols-2 gap-2">
         <Row label="X"><input type="number" value={Math.round(selected.x)} onChange={(e) => update({ x: Number(e.target.value) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
