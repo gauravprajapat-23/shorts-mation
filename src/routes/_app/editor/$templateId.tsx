@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
@@ -14,6 +14,22 @@ export const Route = createFileRoute("/_app/editor/$templateId")({
 });
 
 type Panel = "elements" | "text" | "shapes" | "variables" | "layers";
+
+const FONT_FAMILIES = ["Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Courier New", "Impact", "Arial", "Helvetica"];
+
+async function uploadToAssets(file: File): Promise<string> {
+  const { data: u } = await supabase.auth.getUser();
+  if (!u.user) throw new Error("Not signed in");
+  const ext = file.name.split(".").pop() || "bin";
+  const path = `${u.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from("assets").upload(path, file, { upsert: false, contentType: file.type });
+  if (error) throw error;
+  const { data, error: signErr } = await supabase.storage.from("assets").createSignedUrl(path, 60 * 60 * 24 * 365);
+  if (signErr || !data?.signedUrl) throw signErr ?? new Error("Failed to sign URL");
+  const kind: "image" | "video" | "audio" = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image";
+  await supabase.from("assets").insert({ user_id: u.user.id, file_name: file.name, file_url: data.signedUrl, type: kind, storage_path: path, mime_type: file.type, size: file.size });
+  return data.signedUrl;
+}
 
 function EditorPage() {
   const { templateId } = useParams({ from: "/_app/editor/$templateId" });
@@ -218,6 +234,28 @@ function EditorPage() {
               id: uid("img"), type: "image", src: "{{background}}", x: 0, y: 0, w: dims.w, h: dims.h,
               rotation: 0, opacity: 1, fit: "cover",
             } as ImageElement)}
+            onAddImageFromUrl={(url) => addElement({
+              id: uid("img"), type: "image", src: url, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600,
+              rotation: 0, opacity: 1, fit: "cover",
+            } as ImageElement)}
+            onAddVideoFromUrl={(url) => addElement({
+              id: uid("vid"), type: "video", src: url, x: 0, y: 0, w: dims.w, h: dims.h,
+              rotation: 0, opacity: 1, fit: "cover", muted: true, loop: true, autoplay: true,
+            } as VideoElement)}
+            onUploadFile={async (file) => {
+              try {
+                const url = await uploadToAssets(file);
+                const isVideo = file.type.startsWith("video");
+                if (isVideo) {
+                  addElement({ id: uid("vid"), type: "video", src: url, x: 0, y: 0, w: dims.w, h: dims.h, rotation: 0, opacity: 1, fit: "cover", muted: true, loop: true, autoplay: true } as VideoElement);
+                } else {
+                  addElement({ id: uid("img"), type: "image", src: url, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600, rotation: 0, opacity: 1, fit: "cover" } as ImageElement);
+                }
+                toast.success("Uploaded");
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Upload failed");
+              }
+            }}
             scene={scene}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
@@ -445,17 +483,36 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
       </div>
     );
   }
+  if (el.type === "image") {
+    return (
+      <div onPointerDown={onPointerDown} style={baseStyle}>
+        <img draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none" }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />
+        {handles}
+      </div>
+    );
+  }
+  // video
   return (
     <div onPointerDown={onPointerDown} style={baseStyle}>
-      <img draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none" }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />
+      {el.src && !el.src.startsWith("{{") ? (
+        <video draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none", background: "#000" }} src={el.src} muted={el.muted ?? true} loop={el.loop ?? true} autoPlay={el.autoplay ?? true} playsInline />
+      ) : (
+        <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", background: "#111", color: "#666", fontSize: 14 }}>Video · {el.src || "no source"}</div>
+      )}
       {handles}
     </div>
   );
 }
 
-function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
+function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
   panel: Panel; doc: EditorDocument;
-  onAddText: () => void; onAddShape: (s: "rect" | "ellipse") => void; onAddImagePlaceholder: () => void; onAddVariable: (name: string) => void;
+  onAddText: () => void;
+  onAddShape: (s: "rect" | "ellipse") => void;
+  onAddImagePlaceholder: () => void;
+  onAddImageFromUrl: (url: string) => void;
+  onAddVideoFromUrl: (url: string) => void;
+  onUploadFile: (file: File) => void;
+  onAddVariable: (name: string) => void;
   scene: EditorScene; selectedId: string | null; setSelectedId: (id: string) => void; deleteElement: (id: string) => void;
 }) {
   if (panel === "layers") {
@@ -467,7 +524,7 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
           {[...scene.elements].reverse().map((el) => (
             <li key={el.id} className={`flex items-center justify-between p-2 rounded-md text-sm ${selectedId===el.id?"bg-brand/10 text-brand":"hover:bg-white/5"}`}>
               <button onClick={() => setSelectedId(el.id)} className="flex items-center gap-2 flex-1 text-left truncate">
-                {el.type === "text" ? <Type className="size-3.5" /> : el.type === "shape" ? <Square className="size-3.5" /> : <ImageIcon className="size-3.5" />}
+                {el.type === "text" ? <Type className="size-3.5" /> : el.type === "shape" ? <Square className="size-3.5" /> : el.type === "video" ? <Film className="size-3.5" /> : <ImageIcon className="size-3.5" />}
                 <span className="truncate">{el.type === "text" ? el.text : el.type}</span>
               </button>
               <button onClick={() => deleteElement(el.id)} className="p-1 text-zinc-500 hover:text-brand"><Trash2 className="size-3" /></button>
@@ -521,7 +578,23 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
       <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-1">Quick add</div>
       <button onClick={onAddText} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Type className="size-4 text-brand" /><span className="text-sm font-semibold">Text</span></button>
       <button onClick={() => onAddShape("rect")} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Square className="size-4 text-brand" /><span className="text-sm font-semibold">Rectangle</span></button>
-      <button onClick={onAddImagePlaceholder} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Background image</span></button>
+      <button onClick={() => onAddShape("ellipse")} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Circle className="size-4 text-brand" /><span className="text-sm font-semibold">Ellipse</span></button>
+      <button onClick={onAddImagePlaceholder} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Background image (variable)</span></button>
+      <div className="pt-2 border-t border-border" />
+      <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-1">Media</div>
+      <label className="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed border-border hover:border-brand/50 cursor-pointer">
+        <Upload className="size-4 text-brand" />
+        <span className="text-sm font-semibold">Upload image / video</span>
+        <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadFile(f); e.currentTarget.value = ""; }} />
+      </label>
+      <button
+        onClick={() => { const u = prompt("Image URL"); if (u) onAddImageFromUrl(u); }}
+        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"
+      ><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Image from URL</span></button>
+      <button
+        onClick={() => { const u = prompt("Video URL (mp4/webm)"); if (u) onAddVideoFromUrl(u); }}
+        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"
+      ><Film className="size-4 text-brand" /><span className="text-sm font-semibold">Video from URL</span></button>
     </div>
   );
 }
@@ -568,11 +641,17 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
           <Row label="Content">
             <textarea value={(selected as TextElement).text} onChange={(e) => update({ text: e.target.value } as Partial<TextElement>)} rows={3} className="w-full px-2 py-1.5 rounded-md bg-zinc-950 border border-border text-sm font-mono" />
           </Row>
+          <Row label="Font">
+            <select value={(selected as TextElement).fontFamily} onChange={(e) => update({ fontFamily: e.target.value } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm">
+              {FONT_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Row>
           <div className="grid grid-cols-2 gap-2">
             <Row label="Size"><input type="number" value={(selected as TextElement).fontSize} onChange={(e) => update({ fontSize: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
             <Row label="Weight"><input type="number" step={100} min={100} max={900} value={(selected as TextElement).fontWeight} onChange={(e) => update({ fontWeight: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
           </div>
           <Row label="Color"><input type="color" value={(selected as TextElement).color} onChange={(e) => update({ color: e.target.value } as Partial<TextElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+          <Row label="Background"><input type="text" placeholder="transparent or #000" value={(selected as TextElement).background ?? ""} onChange={(e) => update({ background: e.target.value || undefined } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
           <Row label="Align">
             <div className="grid grid-cols-3 gap-1">
               {(["left","center","right"] as const).map((a) => (
@@ -591,7 +670,33 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
         </>
       )}
       {selected.type === "image" && (
-        <Row label="Source / variable"><input value={(selected as ImageElement).src} onChange={(e) => update({ src: e.target.value } as Partial<ImageElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+        <>
+          <Row label="Source / variable"><input value={(selected as ImageElement).src} onChange={(e) => update({ src: e.target.value } as Partial<ImageElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+          <Row label="Fit">
+            <div className="grid grid-cols-2 gap-1">
+              {(["cover","contain"] as const).map((f) => (
+                <button key={f} onClick={() => update({ fit: f } as Partial<ImageElement>)} className={`h-8 rounded-md text-xs border ${(selected as ImageElement).fit===f?"border-brand text-brand":"border-border text-zinc-400"}`}>{f}</button>
+              ))}
+            </div>
+          </Row>
+        </>
+      )}
+      {selected.type === "video" && (
+        <>
+          <Row label="Source / variable"><input value={(selected as VideoElement).src} onChange={(e) => update({ src: e.target.value } as Partial<VideoElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm font-mono" /></Row>
+          <Row label="Fit">
+            <div className="grid grid-cols-2 gap-1">
+              {(["cover","contain"] as const).map((f) => (
+                <button key={f} onClick={() => update({ fit: f } as Partial<VideoElement>)} className={`h-8 rounded-md text-xs border ${(selected as VideoElement).fit===f?"border-brand text-brand":"border-border text-zinc-400"}`}>{f}</button>
+              ))}
+            </div>
+          </Row>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).muted ?? true} onChange={(e) => update({ muted: e.target.checked } as Partial<VideoElement>)} /> Muted</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).loop ?? true} onChange={(e) => update({ loop: e.target.checked } as Partial<VideoElement>)} /> Loop</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={(selected as VideoElement).autoplay ?? true} onChange={(e) => update({ autoplay: e.target.checked } as Partial<VideoElement>)} /> Auto</label>
+          </div>
+        </>
       )}
       <div className="grid grid-cols-2 gap-2">
         <Row label="X"><input type="number" value={Math.round(selected.x)} onChange={(e) => update({ x: Number(e.target.value) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>

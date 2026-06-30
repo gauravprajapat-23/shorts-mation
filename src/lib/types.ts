@@ -47,7 +47,16 @@ export type ImageElement = EditorElementBase & {
   fit: "cover" | "contain";
 };
 
-export type EditorElement = TextElement | ShapeElement | ImageElement;
+export type VideoElement = EditorElementBase & {
+  type: "video";
+  src: string;
+  fit: "cover" | "contain";
+  muted?: boolean;
+  loop?: boolean;
+  autoplay?: boolean;
+};
+
+export type EditorElement = TextElement | ShapeElement | ImageElement | VideoElement;
 
 export type EditorScene = {
   id: string;

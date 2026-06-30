@@ -6,7 +6,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { startRenderJob, pollRenderJob } from "@/lib/render-jobs.functions";
 import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2 } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement } from "@/lib/types";
+import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId/test-render")({
@@ -272,7 +272,14 @@ function PreviewElement({ el, previewVars }: { el: EditorElement; previewVars: R
     const s = el as ShapeElement;
     return <div style={{ ...baseStyle, background: s.fill, borderRadius: s.shape === "ellipse" ? "50%" : s.radius ?? 0 }} />;
   }
-  const im = el as ImageElement;
-  const src = im.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : im.src;
-  return <img style={{ ...baseStyle, objectFit: im.fit }} src={src} alt="" />;
+  if (el.type === "image") {
+    const im = el as ImageElement;
+    const src = im.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : im.src;
+    return <img style={{ ...baseStyle, objectFit: im.fit }} src={src} alt="" />;
+  }
+  const v = el as VideoElement;
+  if (!v.src || v.src.startsWith("{{")) {
+    return <div style={{ ...baseStyle, background: "#111", display: "grid", placeItems: "center", color: "#666" }}>Video</div>;
+  }
+  return <video style={{ ...baseStyle, objectFit: v.fit, background: "#000" }} src={v.src} muted={v.muted ?? true} loop={v.loop ?? true} autoPlay={v.autoplay ?? true} playsInline />;
 }

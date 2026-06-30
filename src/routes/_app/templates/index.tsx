@@ -101,22 +101,27 @@ function TemplatesPage() {
 function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean }; onDuplicate: () => void; onDelete?: () => void }) {
   const aspectClass = t.aspect_ratio === "9:16" ? "aspect-[9/16]" : t.aspect_ratio === "16:9" ? "aspect-video" : "aspect-square";
   return (
-    <div className="group rounded-xl border border-border bg-panel overflow-hidden">
-      <div className={`${aspectClass} bg-gradient-to-br from-zinc-900 to-black grid place-items-center relative`}>
+    <div className="group rounded-xl border border-border bg-panel overflow-hidden hover:border-brand/50 transition-colors">
+      <Link to="/editor/$templateId" params={{ templateId: t.id }} className={`${aspectClass} bg-gradient-to-br from-zinc-900 to-black grid place-items-center relative block`}>
         <span className="font-display text-xs text-zinc-600">{t.aspect_ratio}</span>
-        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/60 flex items-center justify-center gap-2 transition-opacity">
-          <Link to="/editor/$templateId" params={{ templateId: t.id }} className="px-3 py-1.5 rounded-md bg-brand text-white text-xs font-bold inline-flex items-center gap-1.5">
+        <div className="absolute inset-0 md:opacity-0 group-hover:opacity-100 bg-black/60 flex items-center justify-center gap-2 transition-opacity">
+          <span className="px-3 py-1.5 rounded-md bg-brand text-white text-xs font-bold inline-flex items-center gap-1.5">
             <Pencil className="size-3" /> Edit
-          </Link>
-          <button onClick={onDuplicate} className="p-1.5 rounded-md bg-white/10 hover:bg-white/20" title="Duplicate"><Copy className="size-3.5" /></button>
+          </span>
+        </div>
+      </Link>
+      <div className="p-3 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate">{t.name}</div>
+          <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-0.5">{t.type.replace(/_/g, " ")}</div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Link to="/editor/$templateId" params={{ templateId: t.id }} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Edit"><Pencil className="size-3.5" /></Link>
+          <button onClick={onDuplicate} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Duplicate"><Copy className="size-3.5" /></button>
           {onDelete && (
-            <button onClick={onDelete} className="p-1.5 rounded-md bg-white/10 hover:bg-brand/30" title="Delete"><Trash2 className="size-3.5" /></button>
+            <button onClick={onDelete} className="p-1.5 rounded-md hover:bg-brand/20 text-zinc-400 hover:text-brand" title="Delete"><Trash2 className="size-3.5" /></button>
           )}
         </div>
-      </div>
-      <div className="p-3">
-        <div className="text-sm font-semibold truncate">{t.name}</div>
-        <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-0.5">{t.type.replace(/_/g, " ")}</div>
       </div>
     </div>
   );
