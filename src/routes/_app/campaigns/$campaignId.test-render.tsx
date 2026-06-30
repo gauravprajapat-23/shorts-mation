@@ -31,7 +31,7 @@ function TestRenderPage() {
 
   const items = useQuery({
     queryKey: ["campaign-items-preview", campaignId],
-    queryFn: async () => (await supabase.from("campaign_items").select("*").eq("campaign_id", campaignId).order("created_at", { ascending: true }).limit(10)).data ?? [],
+    queryFn: async () => (await supabase.from("campaign_items").select("*").eq("campaign_id", campaignId).order("created_at", { ascending: true }).limit(500)).data ?? [],
   });
 
   const template = useQuery({
@@ -44,6 +44,12 @@ function TestRenderPage() {
   const settings = (campaign.data?.settings_json ?? {}) as Settings;
   const mapping = settings.field_mapping ?? {};
   const item = items.data?.[rowIndex];
+  const totalRows = items.data?.length ?? 0;
+
+  // Reset render job when switching row
+  useEffect(() => {
+    setJobId(null);
+  }, [rowIndex]);
 
   const job = useQuery({
     queryKey: ["render-job", jobId],
@@ -118,7 +124,40 @@ function TestRenderPage() {
           <ArrowLeft className="size-4" /> Back to campaign
         </Link>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Test render · row {rowIndex + 1}/{items.data?.length ?? 0}</span>
+          <div className="flex items-center gap-1 mr-2">
+            <button
+              onClick={() => setRowIndex((i) => Math.max(0, i - 1))}
+              disabled={rowIndex === 0}
+              className="size-7 grid place-items-center rounded-md border border-border hover:bg-white/5 disabled:opacity-30"
+              aria-label="Previous row"
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+            <select
+              value={rowIndex}
+              onChange={(e) => setRowIndex(Number(e.target.value))}
+              disabled={totalRows === 0}
+              className="h-7 px-2 rounded-md bg-zinc-950 border border-border text-xs font-mono min-w-[180px]"
+            >
+              {totalRows === 0 ? (
+                <option>No rows</option>
+              ) : (
+                items.data!.map((it, i) => (
+                  <option key={it.id} value={i}>
+                    Row {i + 1}/{totalRows} · {it.video_file_name ?? `item-${i + 1}`}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={() => setRowIndex((i) => Math.min(totalRows - 1, i + 1))}
+              disabled={rowIndex >= totalRows - 1}
+              className="size-7 grid place-items-center rounded-md border border-border hover:bg-white/5 disabled:opacity-30"
+              aria-label="Next row"
+            >
+              <ChevronRight className="size-3.5" />
+            </button>
+          </div>
           <button
             onClick={runRender}
             disabled={rendering || !item}
@@ -154,14 +193,40 @@ function TestRenderPage() {
           </div>
 
           {/* Row picker */}
-          {items.data && items.data.length > 1 && (
+          {totalRows > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Pick a row to test</div>
-              <select value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))} className="w-full h-9 px-2 rounded-md bg-zinc-950 border border-border text-sm">
-                {items.data.map((it, i) => (
-                  <option key={it.id} value={i}>Row {i + 1}: {it.video_file_name}</option>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center justify-between">
+                <span>Pick a row to test</span>
+                <span className="text-zinc-600 font-mono normal-case tracking-normal">{rowIndex + 1} / {totalRows}</span>
+              </div>
+              <select
+                value={rowIndex}
+                onChange={(e) => setRowIndex(Number(e.target.value))}
+                className="w-full h-9 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+              >
+                {items.data!.map((it, i) => (
+                  <option key={it.id} value={i}>
+                    Row {i + 1}: {it.video_file_name ?? `item-${i + 1}`}
+                  </option>
                 ))}
               </select>
+              <div className="mt-2 max-h-48 overflow-y-auto rounded-md border border-border divide-y divide-border">
+                {items.data!.map((it, i) => {
+                  const content = (it.content_json ?? {}) as Record<string, unknown>;
+                  const firstVal = mappedKeys.length > 0 ? String(content[mappedKeys[0]] ?? "") : (it.video_file_name ?? "");
+                  return (
+                    <button
+                      key={it.id}
+                      onClick={() => setRowIndex(i)}
+                      className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 hover:bg-white/5 ${i === rowIndex ? "bg-brand/10 text-white" : "text-zinc-400"}`}
+                    >
+                      <span className={`font-mono text-[10px] w-8 shrink-0 ${i === rowIndex ? "text-brand" : "text-zinc-600"}`}>#{i + 1}</span>
+                      <span className="truncate flex-1">{firstVal || "(empty)"}</span>
+                      {i === rowIndex && <CheckCircle2 className="size-3 text-brand shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
