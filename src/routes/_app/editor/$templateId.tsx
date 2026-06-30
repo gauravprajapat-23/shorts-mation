@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, Triangle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
@@ -14,6 +14,23 @@ export const Route = createFileRoute("/_app/editor/$templateId")({
 });
 
 type Panel = "elements" | "text" | "shapes" | "variables" | "layers";
+
+const FONT_FAMILIES = ["Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Courier New", "Impact", "Arial", "Helvetica"];
+
+async function uploadToAssets(file: File): Promise<string> {
+  const { data: u } = await supabase.auth.getUser();
+  if (!u.user) throw new Error("Not signed in");
+  const ext = file.name.split(".").pop() || "bin";
+  const path = `${u.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from("assets").upload(path, file, { upsert: false, contentType: file.type });
+  if (error) throw error;
+  const { data } = supabase.storage.from("assets").createSignedUrl ? await supabase.storage.from("assets").createSignedUrl(path, 60 * 60 * 24 * 365) : { data: null };
+  if (!data?.signedUrl) throw new Error("Failed to sign URL");
+  // also persist as asset row (best-effort)
+  const kind = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image";
+  await supabase.from("assets").insert({ user_id: u.user.id, name: file.name, type: kind, storage_path: path, mime_type: file.type, size_bytes: file.size });
+  return data.signedUrl;
+}
 
 function EditorPage() {
   const { templateId } = useParams({ from: "/_app/editor/$templateId" });
@@ -218,6 +235,28 @@ function EditorPage() {
               id: uid("img"), type: "image", src: "{{background}}", x: 0, y: 0, w: dims.w, h: dims.h,
               rotation: 0, opacity: 1, fit: "cover",
             } as ImageElement)}
+            onAddImageFromUrl={(url) => addElement({
+              id: uid("img"), type: "image", src: url, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600,
+              rotation: 0, opacity: 1, fit: "cover",
+            } as ImageElement)}
+            onAddVideoFromUrl={(url) => addElement({
+              id: uid("vid"), type: "video", src: url, x: 0, y: 0, w: dims.w, h: dims.h,
+              rotation: 0, opacity: 1, fit: "cover", muted: true, loop: true, autoplay: true,
+            } as VideoElement)}
+            onUploadFile={async (file) => {
+              try {
+                const url = await uploadToAssets(file);
+                const isVideo = file.type.startsWith("video");
+                if (isVideo) {
+                  addElement({ id: uid("vid"), type: "video", src: url, x: 0, y: 0, w: dims.w, h: dims.h, rotation: 0, opacity: 1, fit: "cover", muted: true, loop: true, autoplay: true } as VideoElement);
+                } else {
+                  addElement({ id: uid("img"), type: "image", src: url, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600, rotation: 0, opacity: 1, fit: "cover" } as ImageElement);
+                }
+                toast.success("Uploaded");
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Upload failed");
+              }
+            }}
             scene={scene}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
