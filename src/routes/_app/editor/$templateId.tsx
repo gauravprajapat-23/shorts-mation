@@ -504,9 +504,15 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
   );
 }
 
-function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
+function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
   panel: Panel; doc: EditorDocument;
-  onAddText: () => void; onAddShape: (s: "rect" | "ellipse") => void; onAddImagePlaceholder: () => void; onAddVariable: (name: string) => void;
+  onAddText: () => void;
+  onAddShape: (s: "rect" | "ellipse") => void;
+  onAddImagePlaceholder: () => void;
+  onAddImageFromUrl: (url: string) => void;
+  onAddVideoFromUrl: (url: string) => void;
+  onUploadFile: (file: File) => void;
+  onAddVariable: (name: string) => void;
   scene: EditorScene; selectedId: string | null; setSelectedId: (id: string) => void; deleteElement: (id: string) => void;
 }) {
   if (panel === "layers") {
@@ -518,7 +524,7 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
           {[...scene.elements].reverse().map((el) => (
             <li key={el.id} className={`flex items-center justify-between p-2 rounded-md text-sm ${selectedId===el.id?"bg-brand/10 text-brand":"hover:bg-white/5"}`}>
               <button onClick={() => setSelectedId(el.id)} className="flex items-center gap-2 flex-1 text-left truncate">
-                {el.type === "text" ? <Type className="size-3.5" /> : el.type === "shape" ? <Square className="size-3.5" /> : <ImageIcon className="size-3.5" />}
+                {el.type === "text" ? <Type className="size-3.5" /> : el.type === "shape" ? <Square className="size-3.5" /> : el.type === "video" ? <Film className="size-3.5" /> : <ImageIcon className="size-3.5" />}
                 <span className="truncate">{el.type === "text" ? el.text : el.type}</span>
               </button>
               <button onClick={() => deleteElement(el.id)} className="p-1 text-zinc-500 hover:text-brand"><Trash2 className="size-3" /></button>
@@ -572,7 +578,23 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
       <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-1">Quick add</div>
       <button onClick={onAddText} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Type className="size-4 text-brand" /><span className="text-sm font-semibold">Text</span></button>
       <button onClick={() => onAddShape("rect")} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Square className="size-4 text-brand" /><span className="text-sm font-semibold">Rectangle</span></button>
-      <button onClick={onAddImagePlaceholder} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Background image</span></button>
+      <button onClick={() => onAddShape("ellipse")} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><Circle className="size-4 text-brand" /><span className="text-sm font-semibold">Ellipse</span></button>
+      <button onClick={onAddImagePlaceholder} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Background image (variable)</span></button>
+      <div className="pt-2 border-t border-border" />
+      <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-1">Media</div>
+      <label className="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed border-border hover:border-brand/50 cursor-pointer">
+        <Upload className="size-4 text-brand" />
+        <span className="text-sm font-semibold">Upload image / video</span>
+        <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadFile(f); e.currentTarget.value = ""; }} />
+      </label>
+      <button
+        onClick={() => { const u = prompt("Image URL"); if (u) onAddImageFromUrl(u); }}
+        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"
+      ><ImageIcon className="size-4 text-brand" /><span className="text-sm font-semibold">Image from URL</span></button>
+      <button
+        onClick={() => { const u = prompt("Video URL (mp4/webm)"); if (u) onAddVideoFromUrl(u); }}
+        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"
+      ><Film className="size-4 text-brand" /><span className="text-sm font-semibold">Video from URL</span></button>
     </div>
   );
 }
