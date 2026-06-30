@@ -483,9 +483,22 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
       </div>
     );
   }
+  if (el.type === "image") {
+    return (
+      <div onPointerDown={onPointerDown} style={baseStyle}>
+        <img draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none" }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />
+        {handles}
+      </div>
+    );
+  }
+  // video
   return (
     <div onPointerDown={onPointerDown} style={baseStyle}>
-      <img draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none" }} src={el.src.startsWith("{{") ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080" : el.src} alt="" />
+      {el.src && !el.src.startsWith("{{") ? (
+        <video draggable={false} style={{ width: "100%", height: "100%", objectFit: el.fit, pointerEvents: "none", background: "#000" }} src={el.src} muted={el.muted ?? true} loop={el.loop ?? true} autoPlay={el.autoplay ?? true} playsInline />
+      ) : (
+        <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", background: "#111", color: "#666", fontSize: 14 }}>Video · {el.src || "no source"}</div>
+      )}
       {handles}
     </div>
   );
