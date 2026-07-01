@@ -595,6 +595,10 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
         onClick={() => { const u = prompt("Video URL (mp4/webm)"); if (u) onAddVideoFromUrl(u); }}
         className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-brand/50"
       ><Film className="size-4 text-brand" /><span className="text-sm font-semibold">Video from URL</span></button>
+      <button
+        onClick={() => onAddVideoFromUrl("{{background}}")}
+        className="w-full flex items-center gap-3 p-3 rounded-lg border border-brand/40 bg-brand/5 hover:bg-brand/10"
+      ><Film className="size-4 text-brand" /><span className="text-sm font-semibold">Background video (variable)</span></button>
     </div>
   );
 }

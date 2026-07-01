@@ -40,7 +40,7 @@ function renderSceneSvg(doc: EditorDocument, vars: Record<string, string>): stri
 
 export const startRenderJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; campaignItemId?: string | null }) => d)
+  .inputValidator((d: { campaignId: string; campaignItemId?: string | null; renderOptions?: Record<string, unknown> }) => d)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: campaign, error: cErr } = await supabase.from("campaigns").select("*").eq("id", data.campaignId).single();
@@ -65,6 +65,7 @@ export const startRenderJob = createServerFn({ method: "POST" })
       progress: 0,
       total_ms: 6000,
       input_vars: vars,
+      render_options: (data.renderOptions ?? {}) as never,
     }).select("id").single();
     if (error) throw error;
     return { jobId: inserted.id };
