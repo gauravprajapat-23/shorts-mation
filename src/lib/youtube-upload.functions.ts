@@ -44,17 +44,20 @@ async function refreshIfNeeded(conn: {
   return { access_token: j.access_token, expires_at: expiresAt };
 }
 
-async function pickVideoUrl(supabase: {
-  from: (t: string) => {
-    select: (c: string) => { eq: (k: string, v: string) => { limit: (n: number) => { maybeSingle: () => Promise<{ data: { file_url: string } | null }> } } };
-  };
-}, userId: string, backgroundFileName: string | undefined | null, storedUrl: string | null | undefined): Promise<string> {
+async function pickVideoUrl(userId: string, backgroundFileName: string | undefined | null, storedUrl: string | null | undefined): Promise<string> {
   if (storedUrl) return storedUrl;
   if (backgroundFileName) {
-    const { data } = await supabase.from("assets").select("file_url").eq("user_id", userId).eq("file_name", backgroundFileName).limit(1).maybeSingle();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin
+      .from("assets")
+      .select("file_url")
+      .eq("user_id", userId)
+      .eq("file_name", backgroundFileName)
+      .limit(1)
+      .maybeSingle();
     if (data?.file_url) return data.file_url;
   }
-  throw new Error("No video source: set rendered_video_url or point background_file_name at an uploaded asset");
+  throw new Error("No video source: render a video first or point background_file_name at an uploaded asset");
 }
 
 async function uploadItemToYouTube(itemId: string) {
@@ -75,7 +78,7 @@ async function uploadItemToYouTube(itemId: string) {
     const asset = (item.asset_json ?? {}) as { background_file_name?: string };
     const settings = (campaign.settings_json ?? {}) as { default_privacy?: "private" | "unlisted" | "public" };
 
-    const videoUrl = await pickVideoUrl(supabaseAdmin as never, item.user_id, asset.background_file_name, item.rendered_video_url);
+    const videoUrl = await pickVideoUrl(item.user_id, asset.background_file_name, item.rendered_video_url);
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Fetch video failed: ${videoRes.status}`);
     const videoBlob = await videoRes.blob();
