@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
 import { startRenderJob, pollRenderJob } from "@/lib/render-jobs.functions";
-import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2, Film, Volume2, VolumeX, Repeat } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { toast } from "sonner";
+import { renderMp4, type RenderResolution, type RenderQuality } from "@/lib/ffmpeg-render.client";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId/test-render")({
   head: () => ({ meta: [{ title: "Test render — ShortsForge" }] }),
@@ -21,6 +22,13 @@ function TestRenderPage() {
   const [sceneIndex, setSceneIndex] = useState(0);
   const [rowIndex, setRowIndex] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [resolution, setResolution] = useState<RenderResolution>("1080p");
+  const [quality, setQuality] = useState<RenderQuality>("standard");
+  const [muted, setMuted] = useState(true);
+  const [loop, setLoop] = useState(true);
+  const [mp4Progress, setMp4Progress] = useState<number | null>(null);
+  const [mp4Url, setMp4Url] = useState<string | null>(null);
+  const [mp4Err, setMp4Err] = useState<string | null>(null);
   const startFn = useServerFn(startRenderJob);
   const pollFn = useServerFn(pollRenderJob);
 
@@ -49,6 +57,9 @@ function TestRenderPage() {
   // Reset render job when switching row
   useEffect(() => {
     setJobId(null);
+    setMp4Url(null);
+    setMp4Progress(null);
+    setMp4Err(null);
   }, [rowIndex]);
 
   const job = useQuery({
@@ -97,11 +108,57 @@ function TestRenderPage() {
   const runRender = async () => {
     if (!item) return;
     try {
-      const res = await startFn({ data: { campaignId, campaignItemId: item.id } });
+      const res = await startFn({ data: { campaignId, campaignItemId: item.id, renderOptions: { resolution, quality, muted, loop } } });
       setJobId(res.jobId);
       toast.info("Render queued", { description: `Job ${res.jobId.slice(0, 8)}…` });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to start render");
+    }
+  };
+
+  const bgVideoUrl = useMemo<string | null>(() => {
+    if (!doc) return null;
+    // Find the first video element in the first scene whose src resolves.
+    for (const s of doc.scenes) {
+      for (const el of s.elements) {
+        if (el.type === "video") {
+          const raw = (el as VideoElement).src;
+          if (raw?.startsWith("{{")) {
+            const key = raw.replace(/[{}\s]/g, "");
+            const v = previewVars[key];
+            if (v) return v;
+          } else if (raw) return raw;
+        }
+      }
+    }
+    return null;
+  }, [doc, previewVars]);
+
+  const overlaySvg = useMemo<string | null>(() => {
+    if (!doc) return null;
+    return buildOverlaySvg(doc, sceneIndex, previewVars);
+  }, [doc, sceneIndex, previewVars]);
+
+  const runMp4 = async () => {
+    if (!doc || !overlaySvg) return;
+    setMp4Err(null); setMp4Url(null); setMp4Progress(0);
+    try {
+      const durationSec = Math.max(3, Math.round((doc.scenes[sceneIndex]?.durationMs ?? 6000) / 1000));
+      const blob = await renderMp4({
+        backgroundVideoUrl: bgVideoUrl,
+        overlaySvg,
+        durationSeconds: durationSec,
+        resolution, quality, muted, loop,
+        onProgress: setMp4Progress,
+      });
+      const url = URL.createObjectURL(blob);
+      setMp4Url(url);
+      toast.success("MP4 ready");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "MP4 render failed";
+      setMp4Err(msg); toast.error(msg);
+    } finally {
+      setMp4Progress(null);
     }
   };
 
@@ -166,6 +223,15 @@ function TestRenderPage() {
             {rendering ? <RefreshCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
             {rendering ? `Rendering ${j?.progress ?? 0}%` : "Render this video"}
           </button>
+          <button
+            onClick={runMp4}
+            disabled={mp4Progress !== null || !item}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-brand/50 text-brand text-sm font-bold hover:bg-brand/10 disabled:opacity-50"
+            title="Composite background video + overlay to MP4 in your browser"
+          >
+            {mp4Progress !== null ? <RefreshCw className="size-3.5 animate-spin" /> : <Film className="size-3.5" />}
+            {mp4Progress !== null ? `MP4 ${mp4Progress}%` : "Render MP4"}
+          </button>
         </div>
       </header>
 
@@ -185,6 +251,42 @@ function TestRenderPage() {
 
         {/* Side panel */}
         <aside className="border-l border-border bg-panel p-5 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
+          {/* Render options */}
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Render options</div>
+            <div className="space-y-2.5">
+              <div>
+                <div className="text-[10px] text-zinc-500 mb-1">Resolution</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["720p","1080p","4k"] as const).map((r) => (
+                    <button key={r} onClick={() => setResolution(r)} className={`h-8 rounded-md text-xs font-bold border ${resolution===r?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>{r.toUpperCase()}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 mb-1">Quality</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["draft","standard","high"] as const).map((q) => (
+                    <button key={q} onClick={() => setQuality(q)} className={`h-8 rounded-md text-xs font-bold border uppercase ${quality===q?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>{q}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <button onClick={() => setMuted((v) => !v)} className={`h-9 rounded-md text-xs font-semibold border inline-flex items-center justify-center gap-1.5 ${muted?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>
+                  {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
+                  {muted ? "Muted" : "With audio"}
+                </button>
+                <button onClick={() => setLoop((v) => !v)} className={`h-9 rounded-md text-xs font-semibold border inline-flex items-center justify-center gap-1.5 ${loop?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>
+                  <Repeat className="size-3.5" />
+                  {loop ? "Loop bg" : "No loop"}
+                </button>
+              </div>
+              <div className="text-[10px] text-zinc-500">
+                Background video: <span className={bgVideoUrl ? "text-emerald-400" : "text-amber-400"}>{bgVideoUrl ? "detected" : "none — add one in the editor"}</span>
+              </div>
+            </div>
+          </div>
+
           <div>
             <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5"><Sparkles className="size-3 text-brand" /> What you're previewing</div>
             <p className="text-xs text-zinc-400 leading-relaxed">
@@ -289,13 +391,72 @@ function TestRenderPage() {
             </div>
           )}
 
+          {mp4Progress !== null || mp4Url || mp4Err ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
+                <Film className="size-3 text-brand" /> MP4 output
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                {mp4Progress !== null && (
+                  <>
+                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                      <div className="h-full bg-brand transition-all" style={{ width: `${mp4Progress}%` }} />
+                    </div>
+                    <div className="text-[10px] font-mono text-zinc-500">Compositing in your browser · {mp4Progress}%</div>
+                  </>
+                )}
+                {mp4Url && (
+                  <>
+                    <video src={mp4Url} controls className="w-full rounded" />
+                    <a href={mp4Url} download={`row-${rowIndex + 1}.mp4`} className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
+                      <Download className="size-3" /> Download MP4
+                    </a>
+                  </>
+                )}
+                {mp4Err && <div className="text-xs text-brand">{mp4Err}</div>}
+              </div>
+            </div>
+          ) : null}
+
           <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-100 text-xs">
-            <strong className="font-bold">Heads up:</strong> v1 renders a still-frame preview from your template + row data. MP4 stitching activates when you connect a render worker.
+            <strong className="font-bold">Heads up:</strong> "Render this video" queues a server-side still preview. "Render MP4" composites the background video + text overlay entirely in your browser using ffmpeg.wasm (first run downloads ~30MB).
           </div>
         </aside>
       </div>
     </div>
   );
+}
+
+// Build a full-canvas SVG matching the exact scene layout so ffmpeg can overlay it.
+function buildOverlaySvg(doc: EditorDocument, sceneIndex: number, vars: Record<string, string>): string {
+  const dims = CANVAS_DIMS[doc.aspect];
+  const scene = doc.scenes[sceneIndex];
+  if (!scene) return "";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  const parts: string[] = [];
+  for (const el of scene.elements as EditorElement[]) {
+    // Skip video elements — they are the background layer in ffmpeg, not the overlay.
+    if (el.type === "video") continue;
+    const tr = `translate(${el.x} ${el.y}) rotate(${el.rotation} ${el.w / 2} ${el.h / 2})`;
+    if (el.type === "shape") {
+      const s = el as ShapeElement;
+      parts.push(s.shape === "ellipse"
+        ? `<g transform="${tr}" opacity="${el.opacity}"><ellipse cx="${s.w/2}" cy="${s.h/2}" rx="${s.w/2}" ry="${s.h/2}" fill="${s.fill}"/></g>`
+        : `<g transform="${tr}" opacity="${el.opacity}"><rect width="${s.w}" height="${s.h}" fill="${s.fill}" rx="${s.radius ?? 0}"/></g>`);
+    } else if (el.type === "text") {
+      const t = el as TextElement;
+      const txt = esc(renderText(t.text, vars));
+      const anchor = t.align === "left" ? "start" : t.align === "right" ? "end" : "middle";
+      const xPos = t.align === "left" ? 0 : t.align === "right" ? t.w : t.w / 2;
+      const stroke = t.stroke ? ` stroke="${esc(t.stroke)}" stroke-width="6" paint-order="stroke fill"` : "";
+      parts.push(`<g transform="${tr}" opacity="${el.opacity}"><text x="${xPos}" y="${t.h/2}" dominant-baseline="middle" text-anchor="${anchor}" fill="${t.color}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${stroke}>${txt}</text></g>`);
+    } else if (el.type === "image") {
+      const im = el as ImageElement;
+      const src = im.src.startsWith("{{") ? "" : im.src;
+      if (src) parts.push(`<g transform="${tr}" opacity="${el.opacity}"><image href="${esc(src)}" width="${im.w}" height="${im.h}" preserveAspectRatio="${im.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}"/></g>`);
+    }
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}">${parts.join("")}</svg>`;
 }
 
 function PreviewCanvas({ doc, sceneIndex, previewVars, dims }: {

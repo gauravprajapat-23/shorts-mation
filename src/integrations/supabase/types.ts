@@ -282,6 +282,7 @@ export type Database = {
           input_vars: Json
           preview_url: string | null
           progress: number
+          render_options: Json
           started_at: string
           status: string
           template_id: string | null
@@ -299,6 +300,7 @@ export type Database = {
           input_vars?: Json
           preview_url?: string | null
           progress?: number
+          render_options?: Json
           started_at?: string
           status?: string
           template_id?: string | null
@@ -316,6 +318,7 @@ export type Database = {
           input_vars?: Json
           preview_url?: string | null
           progress?: number
+          render_options?: Json
           started_at?: string
           status?: string
           template_id?: string | null

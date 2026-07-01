@@ -23,6 +23,7 @@ import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$t
 import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
 import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
 import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/public/youtube/callback'
+import { Route as ApiPublicHooksProcessCampaignQueueRouteImport } from './routes/api/public/hooks/process-campaign-queue'
 import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
 import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
 
@@ -96,6 +97,12 @@ const ApiPublicYoutubeCallbackRoute =
     path: '/api/public/youtube/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksProcessCampaignQueueRoute =
+  ApiPublicHooksProcessCampaignQueueRouteImport.update({
+    id: '/api/public/hooks/process-campaign-queue',
+    path: '/api/public/hooks/process-campaign-queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AppCampaignsCampaignIdTestRenderRoute =
   AppCampaignsCampaignIdTestRenderRouteImport.update({
     id: '/test-render',
@@ -124,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/templates/': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -141,6 +149,7 @@ export interface FileRoutesByTo {
   '/templates': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesById {
@@ -160,6 +169,7 @@ export interface FileRoutesById {
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRouteTypes {
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/templates/'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/hooks/process-campaign-queue'
     | '/api/public/youtube/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/templates'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/hooks/process-campaign-queue'
     | '/api/public/youtube/callback'
   id:
     | '__root__'
@@ -214,6 +226,7 @@ export interface FileRouteTypes {
     | '/_app/templates/'
     | '/_app/campaigns/$campaignId/queue'
     | '/_app/campaigns/$campaignId/test-render'
+    | '/api/public/hooks/process-campaign-queue'
     | '/api/public/youtube/callback'
   fileRoutesById: FileRoutesById
 }
@@ -221,6 +234,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicHooksProcessCampaignQueueRoute: typeof ApiPublicHooksProcessCampaignQueueRoute
   ApiPublicYoutubeCallbackRoute: typeof ApiPublicYoutubeCallbackRoute
 }
 
@@ -324,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicYoutubeCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/process-campaign-queue': {
+      id: '/api/public/hooks/process-campaign-queue'
+      path: '/api/public/hooks/process-campaign-queue'
+      fullPath: '/api/public/hooks/process-campaign-queue'
+      preLoaderRoute: typeof ApiPublicHooksProcessCampaignQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/campaigns/$campaignId/test-render': {
       id: '/_app/campaigns/$campaignId/test-render'
       path: '/test-render'
@@ -390,18 +411,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicHooksProcessCampaignQueueRoute:
+    ApiPublicHooksProcessCampaignQueueRoute,
   ApiPublicYoutubeCallbackRoute: ApiPublicYoutubeCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

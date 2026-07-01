@@ -3,8 +3,10 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { Sparkles, Plus, Copy, Trash2, Pencil } from "lucide-react";
+import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
+import { generateSampleCsv, downloadCsv } from "@/lib/sample-csv";
+import type { EditorDocument } from "@/lib/types";
 
 export const Route = createFileRoute("/_app/templates/")({
   head: () => ({ meta: [{ title: "Templates — ShortsForge" }] }),
@@ -98,8 +100,19 @@ function TemplatesPage() {
   );
 }
 
-function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean }; onDuplicate: () => void; onDelete?: () => void }) {
+function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean; template_json?: unknown }; onDuplicate: () => void; onDelete?: () => void }) {
   const aspectClass = t.aspect_ratio === "9:16" ? "aspect-[9/16]" : t.aspect_ratio === "16:9" ? "aspect-video" : "aspect-square";
+  const downloadSample = () => {
+    try {
+      const doc = t.template_json as EditorDocument | undefined;
+      if (!doc) { toast.error("Template has no scenes"); return; }
+      const csv = generateSampleCsv(doc, t.name);
+      downloadCsv(`${t.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sample.csv`, csv);
+      toast.success("Sample CSV downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate sample");
+    }
+  };
   return (
     <div className="group rounded-xl border border-border bg-panel overflow-hidden hover:border-brand/50 transition-colors">
       <Link to="/editor/$templateId" params={{ templateId: t.id }} className={`${aspectClass} bg-gradient-to-br from-zinc-900 to-black grid place-items-center relative block`}>
@@ -117,6 +130,7 @@ function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: str
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Link to="/editor/$templateId" params={{ templateId: t.id }} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Edit"><Pencil className="size-3.5" /></Link>
+          <button onClick={downloadSample} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Download sample CSV"><FileSpreadsheet className="size-3.5" /></button>
           <button onClick={onDuplicate} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Duplicate"><Copy className="size-3.5" /></button>
           {onDelete && (
             <button onClick={onDelete} className="p-1.5 rounded-md hover:bg-brand/20 text-zinc-400 hover:text-brand" title="Delete"><Trash2 className="size-3.5" /></button>
