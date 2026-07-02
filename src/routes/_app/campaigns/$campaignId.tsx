@@ -1,4 +1,4 @@
-import { createFileRoute, useParams, Link } from "@tanstack/react-router";
+import { createFileRoute, useParams, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -17,6 +17,9 @@ export const Route = createFileRoute("/_app/campaigns/$campaignId")({
 
 function CampaignDetail() {
   const { campaignId } = useParams({ from: "/_app/campaigns/$campaignId" });
+  const isChildRoute = useRouterState({
+    select: (s) => s.location.pathname !== `/campaigns/${campaignId}`,
+  });
   const qc = useQueryClient();
   const publishFn = useServerFn(publishItemNow);
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -66,6 +69,7 @@ function CampaignDetail() {
   const uploaded = its.filter((i) => i.status === "uploaded").length;
   const scheduled = its.filter((i) => i.status === "scheduled" || i.status === "upload_pending").length;
   const failed = its.filter((i) => i.status === "failed").length;
+  if (isChildRoute) return <Outlet />;
   if (!c) return <div className="p-10 text-zinc-400">Loading…</div>;
   return (
     <div className="p-8 max-w-7xl mx-auto">

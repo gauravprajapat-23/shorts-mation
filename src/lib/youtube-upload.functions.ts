@@ -21,7 +21,7 @@ async function resolveStoredUrl(bucket: "assets" | "renders", fileUrl?: string |
   if (!candidate) return null;
   if (isAbsoluteFetchableUrl(candidate)) return candidate;
   if (candidate.startsWith("blob:")) return null;
-  return signedStorageUrl(bucket, candidate);
+  return signedStorageUrl(bucket, candidate.replace(new RegExp(`^${bucket}/`), ""));
 }
 
 async function refreshIfNeeded(conn: {
@@ -138,6 +138,9 @@ async function uploadItemToYouTube(itemId: string) {
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Fetch video failed: ${videoRes.status}`);
     const videoBlob = await videoRes.blob();
+    if (!videoBlob.size) {
+      throw new Error("The rendered video file is empty. Re-render MP4 for this row, then publish again.");
+    }
     if (videoBlob.type && !videoBlob.type.startsWith("video/")) {
       throw new Error("The selected upload source is not a video file. Render MP4 for this row or choose an uploaded video asset.");
     }
@@ -230,7 +233,7 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
   const { data: due } = await supabaseAdmin
     .from("campaign_items")
     .select("id, campaign_id, schedule_at, campaigns!inner(status)")
-    .eq("status", "pending")
+    .in("status", ["pending", "rendered", "upload_pending"])
     .lte("schedule_at", nowIso)
     .limit(25);
   const rows = (due ?? []) as Array<{ id: string; campaigns: { status: string } | null }>;

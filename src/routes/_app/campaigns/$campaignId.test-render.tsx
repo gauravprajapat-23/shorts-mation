@@ -52,7 +52,7 @@ function TestRenderPage() {
     queryFn: async () => (await supabase.from("templates").select("*").eq("id", campaign.data!.template_id!).single()).data,
   });
 
-  const doc = template.data?.template_json as EditorDocument | undefined;
+  const templateDoc = template.data?.template_json as EditorDocument | undefined;
   const settings = (campaign.data?.settings_json ?? {}) as Settings;
   const mapping = settings.field_mapping ?? {};
   const item = items.data?.[rowIndex];
@@ -91,18 +91,10 @@ function TestRenderPage() {
     return out;
   }, [item]);
 
-  if (campaign.isLoading || template.isLoading) {
-    return <div className="p-10 text-zinc-400">Loading…</div>;
-  }
-
-  if (!doc) {
-    return (
-      <div className="p-10 max-w-2xl mx-auto text-center">
-        <p className="text-sm text-zinc-400">This campaign has no template attached.</p>
-        <Link to="/campaigns/$campaignId" params={{ campaignId }} className="text-brand text-sm mt-3 inline-block">← Back</Link>
-      </div>
-    );
-  }
+  const doc = useMemo<EditorDocument>(() => {
+    if (templateDoc) return templateDoc;
+    return fallbackDocumentFromVars(previewVars);
+  }, [templateDoc, previewVars]);
 
   const scene = doc.scenes[sceneIndex];
   const dims = CANVAS_DIMS[doc.aspect];
@@ -196,6 +188,10 @@ function TestRenderPage() {
 
   const j = job.data as { status: string; progress: number; preview_url: string | null } | undefined;
   const rendering = j ? j.status !== "completed" && j.status !== "failed" : false;
+
+  if (campaign.isLoading || template.isLoading) {
+    return <div className="p-10 text-zinc-400">Loading…</div>;
+  }
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -480,6 +476,37 @@ function buildOverlaySvg(doc: EditorDocument, sceneIndex: number, vars: Record<s
     }
   }
   return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}">${parts.join("")}</svg>`;
+}
+
+function fallbackDocumentFromVars(vars: Record<string, string>): EditorDocument {
+  const entries = Object.entries(vars).filter(([k, v]) => !k.startsWith("_") && String(v ?? "").trim());
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const found = entries.find(([k]) => k.toLowerCase() === key || k.toLowerCase().includes(key));
+      if (found?.[1]) return found[1];
+    }
+    return "";
+  };
+  const headline = pick("headline", "title", "quote", "text") || entries[0]?.[1] || "Test render";
+  const subheadline = pick("subheadline", "subtitle", "description", "body") || entries[1]?.[1] || "";
+  const cta = pick("cta", "call", "action") || entries[2]?.[1] || "";
+  return {
+    version: 1,
+    aspect: "9:16",
+    variables: entries.map(([k]) => k),
+    scenes: [{
+      id: "fallback-scene",
+      name: "Generated preview",
+      durationMs: 6000,
+      background: "#0A0A0A",
+      elements: [
+        { id: "fallback-accent", type: "shape", shape: "rect", x: 70, y: 1540, w: 940, h: 12, rotation: 0, opacity: 1, fill: "#FF0033", radius: 999 },
+        { id: "fallback-headline", type: "text", x: 82, y: 560, w: 916, h: 390, rotation: 0, opacity: 1, text: headline, fontFamily: "Plus Jakarta Sans", fontSize: 108, fontWeight: 900, color: "#FFFFFF", align: "center" },
+        { id: "fallback-sub", type: "text", x: 130, y: 1000, w: 820, h: 190, rotation: 0, opacity: 0.9, text: subheadline, fontFamily: "Inter", fontSize: 48, fontWeight: 700, color: "#D4D4D8", align: "center" },
+        { id: "fallback-cta", type: "text", x: 170, y: 1360, w: 740, h: 130, rotation: 0, opacity: 1, text: cta, fontFamily: "Inter", fontSize: 44, fontWeight: 800, color: "#FF0033", align: "center" },
+      ],
+    }],
+  };
 }
 
 function PreviewCanvas({ doc, sceneIndex, previewVars, dims }: {

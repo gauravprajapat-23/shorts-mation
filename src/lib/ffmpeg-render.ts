@@ -3,7 +3,10 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
-const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+// The @ffmpeg/ffmpeg wrapper runs inside a module worker in Vite. Loading the
+// UMD core blob from that module worker fails because it has no default export,
+// so use the ESM core build instead.
+const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
 
 let ffmpegSingleton: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
@@ -79,12 +82,15 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const crf = CRF_MAP[opts.quality];
   const ff = await getFfmpeg(opts.onLog);
 
-  ff.on("progress", ({ progress }) => opts.onProgress?.(Math.min(99, Math.round(progress * 100))));
+  ff.on("progress", ({ progress }) => {
+    const pct = Math.round(progress * 100);
+    opts.onProgress?.(Math.max(0, Math.min(99, pct)));
+  });
 
   const overlayPng = await svgToPngBlob(opts.overlaySvg, w, h);
   await ff.writeFile("overlay.png", new Uint8Array(await overlayPng.arrayBuffer()));
 
-  const args: string[] = [];
+  const args: string[] = ["-y"];
 
   if (opts.backgroundVideoUrl) {
     const bgBytes = await fetchFile(opts.backgroundVideoUrl);
@@ -115,5 +121,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const data = await ff.readFile("out.mp4");
   opts.onProgress?.(100);
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : (data as Uint8Array);
-  return new Blob([bytes.buffer as ArrayBuffer], { type: "video/mp4" });
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: "video/mp4" });
 }
