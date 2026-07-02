@@ -82,7 +82,10 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const crf = CRF_MAP[opts.quality];
   const ff = await getFfmpeg(opts.onLog);
 
-  ff.on("progress", ({ progress }) => opts.onProgress?.(Math.min(99, Math.round(progress * 100))));
+  ff.on("progress", ({ progress }) => {
+    const pct = Math.round(progress * 100);
+    opts.onProgress?.(Math.max(0, Math.min(99, pct)));
+  });
 
   const overlayPng = await svgToPngBlob(opts.overlaySvg, w, h);
   await ff.writeFile("overlay.png", new Uint8Array(await overlayPng.arrayBuffer()));
