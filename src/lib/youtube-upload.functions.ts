@@ -70,8 +70,26 @@ async function uploadItemToYouTube(itemId: string) {
   await supabaseAdmin.from("campaign_items").update({ status: "uploading", error_message: null }).eq("id", itemId);
 
   try {
-    const { data: conn } = await supabaseAdmin.from("youtube_connections").select("*").eq("id", campaign.youtube_connection_id ?? "").maybeSingle();
-    if (!conn) throw new Error("Campaign has no connected YouTube channel");
+    let conn: any = null;
+    if (campaign.youtube_connection_id) {
+      const { data } = await supabaseAdmin.from("youtube_connections").select("*").eq("id", campaign.youtube_connection_id).maybeSingle();
+      conn = data;
+    }
+    if (!conn) {
+      // Fallback: use the user's most recent YouTube connection
+      const { data } = await supabaseAdmin
+        .from("youtube_connections")
+        .select("*")
+        .eq("user_id", item.user_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      conn = data;
+      if (conn) {
+        await supabaseAdmin.from("campaigns").update({ youtube_connection_id: conn.id }).eq("id", campaign.id);
+      }
+    }
+    if (!conn) throw new Error("No YouTube channel connected. Open YouTube page and connect your channel, then retry.");
     const tokens = await refreshIfNeeded(conn);
     const seo = (item.seo_json ?? {}) as { title?: string; description?: string; tags?: string[]; hashtags?: string[] };
     const yt = (item.youtube_settings_json ?? {}) as { privacy?: "private" | "unlisted" | "public"; category?: string };
