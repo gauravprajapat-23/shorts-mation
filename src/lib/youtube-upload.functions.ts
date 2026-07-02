@@ -60,20 +60,20 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
   // Fallback 1: latest completed render for this user
   const { data: job } = await supabaseAdmin
     .from("render_jobs")
-    .select("output_url")
+    .select("preview_url")
     .eq("user_id", userId)
     .eq("status", "completed")
-    .not("output_url", "is", null)
+    .not("preview_url", "is", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (job?.output_url) return job.output_url;
+  if (job?.preview_url) return job.preview_url;
   // Fallback 2: any video asset owned by this user
   const { data: anyVideo } = await supabaseAdmin
     .from("assets")
     .select("file_url")
     .eq("user_id", userId)
-    .eq("asset_type", "video")
+    .eq("type", "video")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
