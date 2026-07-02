@@ -2,6 +2,27 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 type Tokens = { access_token: string; expires_at: string | null };
+type PublishResult = { ok: true; videoId: string } | { ok: false; error: string };
+
+function isAbsoluteFetchableUrl(value: string) {
+  return /^https?:\/\//i.test(value) || /^data:video\//i.test(value);
+}
+
+async function signedStorageUrl(bucket: "assets" | "renders", path: string): Promise<string> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const cleanPath = path.replace(/^\/+/, "");
+  const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUrl(cleanPath, 60 * 20);
+  if (error || !data?.signedUrl) throw new Error(`Could not prepare ${bucket} video for upload`);
+  return data.signedUrl;
+}
+
+async function resolveStoredUrl(bucket: "assets" | "renders", fileUrl?: string | null, storagePath?: string | null): Promise<string | null> {
+  const candidate = storagePath || fileUrl;
+  if (!candidate) return null;
+  if (isAbsoluteFetchableUrl(candidate)) return candidate;
+  if (candidate.startsWith("blob:")) return null;
+  return signedStorageUrl(bucket, candidate);
+}
 
 async function refreshIfNeeded(conn: {
   id: string;
@@ -45,39 +66,35 @@ async function refreshIfNeeded(conn: {
 }
 
 async function pickVideoUrl(userId: string, backgroundFileName: string | undefined | null, storedUrl: string | null | undefined): Promise<string> {
-  if (storedUrl) return storedUrl;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const rendered = await resolveStoredUrl("renders", storedUrl, null);
+  if (rendered) return rendered;
+
   if (backgroundFileName) {
+    if (isAbsoluteFetchableUrl(backgroundFileName)) return backgroundFileName;
+    if (backgroundFileName.startsWith(`${userId}/`)) return signedStorageUrl("assets", backgroundFileName);
     const { data } = await supabaseAdmin
       .from("assets")
-      .select("file_url")
+      .select("file_url, storage_path")
       .eq("user_id", userId)
       .eq("file_name", backgroundFileName)
       .limit(1)
       .maybeSingle();
-    if (data?.file_url) return data.file_url;
+    const background = await resolveStoredUrl("assets", data?.file_url, data?.storage_path);
+    if (background) return background;
   }
-  // Fallback 1: latest completed render for this user
-  const { data: job } = await supabaseAdmin
-    .from("render_jobs")
-    .select("preview_url")
-    .eq("user_id", userId)
-    .eq("status", "completed")
-    .not("preview_url", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (job?.preview_url) return job.preview_url;
-  // Fallback 2: any video asset owned by this user
+
+  // Fallback: any uploaded video asset owned by this user.
   const { data: anyVideo } = await supabaseAdmin
     .from("assets")
-    .select("file_url")
+    .select("file_url, storage_path")
     .eq("user_id", userId)
     .eq("type", "video")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (anyVideo?.file_url) return anyVideo.file_url;
+  const fallback = await resolveStoredUrl("assets", anyVideo?.file_url, anyVideo?.storage_path);
+  if (fallback) return fallback;
   throw new Error("No video available to upload. Open the campaign's Test Render page, click 'Render MP4' for this row, or upload a background video on the Assets page.");
 }
 
@@ -121,6 +138,9 @@ async function uploadItemToYouTube(itemId: string) {
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Fetch video failed: ${videoRes.status}`);
     const videoBlob = await videoRes.blob();
+    if (videoBlob.type && !videoBlob.type.startsWith("video/")) {
+      throw new Error("The selected upload source is not a video file. Render MP4 for this row or choose an uploaded video asset.");
+    }
 
     const metadata = {
       snippet: {
@@ -191,12 +211,17 @@ async function uploadItemToYouTube(itemId: string) {
 export const publishItemNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { itemId: string }) => d)
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data, context }): Promise<PublishResult> => {
     // Verify ownership before granting admin path
     const { data: item, error } = await context.supabase
       .from("campaign_items").select("id,user_id").eq("id", data.itemId).single();
-    if (error || !item || item.user_id !== context.userId) throw new Error("Not found");
-    return uploadItemToYouTube(data.itemId);
+    if (error || !item || item.user_id !== context.userId) return { ok: false, error: "Item not found" };
+    try {
+      const uploaded = await uploadItemToYouTube(data.itemId);
+      return { ok: true, videoId: uploaded.videoId };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Upload failed" };
+    }
   });
 
 export const processDueCampaignItems = async (): Promise<{ processed: number; errors: number }> => {

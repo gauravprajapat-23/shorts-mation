@@ -24,6 +24,11 @@ function CampaignDetail() {
     setPublishingId(itemId);
     try {
       const r = await publishFn({ data: { itemId } });
+      if (!r.ok) {
+        toast.error(r.error);
+        qc.invalidateQueries({ queryKey: ["campaign-items", campaignId] });
+        return;
+      }
       toast.success("Uploaded to YouTube", { description: r.videoId });
       qc.invalidateQueries({ queryKey: ["campaign-items", campaignId] });
     } catch (e) {
