@@ -46,8 +46,8 @@ async function refreshIfNeeded(conn: {
 
 async function pickVideoUrl(userId: string, backgroundFileName: string | undefined | null, storedUrl: string | null | undefined): Promise<string> {
   if (storedUrl) return storedUrl;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   if (backgroundFileName) {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin
       .from("assets")
       .select("file_url")
@@ -57,7 +57,28 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
       .maybeSingle();
     if (data?.file_url) return data.file_url;
   }
-  throw new Error("No video source: render a video first or point background_file_name at an uploaded asset");
+  // Fallback 1: latest completed render for this user
+  const { data: job } = await supabaseAdmin
+    .from("render_jobs")
+    .select("preview_url")
+    .eq("user_id", userId)
+    .eq("status", "completed")
+    .not("preview_url", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (job?.preview_url) return job.preview_url;
+  // Fallback 2: any video asset owned by this user
+  const { data: anyVideo } = await supabaseAdmin
+    .from("assets")
+    .select("file_url")
+    .eq("user_id", userId)
+    .eq("type", "video")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (anyVideo?.file_url) return anyVideo.file_url;
+  throw new Error("No video available to upload. Open the campaign's Test Render page, click 'Render MP4' for this row, or upload a background video on the Assets page.");
 }
 
 async function uploadItemToYouTube(itemId: string) {
