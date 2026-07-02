@@ -8,7 +8,10 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVi
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { toast } from "sonner";
-import { renderMp4, type RenderResolution, type RenderQuality } from "@/lib/ffmpeg-render.client";
+// Types duplicated locally to avoid a static import of a `.client.*` module,
+// which the TanStack import-protection plugin blocks from the server graph.
+type RenderResolution = "720p" | "1080p" | "4k";
+type RenderQuality = "draft" | "standard" | "high";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId/test-render")({
   head: () => ({ meta: [{ title: "Test render — ShortsForge" }] }),
@@ -144,6 +147,9 @@ function TestRenderPage() {
     setMp4Err(null); setMp4Url(null); setMp4Progress(0);
     try {
       const durationSec = Math.max(3, Math.round((doc.scenes[sceneIndex]?.durationMs ?? 6000) / 1000));
+      // Dynamic import keeps ffmpeg.wasm out of the SSR entry chunk; the
+      // browser only fetches it when the user clicks "Render MP4".
+      const { renderMp4 } = await import("@/lib/ffmpeg-render");
       const blob = await renderMp4({
         backgroundVideoUrl: bgVideoUrl,
         overlaySvg,
