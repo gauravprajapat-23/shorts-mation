@@ -115,5 +115,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const data = await ff.readFile("out.mp4");
   opts.onProgress?.(100);
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : (data as Uint8Array);
-  return new Blob([bytes], { type: "video/mp4" });
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: "video/mp4" });
 }
