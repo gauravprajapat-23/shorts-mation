@@ -91,24 +91,10 @@ function TestRenderPage() {
     return out;
   }, [item]);
 
-  const doc = useMemo<EditorDocument | undefined>(() => {
+  const doc = useMemo<EditorDocument>(() => {
     if (templateDoc) return templateDoc;
-    if (!item) return undefined;
     return fallbackDocumentFromVars(previewVars);
-  }, [templateDoc, item, previewVars]);
-
-  if (campaign.isLoading || template.isLoading) {
-    return <div className="p-10 text-zinc-400">Loading…</div>;
-  }
-
-  if (!doc) {
-    return (
-      <div className="p-10 max-w-2xl mx-auto text-center">
-        <p className="text-sm text-zinc-400">This campaign has no rows to render yet.</p>
-        <Link to="/campaigns/$campaignId" params={{ campaignId }} className="text-brand text-sm mt-3 inline-block">← Back</Link>
-      </div>
-    );
-  }
+  }, [templateDoc, previewVars]);
 
   const scene = doc.scenes[sceneIndex];
   const dims = CANVAS_DIMS[doc.aspect];
@@ -202,6 +188,10 @@ function TestRenderPage() {
 
   const j = job.data as { status: string; progress: number; preview_url: string | null } | undefined;
   const rendering = j ? j.status !== "completed" && j.status !== "failed" : false;
+
+  if (campaign.isLoading || template.isLoading) {
+    return <div className="p-10 text-zinc-400">Loading…</div>;
+  }
 
   return (
     <div className="min-h-screen bg-canvas">
