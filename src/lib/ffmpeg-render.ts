@@ -3,7 +3,10 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
-const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+// The @ffmpeg/ffmpeg wrapper runs inside a module worker in Vite. Loading the
+// UMD core blob from that module worker fails because it has no default export,
+// so use the ESM core build instead.
+const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
 
 let ffmpegSingleton: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
