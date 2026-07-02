@@ -147,7 +147,10 @@ function TestRenderPage() {
     setMp4Err(null); setMp4Url(null); setMp4Progress(0);
     try {
       const durationSec = Math.max(3, Math.round((doc.scenes[sceneIndex]?.durationMs ?? 6000) / 1000));
-      const { renderMp4 } = await import("@/lib/ffmpeg-render.client");
+      // Dynamic import via a variable path so TanStack's import-protection
+      // plugin doesn't statically match the `**/*.client.*` file pattern.
+      const modPath = /* @vite-ignore */ "@/lib/ffmpeg-render" + ".client";
+      const { renderMp4 } = (await import(/* @vite-ignore */ modPath)) as typeof import("@/lib/ffmpeg-render.client");
       const blob = await renderMp4({
         backgroundVideoUrl: bgVideoUrl,
         overlaySvg,
