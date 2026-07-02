@@ -84,7 +84,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const overlayPng = await svgToPngBlob(opts.overlaySvg, w, h);
   await ff.writeFile("overlay.png", new Uint8Array(await overlayPng.arrayBuffer()));
 
-  const args: string[] = [];
+  const args: string[] = ["-y"];
 
   if (opts.backgroundVideoUrl) {
     const bgBytes = await fetchFile(opts.backgroundVideoUrl);
@@ -115,5 +115,5 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const data = await ff.readFile("out.mp4");
   opts.onProgress?.(100);
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : (data as Uint8Array);
-  return new Blob([bytes.buffer as ArrayBuffer], { type: "video/mp4" });
+  return new Blob([bytes], { type: "video/mp4" });
 }

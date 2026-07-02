@@ -38,6 +38,37 @@ function renderSceneSvg(doc: EditorDocument, vars: Record<string, string>): stri
   return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
 }
 
+function fallbackDocumentFromVars(vars: Record<string, string>): EditorDocument {
+  const entries = Object.entries(vars).filter(([k, v]) => !k.startsWith("_") && String(v ?? "").trim());
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const found = entries.find(([k]) => k.toLowerCase() === key || k.toLowerCase().includes(key));
+      if (found?.[1]) return found[1];
+    }
+    return "";
+  };
+  const headline = pick("headline", "title", "quote", "text") || entries[0]?.[1] || "Test render";
+  const subheadline = pick("subheadline", "subtitle", "description", "body") || entries[1]?.[1] || "";
+  const cta = pick("cta", "call", "action") || entries[2]?.[1] || "";
+  return {
+    version: 1,
+    aspect: "9:16",
+    variables: entries.map(([k]) => k),
+    scenes: [{
+      id: "fallback-scene",
+      name: "Generated preview",
+      durationMs: 6000,
+      background: "#0A0A0A",
+      elements: [
+        { id: "fallback-accent", type: "shape", shape: "rect", x: 70, y: 1540, w: 940, h: 12, rotation: 0, opacity: 1, fill: "#FF0033", radius: 999 },
+        { id: "fallback-headline", type: "text", x: 82, y: 560, w: 916, h: 390, rotation: 0, opacity: 1, text: headline, fontFamily: "Plus Jakarta Sans", fontSize: 108, fontWeight: 900, color: "#FFFFFF", align: "center" },
+        { id: "fallback-sub", type: "text", x: 130, y: 1000, w: 820, h: 190, rotation: 0, opacity: 0.9, text: subheadline, fontFamily: "Inter", fontSize: 48, fontWeight: 700, color: "#D4D4D8", align: "center" },
+        { id: "fallback-cta", type: "text", x: 170, y: 1360, w: 740, h: 130, rotation: 0, opacity: 1, text: cta, fontFamily: "Inter", fontSize: 44, fontWeight: 800, color: "#FF0033", align: "center" },
+      ],
+    }],
+  };
+}
+
 export const startRenderJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { campaignId: string; campaignItemId?: string | null; renderOptions?: Record<string, unknown> }) => d)
@@ -83,9 +114,12 @@ export const pollRenderJob = createServerFn({ method: "POST" })
     const pct = Math.min(99, Math.floor((elapsed / job.total_ms) * 100));
     if (elapsed >= job.total_ms) {
       // finalize: render the SVG preview from the template
-      const { data: tmpl } = await supabase.from("templates").select("template_json").eq("id", job.template_id!).single();
-      const doc = tmpl?.template_json as EditorDocument | undefined;
-      const preview = doc ? renderSceneSvg(doc, (job.input_vars ?? {}) as Record<string, string>) : null;
+      const { data: tmpl } = job.template_id
+        ? await supabase.from("templates").select("template_json").eq("id", job.template_id).maybeSingle()
+        : { data: null };
+      const inputVars = (job.input_vars ?? {}) as Record<string, string>;
+      const doc = (tmpl?.template_json as EditorDocument | undefined) ?? fallbackDocumentFromVars(inputVars);
+      const preview = doc ? renderSceneSvg(doc, inputVars) : null;
       const { data: updated } = await supabase.from("render_jobs").update({
         status: "completed", progress: 100, preview_url: preview, thumbnail_url: preview, finished_at: new Date().toISOString(),
       }).eq("id", job.id).select("*").single();
