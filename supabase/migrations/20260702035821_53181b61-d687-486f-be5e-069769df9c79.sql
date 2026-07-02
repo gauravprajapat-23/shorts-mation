@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS "Users manage own render jobs" ON public.render_jobs;
+CREATE POLICY "Users manage own render jobs" ON public.render_jobs FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
