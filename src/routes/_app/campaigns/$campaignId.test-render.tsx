@@ -1,5 +1,5 @@
 import { createFileRoute, useParams, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
@@ -22,6 +22,7 @@ type Settings = { field_mapping?: Record<string, string>; default_privacy?: stri
 
 function TestRenderPage() {
   const { campaignId } = useParams({ from: "/_app/campaigns/$campaignId/test-render" });
+  const qc = useQueryClient();
   const [sceneIndex, setSceneIndex] = useState(0);
   const [rowIndex, setRowIndex] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -159,7 +160,23 @@ function TestRenderPage() {
       });
       const url = URL.createObjectURL(blob);
       setMp4Url(url);
-      toast.success("MP4 ready");
+      if (item) {
+        const { data: u } = await supabase.auth.getUser();
+        if (!u.user) throw new Error("Not signed in");
+        const path = `${u.user.id}/${item.id}-${Date.now()}.mp4`;
+        const { error: uploadError } = await supabase.storage.from("renders").upload(path, blob, {
+          contentType: "video/mp4",
+          upsert: true,
+        });
+        if (uploadError) throw uploadError;
+        const { error: updateError } = await supabase
+          .from("campaign_items")
+          .update({ rendered_video_url: path, status: "rendered", error_message: null })
+          .eq("id", item.id);
+        if (updateError) throw updateError;
+        qc.invalidateQueries({ queryKey: ["campaign-items-preview", campaignId] });
+      }
+      toast.success("MP4 ready for upload");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "MP4 render failed";
       setMp4Err(msg); toast.error(msg);
