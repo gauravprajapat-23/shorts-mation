@@ -160,7 +160,7 @@ function NewCampaignPage() {
           audio_json: (v.audio ?? {}) as never,
           asset_json: (v.asset ?? {}) as never,
           status: "pending" as const,
-          schedule_at: v.youtube?.schedule_at ?? null,
+          schedule_at: v.youtube?.schedule_at && String(v.youtube.schedule_at).trim() !== "" ? v.youtube.schedule_at : null,
         };
       });
       const { error: e2 } = await supabase.from("campaign_items").insert(items);
