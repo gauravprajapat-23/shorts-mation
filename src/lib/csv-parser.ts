@@ -33,8 +33,46 @@ export function parseFile(text: string, name: string): { campaign: ParsedCampaig
 }
 
 function parseJson(text: string): { campaign: ParsedCampaign; issues: ValidationIssue[] } {
-  const data = JSON.parse(text) as ParsedCampaign;
+  const raw = JSON.parse(text) as Partial<ParsedCampaign> & { videos?: Partial<ParsedCampaignVideo>[] };
+  const videos = (raw.videos ?? []).map((v) => normalizeVideo(v));
+  const data: ParsedCampaign = {
+    campaign_name: raw.campaign_name || "Imported Campaign",
+    default_template: raw.default_template,
+    timezone: raw.timezone,
+    default_settings: raw.default_settings,
+    videos,
+  };
   return { campaign: data, issues: validate(data) };
+}
+
+function normalizeVideo(v: Partial<ParsedCampaignVideo> | undefined): ParsedCampaignVideo {
+  const src = (v ?? {}) as Record<string, unknown>;
+  const seo = (src.seo ?? {}) as Partial<ParsedCampaignVideo["seo"]>;
+  const yt = (src.youtube ?? {}) as Partial<ParsedCampaignVideo["youtube"]>;
+  const audio = (src.audio ?? {}) as Partial<ParsedCampaignVideo["audio"]>;
+  const asset = (src.asset ?? {}) as Partial<ParsedCampaignVideo["asset"]>;
+  const content = (src.content ?? {}) as Record<string, unknown>;
+  const contentStr: Record<string, string> = {};
+  for (const [k, val] of Object.entries(content)) contentStr[k] = val == null ? "" : String(val);
+  return {
+    video_file_name: String(src.video_file_name ?? ""),
+    template_id: src.template_id as string | undefined,
+    content: contentStr,
+    seo: {
+      title: seo.title ?? "",
+      description: seo.description ?? "",
+      tags: toTags(seo.tags),
+      hashtags: toTags(seo.hashtags),
+    },
+    audio: { type: audio.type, file_name: audio.file_name, volume: audio.volume },
+    youtube: {
+      privacy: (PRIVACY.has(yt.privacy as string) ? (yt.privacy as "private") : "private"),
+      schedule_at: yt.schedule_at,
+      playlist: yt.playlist,
+      category: yt.category,
+    },
+    asset: { background_file_name: asset.background_file_name },
+  };
 }
 
 function parseCsv(text: string): { campaign: ParsedCampaign; issues: ValidationIssue[] } {
