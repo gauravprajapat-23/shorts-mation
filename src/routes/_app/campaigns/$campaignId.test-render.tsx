@@ -464,18 +464,63 @@ function buildOverlaySvg(doc: EditorDocument, sceneIndex: number, vars: Record<s
         : `<g transform="${tr}" opacity="${el.opacity}"><rect width="${s.w}" height="${s.h}" fill="${s.fill}" rx="${s.radius ?? 0}"/></g>`);
     } else if (el.type === "text") {
       const t = el as TextElement;
-      const txt = esc(renderText(t.text, vars));
+      const rawTxt = renderText(t.text, vars);
       const anchor = t.align === "left" ? "start" : t.align === "right" ? "end" : "middle";
       const xPos = t.align === "left" ? 0 : t.align === "right" ? t.w : t.w / 2;
       const stroke = t.stroke ? ` stroke="${esc(t.stroke)}" stroke-width="6" paint-order="stroke fill"` : "";
-      parts.push(`<g transform="${tr}" opacity="${el.opacity}"><text x="${xPos}" y="${t.h/2}" dominant-baseline="middle" text-anchor="${anchor}" fill="${t.color}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${stroke}>${txt}</text></g>`);
+      // Auto-fit: wrap into lines within t.w and shrink font-size if lines overflow t.h
+      const { lines, fontSize } = fitText(rawTxt, t.w, t.h, t.fontSize);
+      const lineHeight = fontSize * 1.15;
+      const totalH = lineHeight * lines.length;
+      const startY = (t.h - totalH) / 2 + fontSize * 0.85;
+      const tspans = lines
+        .map((ln, i) => `<tspan x="${xPos}" y="${startY + i * lineHeight}">${esc(ln)}</tspan>`)
+        .join("");
+      parts.push(`<g transform="${tr}" opacity="${el.opacity}"><text text-anchor="${anchor}" fill="${t.color}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${fontSize}" font-weight="${t.fontWeight}"${stroke}>${tspans}</text></g>`);
     } else if (el.type === "image") {
       const im = el as ImageElement;
       const src = im.src.startsWith("{{") ? "" : im.src;
       if (src) parts.push(`<g transform="${tr}" opacity="${el.opacity}"><image href="${esc(src)}" width="${im.w}" height="${im.h}" preserveAspectRatio="${im.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}"/></g>`);
     }
   }
-  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}">${parts.join("")}</svg>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}" overflow="hidden">${parts.join("")}</svg>`;
+}
+
+// Wrap `text` into lines that fit within `maxWidth` at `fontSize`, shrinking
+// the size when the block would overflow `maxHeight`. Uses an approximation
+// (avg glyph ≈ 0.55 × fontSize) — good enough for SVG burn-in without loading
+// real font metrics in the browser.
+function fitText(text: string, maxWidth: number, maxHeight: number, startSize: number): { lines: string[]; fontSize: number } {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { lines: [""], fontSize: startSize };
+  let size = startSize;
+  const minSize = Math.max(18, Math.floor(startSize * 0.4));
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const avgChar = size * 0.55;
+    const maxChars = Math.max(1, Math.floor(maxWidth / avgChar));
+    const lines: string[] = [];
+    let current = "";
+    for (const w of words) {
+      const tentative = current ? `${current} ${w}` : w;
+      if (tentative.length <= maxChars) {
+        current = tentative;
+      } else {
+        if (current) lines.push(current);
+        // Word longer than one line: hard-break it
+        if (w.length > maxChars) {
+          for (let i = 0; i < w.length; i += maxChars) lines.push(w.slice(i, i + maxChars));
+          current = "";
+        } else {
+          current = w;
+        }
+      }
+    }
+    if (current) lines.push(current);
+    const totalH = lines.length * size * 1.15;
+    if (totalH <= maxHeight || size <= minSize) return { lines, fontSize: size };
+    size = Math.max(minSize, Math.floor(size * 0.9));
+  }
+  return { lines: [text], fontSize: size };
 }
 
 function fallbackDocumentFromVars(vars: Record<string, string>): EditorDocument {

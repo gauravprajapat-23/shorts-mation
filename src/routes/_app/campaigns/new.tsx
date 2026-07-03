@@ -153,14 +153,14 @@ function NewCampaignPage() {
         return {
           campaign_id: c.id,
           user_id: u.user.id,
-          video_file_name: v.video_file_name,
+          video_file_name: v.video_file_name || `video-${Math.random().toString(36).slice(2, 8)}.mp4`,
           content_json: { ...v.content, ...mapped, _raw: v.content, _mapping: effectiveMapping } as never,
-          seo_json: v.seo as never,
-          youtube_settings_json: v.youtube as never,
-          audio_json: v.audio as never,
-          asset_json: v.asset as never,
+          seo_json: (v.seo ?? {}) as never,
+          youtube_settings_json: (v.youtube ?? {}) as never,
+          audio_json: (v.audio ?? {}) as never,
+          asset_json: (v.asset ?? {}) as never,
           status: "pending" as const,
-          schedule_at: v.youtube.schedule_at ?? null,
+          schedule_at: v.youtube?.schedule_at ?? null,
         };
       });
       const { error: e2 } = await supabase.from("campaign_items").insert(items);
@@ -168,7 +168,10 @@ function NewCampaignPage() {
       toast.success("Campaign created");
       navigate({ to: "/campaigns/$campaignId", params: { campaignId: c.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      const msg = e instanceof Error ? e.message : typeof e === "object" && e ? JSON.stringify(e) : "Failed";
+      // eslint-disable-next-line no-console
+      console.error("Campaign creation failed:", e);
+      toast.error("Failed to create campaign", { description: msg });
     } finally {
       setBusy(false);
     }
