@@ -15,6 +15,7 @@ export const Route = createFileRoute("/_app/editor/$templateId")({
 });
 
 type Panel = "elements" | "text" | "shapes" | "variables" | "layers";
+type ResizeHandle = "nw" | "ne" | "sw" | "se" | "n" | "s" | "e" | "w";
 
 const FONT_FAMILIES = ["Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Courier New", "Impact", "Arial", "Helvetica"];
 
@@ -529,13 +530,14 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   );
 }
 
-function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTextChange, onEndEdit, onResizeStart, previewVars }: {
+function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTextChange, onEndEdit, onResizeStart, onRotateStart, previewVars }: {
   el: EditorElement; selected: boolean; editing: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onDoubleClick: () => void;
   onTextChange: (text: string) => void;
   onEndEdit: () => void;
-  onResizeStart: (e: React.PointerEvent, corner: "nw" | "ne" | "sw" | "se") => void;
+  onResizeStart: (e: React.PointerEvent, handle: ResizeHandle) => void;
+  onRotateStart: (e: React.PointerEvent) => void;
   previewVars: Record<string, string>;
 }) {
   const baseStyle: React.CSSProperties = {
@@ -545,21 +547,61 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
     outline: selected ? "3px solid #FF0033" : "none",
     cursor: el.locked ? "not-allowed" : "move",
   };
+  const cornerCursor = (h: ResizeHandle) =>
+    h === "nw" || h === "se" ? "nwse-resize" :
+    h === "ne" || h === "sw" ? "nesw-resize" :
+    h === "n" || h === "s" ? "ns-resize" : "ew-resize";
   const handles = selected && !el.locked ? (
     <>
+      {/* Corners */}
       {(["nw","ne","sw","se"] as const).map((c) => (
         <div
           key={c}
           onPointerDown={(e) => onResizeStart(e, c)}
-          className="absolute bg-brand border-2 border-white rounded-sm"
+          className="absolute bg-white border-2 border-brand rounded-full shadow"
           style={{
-            width: 16, height: 16,
-            left: c.includes("w") ? -8 : undefined, right: c.includes("e") ? -8 : undefined,
-            top: c.includes("n") ? -8 : undefined, bottom: c.includes("s") ? -8 : undefined,
-            cursor: c === "nw" || c === "se" ? "nwse-resize" : "nesw-resize",
+            width: 14, height: 14,
+            left: c.includes("w") ? -7 : undefined, right: c.includes("e") ? -7 : undefined,
+            top: c.includes("n") ? -7 : undefined, bottom: c.includes("s") ? -7 : undefined,
+            cursor: cornerCursor(c),
           }}
         />
       ))}
+      {/* Edge midpoints */}
+      {(["n","s"] as const).map((c) => (
+        <div
+          key={c}
+          onPointerDown={(e) => onResizeStart(e, c)}
+          className="absolute bg-white border-2 border-brand rounded-sm shadow"
+          style={{
+            width: 22, height: 8, left: "50%", marginLeft: -11,
+            top: c === "n" ? -4 : undefined, bottom: c === "s" ? -4 : undefined,
+            cursor: cornerCursor(c),
+          }}
+        />
+      ))}
+      {(["e","w"] as const).map((c) => (
+        <div
+          key={c}
+          onPointerDown={(e) => onResizeStart(e, c)}
+          className="absolute bg-white border-2 border-brand rounded-sm shadow"
+          style={{
+            width: 8, height: 22, top: "50%", marginTop: -11,
+            left: c === "w" ? -4 : undefined, right: c === "e" ? -4 : undefined,
+            cursor: cornerCursor(c),
+          }}
+        />
+      ))}
+      {/* Rotation handle */}
+      <div
+        onPointerDown={onRotateStart}
+        title="Drag to rotate (hold Shift to snap 15°)"
+        className="absolute grid place-items-center bg-white border-2 border-brand rounded-full shadow text-brand"
+        style={{ width: 24, height: 24, left: "50%", marginLeft: -12, top: -40, cursor: "grab" }}
+      >
+        <RotateCw className="size-3" />
+      </div>
+      <div className="absolute pointer-events-none bg-brand" style={{ width: 1, left: "50%", marginLeft: -0.5, top: -28, height: 20 }} />
     </>
   ) : null;
 
