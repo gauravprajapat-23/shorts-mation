@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
-import { Rocket, Plus } from "lucide-react";
+import { Rocket, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/campaigns/")({
   head: () => ({ meta: [{ title: "Campaigns — ShortsForge" }] }),
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/_app/campaigns/")({
 });
 
 function CampaignsPage() {
+  const qc = useQueryClient();
   const { data } = useQuery({
     queryKey: ["campaigns"],
     queryFn: async () => {
@@ -19,6 +21,17 @@ function CampaignsPage() {
       if (error) throw error;
       return data ?? [];
     },
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      await supabase.from("render_jobs").delete().eq("campaign_id", id);
+      await supabase.from("campaign_items").delete().eq("campaign_id", id);
+      const { error } = await supabase.from("campaigns").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["campaigns"] }); toast.success("Campaign deleted"); },
+    onError: (e) => toast.error(e.message),
   });
 
   return (
@@ -54,6 +67,7 @@ function CampaignsPage() {
                 <th className="text-right px-4 py-3 font-semibold">Failed</th>
                 <th className="text-right px-4 py-3 font-semibold">Total</th>
                 <th className="text-right px-4 py-3 font-semibold">Created</th>
+                <th className="px-4 py-3 font-semibold w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -67,6 +81,18 @@ function CampaignsPage() {
                   <td className="px-4 py-3 text-right tabular-nums">{c.failed_count}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{c.total_videos}</td>
                   <td className="px-4 py-3 text-right text-zinc-500 text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete campaign "${c.name}"? This removes all its items and render jobs.`)) del.mutate(c.id);
+                      }}
+                      disabled={del.isPending}
+                      className="p-1.5 rounded-md text-zinc-500 hover:text-brand hover:bg-brand/10 disabled:opacity-40"
+                      title="Delete campaign"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

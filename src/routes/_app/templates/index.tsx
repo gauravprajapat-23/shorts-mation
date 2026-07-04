@@ -7,6 +7,7 @@ import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet } from "lucide-re
 import { toast } from "sonner";
 import { generateSampleCsv, downloadCsv } from "@/lib/sample-csv";
 import type { EditorDocument } from "@/lib/types";
+import { TemplatePreview } from "@/lib/template-preview";
 
 export const Route = createFileRoute("/_app/templates/")({
   head: () => ({ meta: [{ title: "Templates — ShortsForge" }] }),
@@ -102,6 +103,7 @@ function TemplatesPage() {
 
 function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean; template_json?: unknown }; onDuplicate: () => void; onDelete?: () => void }) {
   const aspectClass = t.aspect_ratio === "9:16" ? "aspect-[9/16]" : t.aspect_ratio === "16:9" ? "aspect-video" : "aspect-square";
+  const doc = (t.template_json ?? null) as EditorDocument | null;
   const downloadSample = () => {
     try {
       const doc = t.template_json as EditorDocument | undefined;
@@ -115,8 +117,11 @@ function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: str
   };
   return (
     <div className="group rounded-xl border border-border bg-panel overflow-hidden hover:border-brand/50 transition-colors">
-      <Link to="/editor/$templateId" params={{ templateId: t.id }} className={`${aspectClass} bg-gradient-to-br from-zinc-900 to-black grid place-items-center relative block`}>
-        <span className="font-display text-xs text-zinc-600">{t.aspect_ratio}</span>
+      <Link to="/editor/$templateId" params={{ templateId: t.id }} className={`${aspectClass} bg-gradient-to-br from-zinc-900 to-black relative block overflow-hidden`}>
+        <div className="absolute inset-0 transition-transform duration-300 group-hover:scale-105">
+          <TemplatePreview doc={doc} aspect={t.aspect_ratio as "9:16" | "16:9" | "1:1"} />
+        </div>
+        <span className="absolute top-1.5 left-1.5 font-mono text-[9px] px-1.5 py-0.5 rounded bg-black/70 text-zinc-400">{t.aspect_ratio}</span>
         <div className="absolute inset-0 md:opacity-0 group-hover:opacity-100 bg-black/60 flex items-center justify-center gap-2 transition-opacity">
           <span className="px-3 py-1.5 rounded-md bg-brand text-white text-xs font-bold inline-flex items-center gap-1.5">
             <Pencil className="size-3" /> Edit
