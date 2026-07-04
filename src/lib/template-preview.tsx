@@ -62,7 +62,6 @@ function renderEl(el: EditorElement, vars: Record<string, string>) {
       <g key={el.id} transform={transform} opacity={opacity}>
         <foreignObject width={el.w} height={el.h}>
           <div
-            xmlns="http://www.w3.org/1999/xhtml"
             style={{
               width: "100%",
               height: "100%",
