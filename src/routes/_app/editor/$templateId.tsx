@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle } from "lucide-react";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { TemplatePreview } from "@/lib/template-preview";
 
@@ -340,7 +340,7 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   const dims = CANVAS_DIMS[doc.aspect];
   const wrapRef = useRef<HTMLDivElement>(null);
   const [fitScale, setFitScale] = useState(0.3);
-  const [guides, setGuides] = useState<{ v?: number; h?: number }>({});
+  const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -368,27 +368,59 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
     setZoom(next);
   };
 
+  // Collect snap targets from every other element + canvas edges/center.
+  const snapTargets = (excludeId: string) => {
+    const vs = [0, dims.w / 2, dims.w];
+    const hs = [0, dims.h / 2, dims.h];
+    for (const o of scene.elements) {
+      if (o.id === excludeId) continue;
+      vs.push(o.x, o.x + o.w / 2, o.x + o.w);
+      hs.push(o.y, o.y + o.h / 2, o.y + o.h);
+    }
+    return { vs, hs };
+  };
+
   const startDrag = (e: React.PointerEvent, el: EditorElement) => {
     if (el.locked) { setSelectedId(el.id); return; }
     e.stopPropagation();
     setSelectedId(el.id);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y };
+    const targets = snapTargets(el.id);
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - start.x) / scale;
       const dy = (ev.clientY - start.y) / scale;
       let nx = start.ex + dx;
       let ny = start.ey + dy;
-      const cx = nx + el.w / 2;
-      const cy = ny + el.h / 2;
-      const next: { v?: number; h?: number } = {};
-      const snap = 8 / scale;
-      if (Math.abs(cx - dims.w / 2) < snap) { nx = dims.w / 2 - el.w / 2; next.v = dims.w / 2; }
-      if (Math.abs(cy - dims.h / 2) < snap) { ny = dims.h / 2 - el.h / 2; next.h = dims.h / 2; }
-      setGuides(next);
+      const snap = 6 / scale;
+      const vLines: number[] = [];
+      const hLines: number[] = [];
+      const candX = [nx, nx + el.w / 2, nx + el.w];
+      const candY = [ny, ny + el.h / 2, ny + el.h];
+      // Snap X
+      let bestDx = snap, bestX: number | null = null;
+      let matchedV: number | null = null;
+      for (let i = 0; i < candX.length; i++) {
+        for (const t of targets.vs) {
+          const d = Math.abs(candX[i] - t);
+          if (d < bestDx) { bestDx = d; bestX = t - (i === 0 ? 0 : i === 1 ? el.w / 2 : el.w); matchedV = t; }
+        }
+      }
+      if (bestX != null) { nx = bestX; if (matchedV != null) vLines.push(matchedV); }
+      // Snap Y
+      let bestDy = snap, bestY: number | null = null;
+      let matchedH: number | null = null;
+      for (let i = 0; i < candY.length; i++) {
+        for (const t of targets.hs) {
+          const d = Math.abs(candY[i] - t);
+          if (d < bestDy) { bestDy = d; bestY = t - (i === 0 ? 0 : i === 1 ? el.h / 2 : el.h); matchedH = t; }
+        }
+      }
+      if (bestY != null) { ny = bestY; if (matchedH != null) hLines.push(matchedH); }
+      setGuides({ v: vLines, h: hLines });
       updateElement(el.id, (cur) => ({ ...cur, x: nx, y: ny }));
     };
     const up = () => {
-      setGuides({});
+      setGuides({ v: [], h: [] });
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -396,20 +428,59 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
     window.addEventListener("pointerup", up);
   };
 
-  const startResize = (e: React.PointerEvent, el: EditorElement, corner: "nw" | "ne" | "sw" | "se") => {
+  const startResize = (e: React.PointerEvent, el: EditorElement, handle: ResizeHandle) => {
     e.stopPropagation();
     e.preventDefault();
     setSelectedId(el.id);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y, ew: el.w, eh: el.h };
+    const aspect = el.w / Math.max(1, el.h);
+    const isCorner = handle.length === 2;
     const move = (ev: PointerEvent) => {
-      const dx = (ev.clientX - start.x) / scale;
-      const dy = (ev.clientY - start.y) / scale;
+      let dx = (ev.clientX - start.x) / scale;
+      let dy = (ev.clientY - start.y) / scale;
+      // Lock aspect ratio when Shift is held on a corner handle.
+      if (isCorner && ev.shiftKey) {
+        const signX = handle.includes("e") ? 1 : -1;
+        const signY = handle.includes("s") ? 1 : -1;
+        const projected = (signX * dx + (signY * dy) * aspect) / 2;
+        dx = signX * projected;
+        dy = signY * (projected / aspect);
+      }
       let { ex, ey, ew, eh } = start;
-      if (corner === "se") { ew = Math.max(20, start.ew + dx); eh = Math.max(20, start.eh + dy); }
-      if (corner === "sw") { ex = start.ex + dx; ew = Math.max(20, start.ew - dx); eh = Math.max(20, start.eh + dy); }
-      if (corner === "ne") { ey = start.ey + dy; ew = Math.max(20, start.ew + dx); eh = Math.max(20, start.eh - dy); }
-      if (corner === "nw") { ex = start.ex + dx; ey = start.ey + dy; ew = Math.max(20, start.ew - dx); eh = Math.max(20, start.eh - dy); }
+      if (handle.includes("e")) ew = Math.max(20, start.ew + dx);
+      if (handle.includes("s")) eh = Math.max(20, start.eh + dy);
+      if (handle.includes("w")) { const nw = Math.max(20, start.ew - dx); ex = start.ex + (start.ew - nw); ew = nw; }
+      if (handle.includes("n")) { const nh = Math.max(20, start.eh - dy); ey = start.ey + (start.eh - nh); eh = nh; }
       updateElement(el.id, (cur) => ({ ...cur, x: ex, y: ey, w: ew, h: eh }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const startRotate = (e: React.PointerEvent, el: EditorElement) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(el.id);
+    const rect = wrapRef.current?.getBoundingClientRect();
+    const canvas = (e.currentTarget as HTMLElement).closest("[data-canvas-root]") as HTMLElement | null;
+    const cRect = canvas?.getBoundingClientRect() ?? rect!;
+    // element center in screen coords
+    const cx = cRect.left + (el.x + el.w / 2) * scale;
+    const cy = cRect.top + (el.y + el.h / 2) * scale;
+    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+    const startRot = el.rotation;
+    const move = (ev: PointerEvent) => {
+      const a = Math.atan2(ev.clientY - cy, ev.clientX - cx) * (180 / Math.PI);
+      let r = startRot + (a - startAngle);
+      if (ev.shiftKey) r = Math.round(r / 15) * 15;
+      // normalize
+      while (r > 180) r -= 360;
+      while (r < -180) r += 360;
+      updateElement(el.id, (cur) => ({ ...cur, rotation: r }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -422,6 +493,7 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   return (
     <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }} onWheel={onWheel}>
       <div
+        data-canvas-root
         className="relative shadow-2xl shadow-black/60 origin-center"
         style={{ width: dims.w, height: dims.h, transform: `scale(${scale})`, background: scene.background, outline: "1px solid #262626" }}
       >
@@ -433,12 +505,17 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
             onDoubleClick={() => { if (el.type === "text" && !el.locked) setEditingId(el.id); }}
             onTextChange={(text) => updateElement(el.id, (cur) => cur.type === "text" ? { ...cur, text } : cur)}
             onEndEdit={() => setEditingId(null)}
-            onResizeStart={(e, corner) => startResize(e, el, corner)}
+            onResizeStart={(e, handle) => startResize(e, el, handle)}
+            onRotateStart={(e) => startRotate(e, el)}
             previewVars={previewVars}
           />
         ))}
-        {guides.v != null && <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: guides.v, width: 1, background: "#FF0033" }} />}
-        {guides.h != null && <div className="absolute left-0 right-0 pointer-events-none" style={{ top: guides.h, height: 1, background: "#FF0033" }} />}
+        {guides.v.map((x, i) => (
+          <div key={`v-${i}-${x}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: x, width: 1, background: "#FF0033" }} />
+        ))}
+        {guides.h.map((y, i) => (
+          <div key={`h-${i}-${y}`} className="absolute left-0 right-0 pointer-events-none" style={{ top: y, height: 1, background: "#FF0033" }} />
+        ))}
       </div>
 
       {/* Zoom controls */}
