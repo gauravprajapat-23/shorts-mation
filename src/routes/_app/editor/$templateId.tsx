@@ -359,6 +359,15 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
 
   const scale = zoom === "fit" ? fitScale : zoom;
 
+  const onWheel = (e: React.WheelEvent) => {
+    // Zoom on Ctrl/Cmd + wheel (Canva-style)
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const cur = typeof scale === "number" ? scale : fitScale;
+    const next = Math.min(3, Math.max(0.05, cur * (e.deltaY > 0 ? 0.9 : 1.1)));
+    setZoom(next);
+  };
+
   const startDrag = (e: React.PointerEvent, el: EditorElement) => {
     if (el.locked) { setSelectedId(el.id); return; }
     e.stopPropagation();
@@ -411,7 +420,7 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   };
 
   return (
-    <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }}>
+    <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }} onWheel={onWheel}>
       <div
         className="relative shadow-2xl shadow-black/60 origin-center"
         style={{ width: dims.w, height: dims.h, transform: `scale(${scale})`, background: scene.background, outline: "1px solid #262626" }}
