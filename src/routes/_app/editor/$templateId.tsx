@@ -6,6 +6,7 @@ import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaul
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle } from "lucide-react";
 import { toast } from "sonner";
+import { TemplatePreview } from "@/lib/template-preview";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
   ssr: false,
@@ -52,6 +53,7 @@ function EditorPage() {
   const [panel, setPanel] = useState<Panel>("elements");
   const [previewVars, setPreviewVars] = useState<Record<string, string>>({});
   const [zoom, setZoom] = useState<number | "fit">("fit");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (!template) return;
@@ -188,7 +190,7 @@ function EditorPage() {
           <button title="Undo (⌘Z)" onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
           <button title="Redo (⌘⇧Z)" onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
           <div className="w-px h-6 bg-border mx-1" />
-          <button className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"><Eye className="size-3.5" /> Preview</button>
+          <button onClick={() => setPreviewOpen(true)} className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"><Eye className="size-3.5" /> Preview</button>
           <button title="Save (⌘S)" onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
             <Save className="size-3.5" /> {save.isPending ? "Saving…" : "Save"}
           </button>
@@ -297,6 +299,33 @@ function EditorPage() {
         ))}
         <button onClick={addScene} className="shrink-0 w-[72px] h-16 rounded-md border-2 border-dashed border-border hover:border-brand/60 grid place-items-center text-zinc-500"><Plus className="size-4" /></button>
       </footer>
+
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm grid place-items-center p-6" onClick={() => setPreviewOpen(false)}>
+          <div className="relative bg-panel border border-border rounded-2xl p-4 max-w-[90vw] max-h-[90vh] flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">Preview <span className="text-zinc-500 font-normal">· {doc.aspect}</span></div>
+              <button onClick={() => setPreviewOpen(false)} className="text-xs px-2 py-1 rounded-md border border-border hover:bg-white/5">Close</button>
+            </div>
+            <div className={`${doc.aspect === "9:16" ? "aspect-[9/16] h-[75vh]" : doc.aspect === "16:9" ? "aspect-video w-[75vw] max-w-4xl" : "aspect-square h-[75vh]"} bg-black rounded-lg overflow-hidden`}>
+              <TemplatePreview doc={doc} aspect={doc.aspect} vars={previewVars} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {doc.variables.slice(0, 6).map((v) => (
+                <label key={v} className="flex items-center gap-1.5 text-xs">
+                  <span className="text-zinc-500 font-mono">{v}</span>
+                  <input
+                    value={previewVars[v] ?? ""}
+                    onChange={(e) => setPreviewVars((p) => ({ ...p, [v]: e.target.value }))}
+                    placeholder={`sample ${v}`}
+                    className="h-7 px-2 rounded-md bg-zinc-950 border border-border text-xs w-36"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
