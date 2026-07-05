@@ -136,17 +136,17 @@ function TestRenderPage() {
   }, [doc, sceneIndex, previewVars]);
 
   const runMp4 = async () => {
-    if (!doc || !overlaySvg) return;
+    if (!doc) return;
     setMp4Err(null); setMp4Url(null); setMp4Progress(0);
     try {
-      const durationSec = Math.max(3, Math.round((doc.scenes[sceneIndex]?.durationMs ?? 6000) / 1000));
       // Dynamic import keeps ffmpeg.wasm out of the SSR entry chunk; the
       // browser only fetches it when the user clicks "Render MP4".
       const { renderMp4 } = await import("@/lib/ffmpeg-render");
       const blob = await renderMp4({
         backgroundVideoUrl: bgVideoUrl,
-        overlaySvg,
-        durationSeconds: durationSec,
+        doc,
+        vars: previewVars,
+        fps: 20,
         resolution, quality, muted, loop,
         onProgress: setMp4Progress,
       });

@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
+import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove } from "@/lib/types";
 import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw } from "lucide-react";
 import { toast } from "sonner";
-import { TemplatePreview } from "@/lib/template-preview";
+import { buildSceneSvgAtTime } from "@/lib/scene-svg";
+import { totalDocDurationMs } from "@/lib/animate";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
   ssr: false,
@@ -302,31 +303,64 @@ function EditorPage() {
       </footer>
 
       {previewOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm grid place-items-center p-6" onClick={() => setPreviewOpen(false)}>
-          <div className="relative bg-panel border border-border rounded-2xl p-4 max-w-[90vw] max-h-[90vh] flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">Preview <span className="text-zinc-500 font-normal">· {doc.aspect}</span></div>
-              <button onClick={() => setPreviewOpen(false)} className="text-xs px-2 py-1 rounded-md border border-border hover:bg-white/5">Close</button>
-            </div>
-            <div className={`${doc.aspect === "9:16" ? "aspect-[9/16] h-[75vh]" : doc.aspect === "16:9" ? "aspect-video w-[75vw] max-w-4xl" : "aspect-square h-[75vh]"} bg-black rounded-lg overflow-hidden`}>
-              <TemplatePreview doc={doc} aspect={doc.aspect} vars={previewVars} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {doc.variables.slice(0, 6).map((v) => (
-                <label key={v} className="flex items-center gap-1.5 text-xs">
-                  <span className="text-zinc-500 font-mono">{v}</span>
-                  <input
-                    value={previewVars[v] ?? ""}
-                    onChange={(e) => setPreviewVars((p) => ({ ...p, [v]: e.target.value }))}
-                    placeholder={`sample ${v}`}
-                    className="h-7 px-2 rounded-md bg-zinc-950 border border-border text-xs w-36"
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
+        <PreviewModal doc={doc} vars={previewVars} setVars={setPreviewVars} onClose={() => setPreviewOpen(false)} />
       )}
+    </div>
+  );
+}
+
+function PreviewModal({ doc, vars, setVars, onClose }: { doc: EditorDocument; vars: Record<string, string>; setVars: (fn: (p: Record<string, string>) => Record<string, string>) => void; onClose: () => void }) {
+  const totalMs = Math.max(1000, totalDocDurationMs(doc.scenes));
+  const [tMs, setTMs] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const startRef = useRef<number>(performance.now());
+  const baseRef = useRef<number>(0);
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    startRef.current = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - startRef.current + baseRef.current;
+      const looped = elapsed % totalMs;
+      setTMs(looped);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, totalMs]);
+  const svg = useMemo(() => buildSceneSvgAtTime({ doc, tMs, vars, includeBackground: true }), [doc, tMs, vars]);
+  const dataUrl = useMemo(() => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`, [svg]);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm grid place-items-center p-6" onClick={onClose}>
+      <div className="relative bg-panel border border-border rounded-2xl p-4 max-w-[90vw] max-h-[90vh] flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Animated preview <span className="text-zinc-500 font-normal">· {doc.aspect} · {(totalMs/1000).toFixed(1)}s</span></div>
+          <button onClick={onClose} className="text-xs px-2 py-1 rounded-md border border-border hover:bg-white/5">Close</button>
+        </div>
+        <div className={`${doc.aspect === "9:16" ? "aspect-[9/16] h-[70vh]" : doc.aspect === "16:9" ? "aspect-video w-[75vw] max-w-4xl" : "aspect-square h-[70vh]"} bg-black rounded-lg overflow-hidden grid place-items-center`}>
+          <img src={dataUrl} alt="preview" className="w-full h-full object-contain" />
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => { setPlaying((p) => !p); baseRef.current = tMs; startRef.current = performance.now(); }} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-brand text-white hover:bg-brand/90">
+            {playing ? "Pause" : "Play"}
+          </button>
+          <input type="range" min={0} max={totalMs} step={10} value={tMs} onChange={(e) => { setPlaying(false); setTMs(Number(e.target.value)); baseRef.current = Number(e.target.value); }} className="flex-1" />
+          <span className="font-mono text-[10px] text-zinc-500 w-16 text-right">{(tMs/1000).toFixed(2)}s</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {doc.variables.slice(0, 8).map((v) => (
+            <label key={v} className="flex items-center gap-1.5 text-xs">
+              <span className="text-zinc-500 font-mono">{v}</span>
+              <input
+                value={vars[v] ?? ""}
+                onChange={(e) => setVars((p) => ({ ...p, [v]: e.target.value }))}
+                placeholder={`sample ${v}`}
+                className="h-7 px-2 rounded-md bg-zinc-950 border border-border text-xs w-32"
+              />
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -867,6 +901,90 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
       </div>
       <Row label="Rotation"><input type="range" min={-180} max={180} value={selected.rotation} onChange={(e) => update({ rotation: Number(e.target.value) })} className="w-full" /></Row>
       <Row label="Opacity"><input type="range" min={0} max={1} step={0.05} value={selected.opacity} onChange={(e) => update({ opacity: Number(e.target.value) })} className="w-full" /></Row>
+      <AnimatePanel selected={selected} update={update} scene={scene} updateScene={updateScene} />
+    </div>
+  );
+}
+
+const IN_OPTIONS: InAnim[] = ["none","fade","slideUp","slideDown","slideLeft","slideRight","scale","pop","blur"];
+const OUT_OPTIONS: OutAnim[] = ["none","fade","slideUp","slideDown","slideLeft","slideRight","scale","pop","blur"];
+const LOOP_OPTIONS: LoopAnim[] = ["none","float","pulse","shake","kenburns"];
+const REVEAL_OPTIONS: TextReveal[] = ["none","typewriter","wordByWord","charStagger"];
+const CAMERA_OPTIONS: CameraMove[] = ["none","zoomIn","zoomOut","panLeft","panRight"];
+
+function AnimatePanel({ selected, update, scene, updateScene }: {
+  selected: EditorElement;
+  update: (patch: Partial<EditorElement>) => void;
+  scene: EditorScene;
+  updateScene: (mut: (s: EditorScene) => EditorScene) => void;
+}) {
+  const anim: AnimationSpec = selected.animations ?? {};
+  const setAnim = (patch: Partial<AnimationSpec>) => update({ animations: { ...anim, ...patch } } as Partial<EditorElement>);
+  return (
+    <div className="pt-3 mt-2 border-t border-border space-y-3">
+      <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold flex items-center gap-1.5">
+        <span className="inline-block size-1.5 rounded-full bg-brand" /> Animation
+      </div>
+      <Row label="Entrance">
+        <select
+          value={anim.in?.type ?? "none"}
+          onChange={(e) => setAnim({ in: { ...(anim.in ?? {}), type: e.target.value as InAnim, durationMs: anim.in?.durationMs ?? 500 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {IN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      {anim.in && anim.in.type !== "none" && (
+        <div className="grid grid-cols-2 gap-2">
+          <Row label="Delay (ms)">
+            <input type="number" value={anim.in.delayMs ?? 0} onChange={(e) => setAnim({ in: { ...anim.in!, delayMs: Number(e.target.value) } })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          </Row>
+          <Row label="Duration (ms)">
+            <input type="number" value={anim.in.durationMs ?? 500} onChange={(e) => setAnim({ in: { ...anim.in!, durationMs: Number(e.target.value) } })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          </Row>
+        </div>
+      )}
+      <Row label="Exit">
+        <select
+          value={anim.out?.type ?? "none"}
+          onChange={(e) => setAnim({ out: { ...(anim.out ?? {}), type: e.target.value as OutAnim, durationMs: anim.out?.durationMs ?? 400 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {OUT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      <Row label="Loop effect">
+        <select
+          value={anim.loop?.type ?? "none"}
+          onChange={(e) => setAnim({ loop: { ...(anim.loop ?? {}), type: e.target.value as LoopAnim, speedMs: anim.loop?.speedMs ?? 2000, amplitude: 1 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {LOOP_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      {selected.type === "text" && (
+        <Row label="Text reveal">
+          <select
+            value={(selected as TextElement).reveal ?? "none"}
+            onChange={(e) => update({ reveal: e.target.value as TextReveal } as Partial<TextElement>)}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {REVEAL_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Row>
+      )}
+      <div className="pt-3 mt-1 border-t border-border">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Scene camera</div>
+        <Row label="Camera move">
+          <select
+            value={scene.cameraMove ?? "none"}
+            onChange={(e) => updateScene((s) => ({ ...s, cameraMove: e.target.value as CameraMove }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {CAMERA_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Row>
+      </div>
     </div>
   );
 }

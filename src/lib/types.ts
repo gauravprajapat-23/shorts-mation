@@ -10,6 +10,23 @@ export type AutomationLog = T["automation_logs"]["Row"];
 
 export type AspectRatio = "9:16" | "16:9" | "1:1";
 
+// ---- Animation model ---------------------------------------------------
+export type EaseName = "linear" | "easeOut" | "easeInOut" | "spring";
+export type InAnim =
+  | "none" | "fade" | "slideUp" | "slideDown" | "slideLeft" | "slideRight"
+  | "scale" | "pop" | "blur";
+export type OutAnim = InAnim;
+export type LoopAnim = "none" | "float" | "pulse" | "shake" | "kenburns";
+export type TextReveal = "none" | "typewriter" | "wordByWord" | "charStagger";
+export type CameraMove = "none" | "zoomIn" | "zoomOut" | "panLeft" | "panRight";
+export type SceneTransition = "cut" | "fade" | "slideLeft" | "slideRight" | "wipe";
+
+export type AnimationSpec = {
+  in?:  { type: InAnim;  delayMs?: number; durationMs?: number; easing?: EaseName; amount?: number };
+  out?: { type: OutAnim; startMs?: number; durationMs?: number; easing?: EaseName; amount?: number };
+  loop?: { type: LoopAnim; amplitude?: number; speedMs?: number };
+};
+
 export type EditorElementBase = {
   id: string;
   x: number;
@@ -19,6 +36,7 @@ export type EditorElementBase = {
   rotation: number;
   opacity: number;
   locked?: boolean;
+  animations?: AnimationSpec;
 };
 
 export type TextElement = EditorElementBase & {
@@ -32,6 +50,7 @@ export type TextElement = EditorElementBase & {
   shadow?: string;
   stroke?: string;
   background?: string;
+  reveal?: TextReveal;
 };
 
 export type ShapeElement = EditorElementBase & {
@@ -64,6 +83,8 @@ export type EditorScene = {
   durationMs: number;
   background: string;
   elements: EditorElement[];
+  cameraMove?: CameraMove;
+  transitionIn?: SceneTransition;
 };
 
 export type EditorDocument = {

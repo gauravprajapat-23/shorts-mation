@@ -3,11 +3,12 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet } from "lucide-react";
+import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { generateSampleCsv, downloadCsv } from "@/lib/sample-csv";
 import type { EditorDocument } from "@/lib/types";
 import { TemplatePreview } from "@/lib/template-preview";
+import { STARTER_TEMPLATES } from "@/lib/starter-templates";
 
 export const Route = createFileRoute("/_app/templates/")({
   head: () => ({ meta: [{ title: "Templates — ShortsForge" }] }),
@@ -56,6 +57,24 @@ function TemplatesPage() {
     onError: (e) => toast.error(e.message),
   });
 
+  const loadStarters = useMutation({
+    mutationFn: async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("Not signed in");
+      const rows = STARTER_TEMPLATES.map((s) => ({
+        user_id: u.user!.id,
+        name: s.name,
+        type: s.type,
+        aspect_ratio: s.doc.aspect,
+        template_json: s.doc as never,
+      }));
+      const { error } = await supabase.from("templates").insert(rows);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); toast.success("4 animated starter templates added"); },
+    onError: (e) => toast.error(e.message),
+  });
+
   const defaults = data?.filter((t) => t.is_default) ?? [];
   const mine = data?.filter((t) => !t.is_default) ?? [];
 
@@ -65,9 +84,19 @@ function TemplatesPage() {
         title="Templates"
         description="Reusable designs with variable placeholders. Pick a default to start fast, or build your own."
         action={
-          <Link to="/templates/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white font-semibold text-sm hover:bg-brand/90">
-            <Plus className="size-4" /> New template
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadStarters.mutate()}
+              disabled={loadStarters.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-brand/40 bg-brand/10 text-brand font-semibold text-sm hover:bg-brand/20 disabled:opacity-50"
+              title="Insert 4 pre-animated templates (Quiz, Motivation, Fact, Top 5) into your library"
+            >
+              <Zap className="size-4" /> {loadStarters.isPending ? "Adding…" : "Load animated starters"}
+            </button>
+            <Link to="/templates/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white font-semibold text-sm hover:bg-brand/90">
+              <Plus className="size-4" /> New template
+            </Link>
+          </div>
         }
       />
 

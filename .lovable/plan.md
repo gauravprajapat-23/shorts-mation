@@ -1,130 +1,87 @@
-## Goal of v1
+## Goal
+Move renders from static SVG frames to animated MP4s, and ship a starter library of high-effort animated templates (Quiz, Motivation, plus a couple more) so YouTube Shorts feel produced rather than slideshow-y.
 
-Ship a clickable, production-style SaaS shell for the YouTube Bulk Video Automation Platform. Every page, table, and workflow exists end-to-end. Rendering and real YouTube API calls are **stubbed** behind a clean service contract so a worker/Edge Function can plug in later without UI changes.
+## What changes
 
-## Tech & stack decisions
+### 1. Animated element model
+Extend `EditorElement` in `src/lib/types.ts` with an optional `animations` block:
+```ts
+animations?: {
+  in?:  { type: "fade" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "scale" | "pop" | "blur"; delayMs: number; durationMs: number; easing?: "linear" | "easeOut" | "easeInOut" | "spring" };
+  out?: { type: ...; startMs: number; durationMs: number };
+  loop?: { type: "float" | "pulse" | "shake" | "wiggle" | "kenburns"; amplitude?: number; speedMs?: number };
+}
+```
+Scenes get an optional `transition` ("cut" | "fade" | "slideLeft" | "wipe") and a `cameraMove` ("none" | "zoomIn" | "zoomOut" | "panLeft" | "panRight") for Ken-Burns feel.
 
-- TanStack Start (React 19 + TS) + Tailwind v4 + shadcn/ui (already scaffolded).
-- Lovable Cloud (Supabase) for auth, DB, storage, RLS, and Edge Function stubs.
-- Auth: email/password + Google (managed broker). YouTube OAuth is **separate** (a per-user connection record, tokens stored server-side only).
-- Design: **Cinematic dark mode** direction (locked) — `#0A0A0A` canvas, `#141414` panels, `#262626` borders, `#FF0033` brand, Inter + Plus Jakarta Sans.
+Text elements get optional `reveal: "none" | "typewriter" | "wordByWord" | "charStagger"` so quiz questions/motivation lines land word by word.
 
-## Information architecture (routes)
+### 2. Animated preview in the editor
+`src/lib/template-preview.tsx` gets a sibling `AnimatedTemplatePreview` that runs a `requestAnimationFrame` timeline and applies per-element `transform`/`opacity` per frame. The static `TemplatePreview` stays for template cards (thumbnails). The editor's Preview modal switches to the animated version with a play/pause/scrub bar.
 
-Public:
-- `/` — marketing landing (one screen, CTA to sign in)
-- `/auth` — sign in / sign up (email + Google)
-- `/auth/youtube/callback` — YouTube OAuth return handler
+### 3. Render pipeline (animated MP4)
+`src/lib/ffmpeg-render.ts` currently burns one PNG overlay over the background. Replace with a per-frame pipeline:
+- Compute total frames (`durationMs * fps`, fps=30).
+- For each frame, rasterize the scene at time `t` to a PNG via the same animation math used in the editor (shared helper `renderSceneToSvg(doc, tMs, vars)`).
+- Feed frames to ffmpeg.wasm as `frame_%05d.png` and encode with `-framerate 30 -i frame_%05d.png` composited over the background video (existing scale/crop filter).
+- Keep resolution/quality options. Add a hard cap (e.g. 15s at 30fps = 450 frames) so wasm memory stays sane; warn in the UI above that.
 
-Authenticated (under `_authenticated/`):
-- `/dashboard` — KPIs, channel status, onboarding checklist, recent jobs, quick actions
-- `/youtube-connect` — connect/disconnect YouTube, channel card, warnings
-- `/templates` — grid of user + default templates
-- `/templates/new` — picker (blank / from default)
-- `/editor/$templateId` — full editor (see below)
-- `/campaigns` — list
-- `/campaigns/new` — 8-step automation wizard
-- `/campaigns/$campaignId` — detail (stats, settings, controls)
-- `/campaigns/$campaignId/queue` — queue table
-- `/assets` — uploaded images / videos / audio / logos
-- `/settings` — profile, timezone, delete data
-- `/billing-placeholder`
+Progress reporting: emit progress as `rasterized/total * 0.6 + ffmpegProgress * 0.4`.
 
-## Core modules
+### 4. Test-render page
+`src/routes/_app/campaigns/$campaignId.test-render.tsx` already calls `renderMp4`; it just needs to pass `doc` + `durationMs` instead of a single SVG string. Update the call site and the fallback doc in `render-jobs.functions.ts` so server-side "fake" jobs still produce a still preview (unchanged), but real client renders are animated.
 
-### 1. Shell
-Sticky left icon rail (Dashboard, Templates, Campaigns, Assets, Settings), compact top bar with breadcrumb and primary action, dark cinematic theme tokens.
+### 5. Starter animated templates
+Add a seed set in `src/lib/starter-templates.ts` and a "Load starter templates" button on `src/routes/_app/templates/index.tsx` (inserts into the `templates` table for the current user). Four templates, each ~10–12s, 9:16, with layered animations:
 
-### 2. Dashboard
-KPI cards (campaigns, generated, scheduled, uploaded, failed), connected-channel card, onboarding checklist (5 steps, persists in `profiles.onboarding_state`), recent jobs feed, quick-action buttons.
+1. **Quiz — "Guess the ___"**
+   - Scene 1 (3s): category chip pops in, question types on word-by-word, 3s countdown ring animates.
+   - Scene 2 (4s): four answer cards slide up staggered, correct answer scales + glows.
+   - Scene 3 (3s): "Follow for more" CTA with pulsing arrow.
+   - Variables: `category`, `question`, `optionA..D`, `correct`.
 
-### 3. YouTube Connect
-- "Connect YouTube" → opens Google OAuth (server route initiates, callback at `/api/public/youtube/callback`) — **stubbed**: callback creates a fake `youtube_connections` row so the UI flows work end-to-end.
-- Connected card (avatar, name, channel ID), disconnect, API-verification warning banner, refresh-token architecture documented in code comments.
+2. **Motivation — "Stoic Punch"**
+   - Ken-Burns background, big serif quote reveals line by line, author fades in, red accent bar wipes across, end card with handle.
+   - Variables: `quote`, `author`, `handle`.
 
-### 4. Template Editor (full editor scope)
-Canva-style, dark. Layout matches the selected direction:
-- Top bar: back, name (inline edit), undo/redo, save, preview, export
-- Left rail (collapsible): Templates / Text / Images / Shapes / Backgrounds / Audio / Variables
-- Center canvas: 9:16 default, 16:9 and 1:1 toggle, zoom, snap guides, safe area, direct on-canvas text editing, drag/resize/rotate, layer selection
-- Right panel: element properties (font, size, weight, color, shadow, stroke, bg, animation in/out, timing)
-- Bottom: scene timeline (multi-scene), per-scene duration, audio track lane, bulk preview thumbnail strip from current campaign data
-- Variables: `{{quote}} {{author}} {{question}} {{option_a..d}} {{answer}} {{title}} {{date}} {{day_count}} {{cta}} {{video_file_name}}` — drag onto canvas to bind text element
-- Template stored as JSON (`templates.template_json`) — engine-agnostic schema (scenes → layers → bindings) ready for FFmpeg/Remotion later
-- Actions: duplicate, delete, save as default
+3. **Did-You-Know / Fact**
+   - Number counts up, fact text char-stagger reveal, floating icons loop, swipe transition to source line.
+   - Variables: `stat`, `unit`, `fact`, `source`.
 
-State: Zustand store per editor session with undo/redo history stack.
+4. **Top 5 Countdown**
+   - Ranks 5→1 slide in from right with a whoosh accent bar, each holds 1.5s, final #1 scales with confetti dots loop.
+   - Variables: `title`, `item1..5`.
 
-### 5. Default ready templates
-Seeded via migration as `is_default=true` rows owned by `NULL` user, readable by all `authenticated`: Motivational Quote, Daily Thought, Quiz, Did You Know, Countdown, Before/After, Product Promo, Spiritual Thought, Educational Tip, News Shorts. Each has placeholder variables, sample design JSON, default music slot.
+Each template is authored as a full `EditorDocument` with animation metadata so users can duplicate and remix.
 
-### 6. JSON/CSV import + validation
-- Upload screen accepts `.json` or `.csv`
-- Parser supports the exact JSON schema in the brief and the CSV column list
-- Validation report screen: total rows, missing required fields per row, duplicate `video_file_name`, invalid ISO schedule dates, invalid privacy enum, unknown template — each editable inline before commit
-- Sample JSON + sample CSV download buttons
+### 6. Editor UI for animations
+Right panel gets an "Animate" tab (next to existing property controls) with:
+- In-animation dropdown + delay/duration sliders
+- Out-animation dropdown
+- Loop effect dropdown
+- For text: reveal mode dropdown
+- Scene-level: transition + camera move dropdowns
+Live preview updates as user tweaks.
 
-### 7. Bulk Generator
-Wizard step inside campaign-new: select template → upload file → upload assets → map columns → preview grid (per-row mini canvas render using template JSON + row data in-browser SVG/HTML) → click any to expand, edit, mark ready/not ready → "Start Automation". Statuses: pending / rendering / rendered / upload_pending / uploading / uploaded / scheduled / failed.
+## Technical notes (details)
+- Animation math lives in one place: `src/lib/animate.ts` exports `computeElementTransform(el, tMs)` returning `{ x, y, scale, rotation, opacity }`. Reused by editor preview, template-preview animated variant, and the ffmpeg per-frame rasterizer.
+- Easing helpers (`easeOutCubic`, `spring`) implemented inline; no new deps.
+- Per-frame rasterization uses the existing `svgToPngBlob` approach in `ffmpeg-render.ts`, called in a loop with `await` so we don't block the main thread; yield to UI every ~10 frames.
+- Duration cap: 15s @ 30fps for wasm; expose as constant.
+- Background video is still scaled/cropped once via ffmpeg's `overlay` filter chain; overlay input becomes an image sequence rather than a single PNG.
+- No backend/schema changes needed — animations live inside `template_json` which is already `jsonb`.
 
-### 8. Audio system
-Asset manager with type filter, per-row override via CSV `audio_file_name`, global per-campaign default, volume / trim / loop / fade / mute-original flags persisted in `audio_json`.
+## Files touched
+- `src/lib/types.ts` — extend element/scene types
+- `src/lib/animate.ts` — new, shared animation math
+- `src/lib/template-preview.tsx` — add `AnimatedTemplatePreview`
+- `src/lib/ffmpeg-render.ts` — per-frame pipeline
+- `src/lib/starter-templates.ts` — new, 4 seed templates
+- `src/lib/render-jobs.functions.ts` — pass through animated preview shape
+- `src/routes/_app/editor/$templateId.tsx` — Animate tab + animated preview modal
+- `src/routes/_app/templates/index.tsx` — "Load starter templates" action + animated card thumbnails (optional: keep static thumbs for perf)
+- `src/routes/_app/campaigns/$campaignId.test-render.tsx` — call updated `renderMp4`
 
-### 9. Automation wizard (8 steps)
-Channel → Template → File → Assets → Mapping → Preview → Schedule rules → Confirm. Schedule rules: use file's `schedule_at`, OR X-per-day at HH:MM, skip weekends, start/end date, timezone, retry on failure.
-
-### 10. Campaign management
-List, detail (status, counts, settings, queue link), pause/resume/stop/duplicate/delete, export CSV report.
-
-### 11. Upload queue
-Table per spec — thumbnail, file name, title, template, status pill (color-coded), schedule time, YouTube status, error message, retry, view logs drawer, open YouTube link.
-
-## Database schema (Supabase migration)
-
-Tables exactly per brief: `profiles`, `youtube_connections`, `templates`, `campaigns`, `campaign_items`, `assets`, `automation_logs`, plus `user_roles` (admin/user enum + `has_role` security-definer fn per project rules).
-
-Every public table gets explicit `GRANT` to `authenticated` + `service_role`. RLS enabled on every table; policies scoped to `auth.uid()`. Templates also allow `SELECT` where `is_default = true`. Token columns store **encrypted text** (pgp_sym_encrypt with a `YOUTUBE_TOKEN_ENCRYPTION_KEY` secret) — never readable by client; only Edge Functions/admin paths decrypt.
-
-Trigger: `on_auth_user_created` → insert `profiles` row.
-
-Storage buckets:
-- `assets` (private) — user-uploaded images / video / audio / logos
-- `renders` (private) — generated MP4s
-- `thumbnails` (private with signed-URL helper) — preview frames
-
-### Server-side stubs (Edge Functions / server routes)
-
-All under stubs that return shaped responses + insert logs so UI is fully exercised:
-- `youtube-oauth-start` / `youtube-oauth-callback` (server routes under `/api/public/youtube/*`)
-- `refresh-youtube-token`
-- `parse-upload-file` (server fn, real implementation)
-- `validate-campaign-data` (real)
-- `create-render-jobs` (real — inserts `campaign_items`)
-- `render-video` (stub: marks rendered, fake URL)
-- `upload-to-youtube` (stub: fake YT video id)
-- `schedule-youtube-video` (stub)
-- `process-automation-queue` (stub cron-style fn)
-- `retry-failed-job`, `pause-campaign`, `resume-campaign`
-
-## UX details
-Onboarding checklist on dashboard, tooltips, sample file downloads, demo campaign seeded on first sign-in, "Test render 1 video" button, default-private safety toggle, progress bars, logs drawer, consent checkbox before starting automation, delete-all-data action in settings.
-
-## Out of scope for v1 (explicit)
-- Real FFmpeg/Remotion rendering — engine plugs into `render-video` later
-- Real YouTube Data API uploads — interface plugs into `upload-to-youtube`
-- Billing
-- Real-time collaborative editing
-- Mobile editor (responsive viewer only)
-
-## Build order
-
-1. Cloud + schema + RLS + seeds + storage buckets + roles
-2. Theme tokens (dark cinematic) + shell + auth pages
-3. Dashboard + Templates list + YouTube Connect (stubbed)
-4. JSON/CSV parser + validator + sample downloads
-5. Campaign wizard + campaigns list/detail + queue table
-6. Template editor (canvas, panels, variables, multi-scene, audio lane)
-7. Edge Function stubs + automation queue logs + retry/pause/resume
-8. Settings, assets manager, polish, empty states, onboarding checklist persistence
-
-Given the size, I'll deliver this in a single large initial build then iterate. Expect follow-up turns to refine the editor and any rough edges.
+## Out of scope
+- Audio-reactive animation, particle systems, 3D — can come later.
+- Server-side rendering of MP4 (still fully client-side via ffmpeg.wasm).
