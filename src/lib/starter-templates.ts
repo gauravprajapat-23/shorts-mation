@@ -1,4 +1,4 @@
-import type { EditorDocument } from "@/lib/types";
+import type { EditorDocument, EditorScene } from "@/lib/types";
 
 // 9:16 canvas is 1080×1920.
 
@@ -142,18 +142,18 @@ const TOP5: EditorDocument = {
           fontFamily: "Plus Jakarta Sans", fontSize: 44, fontWeight: 800, color: "#F97316", align: "center",
           animations: { in: { type: "slideDown", durationMs: 400 } } },
       ] },
-    ...([5, 4, 3, 2, 1].map((rank) => ({
+    ...([5, 4, 3, 2, 1].map((rank): EditorScene => ({
       id: `t-${rank}`, name: `#${rank}`, durationMs: rank === 1 ? 3500 : 2000, background: "#020617",
-      transitionIn: "fade" as const, cameraMove: rank === 1 ? ("zoomIn" as const) : ("none" as const),
+      transitionIn: "fade", cameraMove: rank === 1 ? "zoomIn" : "none",
       elements: [
-        { id: `t-${rank}-rank`, type: "text" as const, text: `#${rank}`, x: 60, y: 500, w: 960, h: 320, rotation: 0, opacity: 1,
+        { id: `t-${rank}-rank`, type: "text", text: `#${rank}`, x: 60, y: 500, w: 960, h: 320, rotation: 0, opacity: 1,
           fontFamily: "Plus Jakarta Sans", fontSize: 300, fontWeight: 900, color: rank === 1 ? "#F97316" : "#FFFFFF", align: "center",
-          animations: { in: { type: "slideLeft" as const, durationMs: 400, easing: "spring" as const }, loop: rank === 1 ? { type: "pulse" as const, amplitude: 1, speedMs: 800 } : { type: "none" as const } } },
-        { id: `t-${rank}-bar`, type: "shape" as const, shape: "rect" as const, x: 60, y: 900, w: 960, h: 10, rotation: 0, opacity: 1, fill: "#F97316", radius: 999,
-          animations: { in: { type: "slideRight" as const, delayMs: 150, durationMs: 400 } } },
-        { id: `t-${rank}-text`, type: "text" as const, text: `{{item${rank}}}`, x: 60, y: 970, w: 960, h: 500, rotation: 0, opacity: 1,
+          animations: { in: { type: "slideLeft", durationMs: 400, easing: "spring" }, loop: rank === 1 ? { type: "pulse", amplitude: 1, speedMs: 800 } : { type: "none" } } },
+        { id: `t-${rank}-bar`, type: "shape", shape: "rect", x: 60, y: 900, w: 960, h: 10, rotation: 0, opacity: 1, fill: "#F97316", radius: 999,
+          animations: { in: { type: "slideRight", delayMs: 150, durationMs: 400 } } },
+        { id: `t-${rank}-text`, type: "text", text: `{{item${rank}}}`, x: 60, y: 970, w: 960, h: 500, rotation: 0, opacity: 1,
           fontFamily: "Plus Jakarta Sans", fontSize: 96, fontWeight: 900, color: "#FFFFFF", align: "center",
-          animations: { in: { type: "slideUp" as const, delayMs: 300, durationMs: 500, easing: "spring" as const } } },
+          animations: { in: { type: "slideUp", delayMs: 300, durationMs: 500, easing: "spring" } } },
       ],
     }))),
   ],
