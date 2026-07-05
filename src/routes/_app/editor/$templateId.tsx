@@ -867,6 +867,90 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
       </div>
       <Row label="Rotation"><input type="range" min={-180} max={180} value={selected.rotation} onChange={(e) => update({ rotation: Number(e.target.value) })} className="w-full" /></Row>
       <Row label="Opacity"><input type="range" min={0} max={1} step={0.05} value={selected.opacity} onChange={(e) => update({ opacity: Number(e.target.value) })} className="w-full" /></Row>
+      <AnimatePanel selected={selected} update={update} scene={scene} updateScene={updateScene} />
+    </div>
+  );
+}
+
+const IN_OPTIONS: InAnim[] = ["none","fade","slideUp","slideDown","slideLeft","slideRight","scale","pop","blur"];
+const OUT_OPTIONS: OutAnim[] = ["none","fade","slideUp","slideDown","slideLeft","slideRight","scale","pop","blur"];
+const LOOP_OPTIONS: LoopAnim[] = ["none","float","pulse","shake","kenburns"];
+const REVEAL_OPTIONS: TextReveal[] = ["none","typewriter","wordByWord","charStagger"];
+const CAMERA_OPTIONS: CameraMove[] = ["none","zoomIn","zoomOut","panLeft","panRight"];
+
+function AnimatePanel({ selected, update, scene, updateScene }: {
+  selected: EditorElement;
+  update: (patch: Partial<EditorElement>) => void;
+  scene: EditorScene;
+  updateScene: (mut: (s: EditorScene) => EditorScene) => void;
+}) {
+  const anim: AnimationSpec = selected.animations ?? {};
+  const setAnim = (patch: Partial<AnimationSpec>) => update({ animations: { ...anim, ...patch } } as Partial<EditorElement>);
+  return (
+    <div className="pt-3 mt-2 border-t border-border space-y-3">
+      <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold flex items-center gap-1.5">
+        <span className="inline-block size-1.5 rounded-full bg-brand" /> Animation
+      </div>
+      <Row label="Entrance">
+        <select
+          value={anim.in?.type ?? "none"}
+          onChange={(e) => setAnim({ in: { ...(anim.in ?? {}), type: e.target.value as InAnim, durationMs: anim.in?.durationMs ?? 500 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {IN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      {anim.in && anim.in.type !== "none" && (
+        <div className="grid grid-cols-2 gap-2">
+          <Row label="Delay (ms)">
+            <input type="number" value={anim.in.delayMs ?? 0} onChange={(e) => setAnim({ in: { ...anim.in!, delayMs: Number(e.target.value) } })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          </Row>
+          <Row label="Duration (ms)">
+            <input type="number" value={anim.in.durationMs ?? 500} onChange={(e) => setAnim({ in: { ...anim.in!, durationMs: Number(e.target.value) } })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          </Row>
+        </div>
+      )}
+      <Row label="Exit">
+        <select
+          value={anim.out?.type ?? "none"}
+          onChange={(e) => setAnim({ out: { ...(anim.out ?? {}), type: e.target.value as OutAnim, durationMs: anim.out?.durationMs ?? 400 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {OUT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      <Row label="Loop effect">
+        <select
+          value={anim.loop?.type ?? "none"}
+          onChange={(e) => setAnim({ loop: { ...(anim.loop ?? {}), type: e.target.value as LoopAnim, speedMs: anim.loop?.speedMs ?? 2000, amplitude: 1 } })}
+          className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+        >
+          {LOOP_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Row>
+      {selected.type === "text" && (
+        <Row label="Text reveal">
+          <select
+            value={(selected as TextElement).reveal ?? "none"}
+            onChange={(e) => update({ reveal: e.target.value as TextReveal } as Partial<TextElement>)}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {REVEAL_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Row>
+      )}
+      <div className="pt-3 mt-1 border-t border-border">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Scene camera</div>
+        <Row label="Camera move">
+          <select
+            value={scene.cameraMove ?? "none"}
+            onChange={(e) => updateScene((s) => ({ ...s, cameraMove: e.target.value as CameraMove }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {CAMERA_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Row>
+      </div>
     </div>
   );
 }
