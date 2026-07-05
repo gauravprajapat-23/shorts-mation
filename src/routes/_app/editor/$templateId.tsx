@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
+import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove } from "@/lib/types";
 import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { TemplatePreview } from "@/lib/template-preview";
