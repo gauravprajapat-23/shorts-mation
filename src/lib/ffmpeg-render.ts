@@ -93,7 +93,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
 
   const args: string[] = ["-y"];
   const fps = Math.max(12, Math.min(30, opts.fps ?? 20));
-  const maxDurationMs = opts.maxDurationMs ?? 15000;
+  const maxDurationMs = opts.maxDurationMs ?? 30000;
 
   // Animated path — rasterize every frame from `doc` at the current time.
   if (opts.doc) {
