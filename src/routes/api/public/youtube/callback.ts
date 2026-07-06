@@ -99,14 +99,17 @@ export const Route = createFileRoute("/api/public/youtube/callback")({
         if (!ch) return Response.redirect(`${back}?yt_error=no_channel`, 302);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { encryptToken } = await import("@/lib/token-crypto.server");
         const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
+        const encAccess = await encryptToken(tokens.access_token);
+        const encRefresh = tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null;
         const { error: upErr } = await supabaseAdmin.from("youtube_connections").upsert({
           user_id: userId,
           channel_id: ch.id,
           channel_name: ch.snippet.title,
           channel_avatar: ch.snippet.thumbnails?.default?.url ?? null,
-          access_token_encrypted: tokens.access_token,
-          refresh_token_encrypted: tokens.refresh_token ?? null,
+          access_token_encrypted: encAccess,
+          refresh_token_encrypted: encRefresh,
           token_expiry: expiresAt,
           is_connected: true,
         }, { onConflict: "user_id,channel_id" });
