@@ -34,7 +34,13 @@ function NewCampaignPage() {
 
   const yt = useQuery({
     queryKey: ["yt-list"],
-    queryFn: async () => (await supabase.from("youtube_connections").select("*").eq("is_connected", true)).data ?? [],
+    queryFn: async () =>
+      (
+        await supabase
+          .from("youtube_connections")
+          .select("id,channel_id,channel_name,channel_avatar,is_connected")
+          .eq("is_connected", true)
+      ).data ?? [],
   });
   const templates = useQuery({
     queryKey: ["templates-pick"],
