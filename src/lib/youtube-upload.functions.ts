@@ -174,6 +174,9 @@ async function uploadItemToYouTube(itemId: string) {
     const settings = (campaign.settings_json ?? {}) as { default_privacy?: "private" | "unlisted" | "public" };
 
     const videoUrl = await pickVideoUrl(item.user_id, asset.background_file_name, item.rendered_video_url);
+    if (!isAllowedSignedStorageUrl(videoUrl)) {
+      throw new Error("Refusing to fetch video from an untrusted host.");
+    }
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Fetch video failed: ${videoRes.status}`);
     const videoBlob = await videoRes.blob();
