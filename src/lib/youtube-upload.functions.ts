@@ -4,8 +4,31 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 type Tokens = { access_token: string; expires_at: string | null };
 type PublishResult = { ok: true; videoId: string } | { ok: false; error: string };
 
-function isAbsoluteFetchableUrl(value: string) {
-  return /^https?:\/\//i.test(value) || /^data:video\//i.test(value);
+// SSRF guard: only fetch video bytes from Supabase storage signed URLs on
+// this project's Supabase host. Rejects link-local/private/metadata endpoints
+// and any other user-supplied host.
+function allowedStorageHost(): string | null {
+  const raw = process.env.SUPABASE_URL;
+  if (!raw) return null;
+  try {
+    return new URL(raw).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedSignedStorageUrl(value: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const host = allowedStorageHost();
+  if (!host || u.host.toLowerCase() !== host) return false;
+  // Supabase storage signed URLs live under /storage/v1/object/sign/
+  return u.pathname.startsWith("/storage/v1/object/sign/");
 }
 
 async function signedStorageUrl(bucket: "assets" | "renders", path: string): Promise<string> {
@@ -19,7 +42,17 @@ async function signedStorageUrl(bucket: "assets" | "renders", path: string): Pro
 async function resolveStoredUrl(bucket: "assets" | "renders", fileUrl?: string | null, storagePath?: string | null): Promise<string | null> {
   const candidate = storagePath || fileUrl;
   if (!candidate) return null;
-  if (isAbsoluteFetchableUrl(candidate)) return candidate;
+  // If it's already an absolute URL, only accept it when it's a Supabase
+  // signed storage URL on our project host. Otherwise re-sign the path via
+  // the admin client.
+  if (/^https?:\/\//i.test(candidate) || candidate.startsWith("data:") || candidate.startsWith("blob:")) {
+    if (candidate.startsWith("data:") || candidate.startsWith("blob:")) return null;
+    if (isAllowedSignedStorageUrl(candidate)) return candidate;
+    // Attempt to recover a storage path from a bucket-scoped URL, otherwise reject.
+    const m = candidate.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/i);
+    if (m && (m[1] === bucket)) return signedStorageUrl(bucket, decodeURIComponent(m[2]));
+    return null;
+  }
   if (candidate.startsWith("blob:")) return null;
   return signedStorageUrl(bucket, candidate.replace(new RegExp(`^${bucket}/`), ""));
 }
@@ -31,13 +64,16 @@ async function refreshIfNeeded(conn: {
   refresh_token_encrypted: string | null;
   token_expiry: string | null;
 }): Promise<Tokens> {
-  if (!conn.access_token_encrypted) throw new Error("No access token stored for this channel");
+  const { decryptToken, encryptToken } = await import("@/lib/token-crypto.server");
+  const currentAccess = await decryptToken(conn.access_token_encrypted);
+  if (!currentAccess) throw new Error("No access token stored for this channel");
   const now = Date.now();
   const expiry = conn.token_expiry ? new Date(conn.token_expiry).getTime() : 0;
   if (expiry - now > 60_000) {
-    return { access_token: conn.access_token_encrypted, expires_at: conn.token_expiry };
+    return { access_token: currentAccess, expires_at: conn.token_expiry };
   }
-  if (!conn.refresh_token_encrypted) {
+  const refreshToken = await decryptToken(conn.refresh_token_encrypted);
+  if (!refreshToken) {
     // Token is expired and we can't refresh — surface a clear error
     throw new Error("YouTube token expired and no refresh_token on file. Reconnect the channel.");
   }
@@ -51,15 +87,16 @@ async function refreshIfNeeded(conn: {
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: "refresh_token",
-      refresh_token: conn.refresh_token_encrypted,
+      refresh_token: refreshToken,
     }),
   });
   const j = (await res.json()) as { access_token?: string; expires_in?: number; error?: string; error_description?: string };
   if (!res.ok || !j.access_token) throw new Error(j.error_description ?? j.error ?? "Token refresh failed");
   const expiresAt = j.expires_in ? new Date(Date.now() + j.expires_in * 1000).toISOString() : null;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const encAccess = await encryptToken(j.access_token);
   await supabaseAdmin.from("youtube_connections").update({
-    access_token_encrypted: j.access_token,
+    access_token_encrypted: encAccess,
     token_expiry: expiresAt,
   }).eq("id", conn.id);
   return { access_token: j.access_token, expires_at: expiresAt };
@@ -71,7 +108,9 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
   if (rendered) return rendered;
 
   if (backgroundFileName) {
-    if (isAbsoluteFetchableUrl(backgroundFileName)) return backgroundFileName;
+    // Never fetch arbitrary user-supplied URLs. Only treat this value as a
+    // storage path lookup — if it happens to be a full URL, drop it and fall
+    // back to the assets table lookup below.
     if (backgroundFileName.startsWith(`${userId}/`)) return signedStorageUrl("assets", backgroundFileName);
     const { data } = await supabaseAdmin
       .from("assets")
