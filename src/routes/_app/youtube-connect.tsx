@@ -32,7 +32,14 @@ function YoutubeConnectPage() {
 
   const { data: conn } = useQuery({
     queryKey: ["yt"],
-    queryFn: async () => (await supabase.from("youtube_connections").select("*").eq("is_connected", true).maybeSingle()).data,
+    queryFn: async () =>
+      (
+        await supabase
+          .from("youtube_connections")
+          .select("id,channel_id,channel_name,channel_avatar,is_connected,token_expiry,created_at,updated_at")
+          .eq("is_connected", true)
+          .maybeSingle()
+      ).data,
   });
 
   const connect = useMutation({
