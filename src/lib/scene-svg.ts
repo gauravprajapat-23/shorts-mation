@@ -1,5 +1,5 @@
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
-import { computeCamera, computeElementFrame, localSceneTime, sceneTransitionOverlayOpacity } from "@/lib/animate";
+import { computeCamera, computeElementFrame, effectiveSceneDurationMs, localSceneTime, sceneTransitionOverlayOpacity } from "@/lib/animate";
 import type { EditorDocument, EditorElement, ImageElement, ShapeElement, TextElement } from "@/lib/types";
 
 const esc = (s: string) =>
@@ -96,7 +96,8 @@ export function buildSceneSvgAtTime(opts: {
   const cam = computeCamera(scene, localMs);
   const camTr = `translate(${dims.w/2 + cam.tx} ${dims.h/2 + cam.ty}) scale(${cam.scale}) translate(${-dims.w/2} ${-dims.h/2})`;
   const parts: string[] = [];
-  for (const el of scene.elements) parts.push(renderElement(el, localMs, scene.durationMs, vars, includeVideo));
+  const sceneDur = effectiveSceneDurationMs(scene);
+  for (const el of scene.elements) parts.push(renderElement(el, localMs, sceneDur, vars, includeVideo));
   const bg = includeBg ? `<rect width="${dims.w}" height="${dims.h}" fill="${scene.background ?? "#000"}"/>` : "";
   const fade = sceneTransitionOverlayOpacity(scene, localMs);
   const fadeRect = fade > 0.001 ? `<rect width="${dims.w}" height="${dims.h}" fill="#000" opacity="${fade.toFixed(3)}"/>` : "";
