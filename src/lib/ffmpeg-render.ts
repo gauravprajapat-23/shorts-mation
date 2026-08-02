@@ -3,7 +3,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
-import { totalDocDurationMs } from "@/lib/animate";
+import { resolveDocVars, totalDocDurationMs } from "@/lib/animate";
 import type { EditorDocument } from "@/lib/types";
 
 // The @ffmpeg/ffmpeg wrapper runs inside a module worker in Vite. Loading the
@@ -97,7 +97,11 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
 
   // Animated path — rasterize every frame from `doc` at the current time.
   if (opts.doc) {
-    const totalMs = Math.min(maxDurationMs, totalDocDurationMs(opts.doc.scenes));
+    const vars0 = opts.vars ?? {};
+    // Resolve variables before measuring so scenes are long enough for the
+    // fully-substituted text reveal.
+    const resolvedDoc = resolveDocVars(opts.doc, vars0);
+    const totalMs = Math.min(maxDurationMs, totalDocDurationMs(resolvedDoc.scenes));
     const totalFrames = Math.max(1, Math.round((totalMs / 1000) * fps));
     const vars = opts.vars ?? {};
 
@@ -105,7 +109,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
     for (let i = 0; i < totalFrames; i++) {
       const tMs = (i / fps) * 1000;
       const svg = buildSceneSvgAtTime({
-        doc: opts.doc,
+        doc: resolvedDoc,
         tMs,
         vars,
         includeBackground: !opts.backgroundVideoUrl,
