@@ -1,5 +1,5 @@
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
-import { computeCamera, computeElementFrame, effectiveSceneDurationMs, localSceneTime, sceneTransitionOverlayOpacity } from "@/lib/animate";
+import { computeCamera, computeElementFrame, effectiveSceneDurationMs, localSceneTime, resolveDocVars, sceneTransitionOverlayOpacity } from "@/lib/animate";
 import type { EditorDocument, EditorElement, ImageElement, ShapeElement, TextElement } from "@/lib/types";
 
 const esc = (s: string) =>
@@ -86,7 +86,9 @@ export function buildSceneSvgAtTime(opts: {
   includeBackground?: boolean;
   includeVideo?: boolean;
 }): string {
-  const { doc, tMs, vars } = opts;
+  const { tMs, vars } = opts;
+  // Resolve variables first so reveal timing matches the rendered text.
+  const doc = resolveDocVars(opts.doc, vars);
   const includeBg = opts.includeBackground ?? false;
   const includeVideo = opts.includeVideo ?? false;
   const dims = CANVAS_DIMS[doc.aspect];

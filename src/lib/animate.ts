@@ -1,4 +1,23 @@
-import type { AnimationSpec, EaseName, EditorElement, EditorScene, TextElement } from "@/lib/types";
+import type { AnimationSpec, EaseName, EditorDocument, EditorElement, EditorScene, TextElement } from "@/lib/types";
+import { renderText } from "@/lib/editor-defaults";
+
+/** Substitute {{variables}} into every text element so all timing math (reveal
+ *  length, minimum scene duration) is based on the FINAL text, not the raw
+ *  template placeholder. Without this a `{{question}}` placeholder counts as one
+ *  word and the slide cuts after the first real word appears. */
+export function resolveSceneVars(scene: EditorScene, vars: Record<string, string>): EditorScene {
+  return {
+    ...scene,
+    elements: scene.elements.map((el) =>
+      el.type === "text" ? { ...el, text: renderText((el as TextElement).text, vars) } : el,
+    ),
+  };
+}
+
+export function resolveDocVars(doc: EditorDocument, vars: Record<string, string>): EditorDocument {
+  if (!vars || Object.keys(vars).length === 0) return doc;
+  return { ...doc, scenes: doc.scenes.map((s) => resolveSceneVars(s, vars)) };
+}
 
 export function ease(tRaw: number, name: EaseName = "easeOut"): number {
   const t = Math.min(1, Math.max(0, tRaw));

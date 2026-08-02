@@ -3,7 +3,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
-import { totalDocDurationMs } from "@/lib/animate";
+import { resolveDocVars, totalDocDurationMs } from "@/lib/animate";
 import type { EditorDocument } from "@/lib/types";
 
 // The @ffmpeg/ffmpeg wrapper runs inside a module worker in Vite. Loading the
@@ -37,6 +37,8 @@ export type RenderQuality = "draft" | "standard" | "high";
 
 export type ClientRenderOptions = {
   backgroundVideoUrl: string | null;
+  audioUrl?: string | null;
+  audioVolume?: number;
   resolution: RenderResolution;
   quality: RenderQuality;
   muted: boolean;
@@ -97,7 +99,11 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
 
   // Animated path — rasterize every frame from `doc` at the current time.
   if (opts.doc) {
-    const totalMs = Math.min(maxDurationMs, totalDocDurationMs(opts.doc.scenes));
+    const vars0 = opts.vars ?? {};
+    // Resolve variables before measuring so scenes are long enough for the
+    // fully-substituted text reveal.
+    const resolvedDoc = resolveDocVars(opts.doc, vars0);
+    const totalMs = Math.min(maxDurationMs, totalDocDurationMs(resolvedDoc.scenes));
     const totalFrames = Math.max(1, Math.round((totalMs / 1000) * fps));
     const vars = opts.vars ?? {};
 
@@ -105,7 +111,7 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
     for (let i = 0; i < totalFrames; i++) {
       const tMs = (i / fps) * 1000;
       const svg = buildSceneSvgAtTime({
-        doc: opts.doc,
+        doc: resolvedDoc,
         tMs,
         vars,
         includeBackground: !opts.backgroundVideoUrl,
@@ -143,6 +149,22 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
       args.push("-an");
     }
     args.push("-t", String(durationSec));
+
+    // Optional background music: appended as an extra input and mapped as the
+    // single audio track (replaces the background video's own audio).
+    if (opts.audioUrl) {
+      const musicBytes = await fetchFile(opts.audioUrl);
+      await ff.writeFile("music.m4a", musicBytes);
+      const audioIndex = opts.backgroundVideoUrl ? 2 : 1;
+      const anIdx = args.indexOf("-an");
+      if (anIdx !== -1) args.splice(anIdx, 1);
+      const mapAudioIdx = args.indexOf("0:a?");
+      if (mapAudioIdx !== -1) args.splice(mapAudioIdx - 1, 2);
+      args.push("-stream_loop", "-1", "-i", "music.m4a");
+      args.push("-map", `${audioIndex}:a`);
+      args.push("-filter:a", `volume=${(opts.audioVolume ?? 0.7).toFixed(2)}`);
+      args.push("-c:a", "aac", "-shortest");
+    }
   } else {
     // Legacy path — single overlay PNG burned over background/black canvas.
     if (!opts.overlaySvg || !opts.durationSeconds) throw new Error("renderMp4: provide doc or overlaySvg+durationSeconds");
