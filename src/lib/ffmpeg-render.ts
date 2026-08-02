@@ -37,6 +37,8 @@ export type RenderQuality = "draft" | "standard" | "high";
 
 export type ClientRenderOptions = {
   backgroundVideoUrl: string | null;
+  audioUrl?: string | null;
+  audioVolume?: number;
   resolution: RenderResolution;
   quality: RenderQuality;
   muted: boolean;
@@ -147,6 +149,22 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
       args.push("-an");
     }
     args.push("-t", String(durationSec));
+
+    // Optional background music: appended as an extra input and mapped as the
+    // single audio track (replaces the background video's own audio).
+    if (opts.audioUrl) {
+      const musicBytes = await fetchFile(opts.audioUrl);
+      await ff.writeFile("music.m4a", musicBytes);
+      const audioIndex = opts.backgroundVideoUrl ? 2 : 1;
+      const anIdx = args.indexOf("-an");
+      if (anIdx !== -1) args.splice(anIdx, 1);
+      const mapAudioIdx = args.indexOf("0:a?");
+      if (mapAudioIdx !== -1) args.splice(mapAudioIdx - 1, 2);
+      args.push("-stream_loop", "-1", "-i", "music.m4a");
+      args.push("-map", `${audioIndex}:a`);
+      args.push("-filter:a", `volume=${(opts.audioVolume ?? 0.7).toFixed(2)}`);
+      args.push("-c:a", "aac", "-shortest");
+    }
   } else {
     // Legacy path — single overlay PNG burned over background/black canvas.
     if (!opts.overlaySvg || !opts.durationSeconds) throw new Error("renderMp4: provide doc or overlaySvg+durationSeconds");
