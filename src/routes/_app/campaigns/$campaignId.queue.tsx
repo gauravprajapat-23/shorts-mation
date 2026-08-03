@@ -57,10 +57,10 @@ function QueuePage() {
   const applyUpdates = useMutation({
     mutationFn: async (updates: ScheduleUpdate[]) => {
       for (const u of updates) {
-        const patch: { schedule_at: string | null; youtube_settings_json?: Record<string, unknown> } = { schedule_at: u.schedule_at };
+        const patch: { schedule_at: string | null; youtube_settings_json?: never } = { schedule_at: u.schedule_at };
         if (u.privacy) {
           const row = items.find((i) => i.id === u.id);
-          patch.youtube_settings_json = { ...(row?.youtube_settings_json as object ?? {}), privacy: u.privacy };
+          patch.youtube_settings_json = { ...((row?.youtube_settings_json as object) ?? {}), privacy: u.privacy } as never;
         }
         const { error } = await supabase.from("campaign_items").update(patch).eq("id", u.id);
         if (error) throw error;
