@@ -64,9 +64,22 @@ async function refreshIfNeeded(conn: {
   refresh_token_encrypted: string | null;
   token_expiry: string | null;
 }): Promise<Tokens> {
-  const { decryptToken, encryptToken } = await import("@/lib/token-crypto.server");
+  const { decryptToken, encryptToken, isEncryptedToken } = await import("@/lib/token-crypto.server");
   const currentAccess = await decryptToken(conn.access_token_encrypted);
   if (!currentAccess) throw new Error("No access token stored for this channel");
+
+  // One-time at-rest upgrade: any legacy plaintext token found on this row is
+  // re-written as ciphertext immediately, so plaintext never lingers in the DB.
+  const legacyAccess = conn.access_token_encrypted && !isEncryptedToken(conn.access_token_encrypted);
+  const legacyRefresh = conn.refresh_token_encrypted && !isEncryptedToken(conn.refresh_token_encrypted);
+  if (legacyAccess || legacyRefresh) {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const patch: { access_token_encrypted?: string; refresh_token_encrypted?: string } = {};
+    if (legacyAccess) patch.access_token_encrypted = await encryptToken(currentAccess);
+    if (legacyRefresh) patch.refresh_token_encrypted = await encryptToken(conn.refresh_token_encrypted!);
+    await supabaseAdmin.from("youtube_connections").update(patch).eq("id", conn.id);
+  }
+
   const now = Date.now();
   const expiry = conn.token_expiry ? new Date(conn.token_expiry).getTime() : 0;
   if (expiry - now > 60_000) {
