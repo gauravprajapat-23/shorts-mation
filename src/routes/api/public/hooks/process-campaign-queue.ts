@@ -10,13 +10,17 @@ function safeEqual(a: string, b: string): boolean {
 
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${secret}`;
-  if (header && safeEqual(header, expected)) return true;
-  // Also accept a raw header for schedulers that can't set Authorization.
-  const alt = request.headers.get("x-cron-secret") ?? "";
-  return Boolean(alt) && safeEqual(alt, secret);
+  if (secret) {
+    const header = request.headers.get("authorization") ?? "";
+    if (header && safeEqual(header, `Bearer ${secret}`)) return true;
+    // Also accept a raw header for schedulers that can't set Authorization.
+    const alt = request.headers.get("x-cron-secret") ?? "";
+    if (alt && safeEqual(alt, secret)) return true;
+  }
+  // Canonical Supabase scheduler auth: the project's anon/publishable key.
+  const anon = process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
+  const apikey = request.headers.get("apikey") ?? "";
+  return Boolean(anon && apikey) && safeEqual(apikey, anon!);
 }
 
 export const Route = createFileRoute("/api/public/hooks/process-campaign-queue")({
