@@ -5,6 +5,10 @@
 
 const PREFIX = "v1:";
 
+export function isEncryptedToken(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.startsWith(PREFIX);
+}
+
 function b64encode(bytes: Uint8Array): string {
   let s = "";
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
