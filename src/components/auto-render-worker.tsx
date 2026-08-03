@@ -12,33 +12,44 @@ export function AutoRenderWorker() {
 
   useEffect(() => {
     let stopped = false;
+    let timer = 0;
 
+    // Drain the queue as fast as the machine allows: as long as a pass produced
+    // a video there is probably more work, so retry almost immediately. Once the
+    // queue is empty we fall back to a slow poll. Every row is rendered and
+    // stored ahead of its publish time, so the backend can upload on schedule
+    // even after this tab is closed.
     const tick = async () => {
-      if (stopped || busy.current || document.visibilityState !== "visible") return;
-      busy.current = true;
-      try {
-        const res = await runAutoRenderPass(1, (p) => {
-          setActive(true);
-          setPct(p);
-        });
-        if (!res.skipped && res.rendered > 0) {
-          window.dispatchEvent(new CustomEvent("auto-render:done"));
+      if (stopped) return;
+      let delay = 30_000;
+      if (!busy.current && document.visibilityState === "visible") {
+        busy.current = true;
+        try {
+          const res = await runAutoRenderPass(1, (p) => {
+            setActive(true);
+            setPct(p);
+          });
+          if (!res.skipped && res.rendered > 0) {
+            window.dispatchEvent(new CustomEvent("auto-render:done"));
+            delay = 1_000;
+          }
+        } catch {
+          /* transient — retried on the next tick */
+        } finally {
+          busy.current = false;
+          setActive(false);
+          setPct(0);
         }
-      } catch {
-        /* transient — retried on the next tick */
-      } finally {
-        busy.current = false;
-        setActive(false);
-        setPct(0);
+      } else {
+        delay = 5_000;
       }
+      if (!stopped) timer = window.setTimeout(tick, delay);
     };
 
-    const id = window.setInterval(tick, 30_000);
-    const first = window.setTimeout(tick, 4000);
+    timer = window.setTimeout(tick, 4000);
     return () => {
       stopped = true;
-      window.clearInterval(id);
-      window.clearTimeout(first);
+      window.clearTimeout(timer);
     };
   }, []);
 
