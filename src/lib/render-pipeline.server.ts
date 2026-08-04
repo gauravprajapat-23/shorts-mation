@@ -101,20 +101,27 @@ async function log(row: { user_id: string; campaign_id: string; id: string }, le
   });
 }
 
-export async function submitDueRenders(): Promise<{ submitted: number; errors: number; skipped?: string }> {
+export async function submitDueRenders(opts?: {
+  campaignId?: string;
+  ignoreLeadTime?: boolean;
+  limit?: number;
+}): Promise<{ submitted: number; errors: number; skipped?: string }> {
   if (!isServerRenderConfigured()) return { submitted: 0, errors: 0, skipped: "render provider not configured" };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const nowIso = new Date().toISOString();
-  const { data: rows } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("campaign_items")
     .select("id, user_id, campaign_id, content_json, asset_json, audio_json, schedule_at, campaigns!inner(status, template_id, settings_json)")
     .in("status", ["pending", "upload_pending"])
     .is("rendered_video_url", null)
-    .is("render_job_ref", null)
-    .not("render_due_at", "is", null)
-    .lte("render_due_at", nowIso)
-    .order("render_due_at", { ascending: true })
-    .limit(SUBMIT_PER_TICK);
+    .is("render_job_ref", null);
+  if (opts?.campaignId) query = query.eq("campaign_id", opts.campaignId);
+  if (!opts?.ignoreLeadTime) {
+    query = query.not("render_due_at", "is", null).lte("render_due_at", nowIso);
+  }
+  const { data: rows } = await query
+    .order("schedule_at", { ascending: true, nullsFirst: false })
+    .limit(opts?.limit ?? SUBMIT_PER_TICK);
 
   let submitted = 0, errors = 0;
   for (const row of (rows ?? []) as any[]) {
