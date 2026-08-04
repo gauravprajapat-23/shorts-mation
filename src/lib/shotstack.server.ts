@@ -127,7 +127,7 @@ export function buildShotstackEdit(opts: BuildOptions) {
         fit: "none",
         scale,
         position: "center",
-        ...(i === 0 && (scene.transition ?? "fade") !== "cut" ? { transition: { in: "fade" } } : {}),
+        ...(i === 0 && (scene.transitionIn ?? "fade") !== "cut" ? { transition: { in: "fade" } } : {}),
       });
       cursor += length * 1000;
     }
