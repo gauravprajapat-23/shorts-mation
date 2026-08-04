@@ -150,7 +150,7 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
   throw new Error("No video available to upload. Open the campaign's Test Render page, click 'Render MP4' for this row, or upload a background video on the Assets page.");
 }
 
-async function uploadItemToYouTube(itemId: string) {
+async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string | null }) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: item, error: iErr } = await supabaseAdmin.from("campaign_items").select("*").eq("id", itemId).single();
   if (iErr || !item) throw new Error("Item not found");
@@ -207,7 +207,9 @@ async function uploadItemToYouTube(itemId: string) {
         tags: (seo.tags ?? []).slice(0, 30),
         categoryId: "22",
       },
-      status: { privacyStatus: yt.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: false },
+      status: opts?.publishAt
+        ? { privacyStatus: "private", publishAt: opts.publishAt, selfDeclaredMadeForKids: false }
+        : { privacyStatus: yt.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: false },
     };
 
     // Resumable upload — start
@@ -236,7 +238,8 @@ async function uploadItemToYouTube(itemId: string) {
     if (!uploaded.id) throw new Error("YouTube did not return a video id");
 
     await supabaseAdmin.from("campaign_items").update({
-      status: "uploaded",
+      status: opts?.publishAt ? "scheduled" : "uploaded",
+      youtube_publish_at: opts?.publishAt ?? null,
       youtube_video_id: uploaded.id,
       youtube_url: `https://youtube.com/shorts/${uploaded.id}`,
       error_message: null,
@@ -247,7 +250,9 @@ async function uploadItemToYouTube(itemId: string) {
       campaign_id: item.campaign_id,
       campaign_item_id: itemId,
       level: "info",
-      message: `Uploaded to YouTube: ${uploaded.id}`,
+      message: opts?.publishAt
+        ? `Uploaded to YouTube as private, auto-publishing at ${opts.publishAt} (${uploaded.id})`
+        : `Uploaded to YouTube: ${uploaded.id}`,
       metadata_json: { video_id: uploaded.id } as never,
     });
     return { videoId: uploaded.id };
