@@ -111,6 +111,7 @@ export async function runAutoRenderPass(limit = 2, onProgress?: (pct: number, la
   const activeCampaigns = campaigns ?? [];
   if (activeCampaigns.length === 0) return { rendered: 0, failed: 0, skipped: true };
 
+  const nowIso = new Date().toISOString();
   const { data: rows } = await supabase
     .from("campaign_items")
     .select("id, campaign_id, user_id, status, content_json, asset_json, audio_json, rendered_video_url")
@@ -118,7 +119,11 @@ export async function runAutoRenderPass(limit = 2, onProgress?: (pct: number, la
     .in("campaign_id", activeCampaigns.map((c) => c.id))
     .in("status", ["pending", "upload_pending"])
     .is("rendered_video_url", null)
-    .order("created_at", { ascending: true })
+    // Never fight the backend renderer: skip rows it already claimed, and stay
+    // inside the same staggered render window so the load is spread out.
+    .is("render_job_ref", null)
+    .or(`render_due_at.is.null,render_due_at.lte.${nowIso}`)
+    .order("schedule_at", { ascending: true, nullsFirst: false })
     .limit(limit);
 
   const items = (rows ?? []) as unknown as ItemRow[];

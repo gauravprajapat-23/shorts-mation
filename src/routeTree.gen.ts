@@ -31,6 +31,7 @@ import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/publi
 import { Route as ApiPublicHooksProcessCampaignQueueRouteImport } from './routes/api/public/hooks/process-campaign-queue'
 import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
 import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
+import { Route as AppCampaignsCampaignIdAutomationRouteImport } from './routes/_app/campaigns/$campaignId.automation'
 
 const McpRoute = McpRouteImport.update({
   id: '/mcp',
@@ -148,6 +149,12 @@ const AppCampaignsCampaignIdQueueRoute =
     path: '/queue',
     getParentRoute: () => AppCampaignsCampaignIdRoute,
   } as any)
+const AppCampaignsCampaignIdAutomationRoute =
+  AppCampaignsCampaignIdAutomationRouteImport.update({
+    id: '/automation',
+    path: '/automation',
+    getParentRoute: () => AppCampaignsCampaignIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -167,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/templates/new': typeof AppTemplatesNewRoute
   '/campaigns/': typeof AppCampaignsIndexRoute
   '/templates/': typeof AppTemplatesIndexRoute
+  '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
@@ -190,6 +198,7 @@ export interface FileRoutesByTo {
   '/templates/new': typeof AppTemplatesNewRoute
   '/campaigns': typeof AppCampaignsIndexRoute
   '/templates': typeof AppTemplatesIndexRoute
+  '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
@@ -215,6 +224,7 @@ export interface FileRoutesById {
   '/_app/templates/new': typeof AppTemplatesNewRoute
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/templates/': typeof AppTemplatesIndexRoute
+  '/_app/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
@@ -240,6 +250,7 @@ export interface FileRouteTypes {
     | '/templates/new'
     | '/campaigns/'
     | '/templates/'
+    | '/campaigns/$campaignId/automation'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
     | '/templates/new'
     | '/campaigns'
     | '/templates'
+    | '/campaigns/$campaignId/automation'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
@@ -287,6 +299,7 @@ export interface FileRouteTypes {
     | '/_app/templates/new'
     | '/_app/campaigns/'
     | '/_app/templates/'
+    | '/_app/campaigns/$campaignId/automation'
     | '/_app/campaigns/$campaignId/queue'
     | '/_app/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
@@ -462,16 +475,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsCampaignIdQueueRouteImport
       parentRoute: typeof AppCampaignsCampaignIdRoute
     }
+    '/_app/campaigns/$campaignId/automation': {
+      id: '/_app/campaigns/$campaignId/automation'
+      path: '/automation'
+      fullPath: '/campaigns/$campaignId/automation'
+      preLoaderRoute: typeof AppCampaignsCampaignIdAutomationRouteImport
+      parentRoute: typeof AppCampaignsCampaignIdRoute
+    }
   }
 }
 
 interface AppCampaignsCampaignIdRouteChildren {
+  AppCampaignsCampaignIdAutomationRoute: typeof AppCampaignsCampaignIdAutomationRoute
   AppCampaignsCampaignIdQueueRoute: typeof AppCampaignsCampaignIdQueueRoute
   AppCampaignsCampaignIdTestRenderRoute: typeof AppCampaignsCampaignIdTestRenderRoute
 }
 
 const AppCampaignsCampaignIdRouteChildren: AppCampaignsCampaignIdRouteChildren =
   {
+    AppCampaignsCampaignIdAutomationRoute:
+      AppCampaignsCampaignIdAutomationRoute,
     AppCampaignsCampaignIdQueueRoute: AppCampaignsCampaignIdQueueRoute,
     AppCampaignsCampaignIdTestRenderRoute:
       AppCampaignsCampaignIdTestRenderRoute,

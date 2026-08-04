@@ -4,10 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink } from "lucide-react";
+import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { publishItemNow } from "@/lib/youtube-upload.functions";
+import { kickCampaignAutomation } from "@/lib/automation.functions";
 import { useState } from "react";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId")({
@@ -22,6 +23,7 @@ function CampaignDetail() {
   });
   const qc = useQueryClient();
   const publishFn = useServerFn(publishItemNow);
+  const kickFn = useServerFn(kickCampaignAutomation);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const publish = async (itemId: string) => {
     setPublishingId(itemId);
@@ -52,6 +54,17 @@ function CampaignDetail() {
     mutationFn: async (status: "active" | "paused" | "completed" | "failed" | "draft") => {
       const { error } = await supabase.from("campaigns").update({ status }).eq("id", campaignId);
       if (error) throw error;
+      if (status === "active") {
+        // Start server-side rendering right away; the cron keeps feeding the
+        // queue at each video's render lead time afterwards.
+        try {
+          const r = await kickFn({ data: { campaignId, limit: 2 } });
+          if (r.skipped) toast.info("Automation started — server rendering needs the render provider API key.");
+          else if (r.submitted > 0) toast.success(`Server rendering started for ${r.submitted} video(s)`);
+        } catch {
+          /* automation still runs from the scheduled backend pass */
+        }
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", campaignId] }),
     onError: (e) => toast.error(e.message),
@@ -84,6 +97,13 @@ function CampaignDetail() {
               className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-brand/40 text-brand text-sm font-semibold hover:bg-brand/10"
             >
               <Sparkles className="size-3.5" /> Test render 1 video
+            </Link>
+            <Link
+              to="/campaigns/$campaignId/automation"
+              params={{ campaignId }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-semibold hover:bg-white/5"
+            >
+              <Activity className="size-3.5" /> Automation status
             </Link>
             {c.status === "active" ? (
               <button onClick={() => setStatus.mutate("paused")} className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-semibold hover:bg-white/5"><Pause className="size-3.5" /> Pause</button>

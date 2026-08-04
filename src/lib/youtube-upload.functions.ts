@@ -150,7 +150,7 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
   throw new Error("No video available to upload. Open the campaign's Test Render page, click 'Render MP4' for this row, or upload a background video on the Assets page.");
 }
 
-async function uploadItemToYouTube(itemId: string) {
+async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string | null }) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: item, error: iErr } = await supabaseAdmin.from("campaign_items").select("*").eq("id", itemId).single();
   if (iErr || !item) throw new Error("Item not found");
@@ -207,7 +207,9 @@ async function uploadItemToYouTube(itemId: string) {
         tags: (seo.tags ?? []).slice(0, 30),
         categoryId: "22",
       },
-      status: { privacyStatus: yt.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: false },
+      status: opts?.publishAt
+        ? { privacyStatus: "private", publishAt: opts.publishAt, selfDeclaredMadeForKids: false }
+        : { privacyStatus: yt.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: false },
     };
 
     // Resumable upload — start
@@ -236,7 +238,8 @@ async function uploadItemToYouTube(itemId: string) {
     if (!uploaded.id) throw new Error("YouTube did not return a video id");
 
     await supabaseAdmin.from("campaign_items").update({
-      status: "uploaded",
+      status: opts?.publishAt ? "scheduled" : "uploaded",
+      youtube_publish_at: opts?.publishAt ?? null,
       youtube_video_id: uploaded.id,
       youtube_url: `https://youtube.com/shorts/${uploaded.id}`,
       error_message: null,
@@ -247,7 +250,9 @@ async function uploadItemToYouTube(itemId: string) {
       campaign_id: item.campaign_id,
       campaign_item_id: itemId,
       level: "info",
-      message: `Uploaded to YouTube: ${uploaded.id}`,
+      message: opts?.publishAt
+        ? `Uploaded to YouTube as private, auto-publishing at ${opts.publishAt} (${uploaded.id})`
+        : `Uploaded to YouTube: ${uploaded.id}`,
       metadata_json: { video_id: uploaded.id } as never,
     });
     return { videoId: uploaded.id };
@@ -285,17 +290,34 @@ export const publishItemNow = createServerFn({ method: "POST" })
 export const processDueCampaignItems = async (): Promise<{ processed: number; errors: number }> => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const nowIso = new Date().toISOString();
+  // Upload starts at the item's upload lead time (20 min before publish) so the
+  // bytes are on YouTube early; YouTube itself flips the video public at the
+  // scheduled time via publishAt. Items with no lead time fall back to now.
   const { data: due } = await supabaseAdmin
     .from("campaign_items")
-    .select("id, campaign_id, schedule_at, campaigns!inner(status)")
+    .select("id, campaign_id, schedule_at, upload_due_at, campaigns!inner(status)")
     .in("status", ["pending", "rendered", "upload_pending"])
-    .lte("schedule_at", nowIso)
-    .limit(25);
-  const rows = (due ?? []) as Array<{ id: string; campaigns: { status: string } | null }>;
+    .not("rendered_video_url", "is", null)
+    .or(`upload_due_at.lte.${nowIso},and(upload_due_at.is.null,schedule_at.lte.${nowIso})`)
+    .order("schedule_at", { ascending: true })
+    .limit(10);
+  const rows = (due ?? []) as Array<{ id: string; schedule_at: string | null; campaigns: { status: string } | null }>;
   let processed = 0, errors = 0;
   for (const r of rows) {
     if (r.campaigns?.status !== "active") continue;
-    try { await uploadItemToYouTube(r.id); processed++; } catch { errors++; }
+    const scheduled = r.schedule_at ? new Date(r.schedule_at).getTime() : 0;
+    // Leave ~1 min of headroom; YouTube rejects publishAt in the past.
+    const publishAt = scheduled > Date.now() + 60_000 ? new Date(scheduled).toISOString() : null;
+    try { await uploadItemToYouTube(r.id, { publishAt }); processed++; } catch { errors++; }
   }
+
+  // Mark scheduled videos as published once their YouTube publish time passed.
+  await supabaseAdmin
+    .from("campaign_items")
+    .update({ status: "uploaded" })
+    .eq("status", "scheduled")
+    .not("youtube_publish_at", "is", null)
+    .lte("youtube_publish_at", nowIso);
+
   return { processed, errors };
 };

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { processDueCampaignItems } from "@/lib/youtube-upload.functions";
+import { submitDueRenders, collectFinishedRenders } from "@/lib/render-pipeline.server";
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -31,8 +32,13 @@ export const Route = createFileRoute("/api/public/hooks/process-campaign-queue")
           return new Response("Unauthorized", { status: 401 });
         }
         try {
-          const result = await processDueCampaignItems();
-          return Response.json({ ok: true, ...result });
+          // 1) start renders whose lead time arrived (staggered, few per tick)
+          const renders = await submitDueRenders();
+          // 2) pull finished MP4s into storage
+          const collected = await collectFinishedRenders();
+          // 3) upload/schedule anything whose upload lead time arrived
+          const uploads = await processDueCampaignItems();
+          return Response.json({ ok: true, renders, collected, uploads });
         } catch (e) {
           const msg = e instanceof Error ? e.message : "unknown";
           return Response.json({ ok: false, error: msg }, { status: 500 });

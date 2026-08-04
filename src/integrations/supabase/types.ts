@@ -107,6 +107,10 @@ export type Database = {
           created_at: string
           error_message: string | null
           id: string
+          render_due_at: string | null
+          render_job_ref: string | null
+          render_provider: string | null
+          render_submitted_at: string | null
           rendered_video_url: string | null
           retry_count: number
           schedule_at: string | null
@@ -114,8 +118,10 @@ export type Database = {
           status: Database["public"]["Enums"]["item_status"]
           thumbnail_url: string | null
           updated_at: string
+          upload_due_at: string | null
           user_id: string
           video_file_name: string | null
+          youtube_publish_at: string | null
           youtube_settings_json: Json
           youtube_url: string | null
           youtube_video_id: string | null
@@ -128,6 +134,10 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          render_due_at?: string | null
+          render_job_ref?: string | null
+          render_provider?: string | null
+          render_submitted_at?: string | null
           rendered_video_url?: string | null
           retry_count?: number
           schedule_at?: string | null
@@ -135,8 +145,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["item_status"]
           thumbnail_url?: string | null
           updated_at?: string
+          upload_due_at?: string | null
           user_id: string
           video_file_name?: string | null
+          youtube_publish_at?: string | null
           youtube_settings_json?: Json
           youtube_url?: string | null
           youtube_video_id?: string | null
@@ -149,6 +161,10 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          render_due_at?: string | null
+          render_job_ref?: string | null
+          render_provider?: string | null
+          render_submitted_at?: string | null
           rendered_video_url?: string | null
           retry_count?: number
           schedule_at?: string | null
@@ -156,8 +172,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["item_status"]
           thumbnail_url?: string | null
           updated_at?: string
+          upload_due_at?: string | null
           user_id?: string
           video_file_name?: string | null
+          youtube_publish_at?: string | null
           youtube_settings_json?: Json
           youtube_url?: string | null
           youtube_video_id?: string | null
