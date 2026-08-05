@@ -50,6 +50,42 @@ export type Database = {
         }
         Relationships: []
       }
+      automation_limits: {
+        Row: {
+          created_at: string
+          id: number
+          max_global_concurrent_renders: number
+          max_global_concurrent_uploads: number
+          max_renders_per_tick: number
+          max_uploads_per_tick: number
+          max_user_concurrent_renders: number
+          max_user_concurrent_uploads: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          max_global_concurrent_renders?: number
+          max_global_concurrent_uploads?: number
+          max_renders_per_tick?: number
+          max_uploads_per_tick?: number
+          max_user_concurrent_renders?: number
+          max_user_concurrent_uploads?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          max_global_concurrent_renders?: number
+          max_global_concurrent_uploads?: number
+          max_renders_per_tick?: number
+          max_uploads_per_tick?: number
+          max_user_concurrent_renders?: number
+          max_user_concurrent_uploads?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       automation_logs: {
         Row: {
           campaign_id: string | null
@@ -367,6 +403,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      render_providers: {
+        Row: {
+          api_key_encrypted: string | null
+          created_at: string
+          env: string
+          id: string
+          last_error: string | null
+          provider: string
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          created_at?: string
+          env?: string
+          id?: string
+          last_error?: string | null
+          provider?: string
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          created_at?: string
+          env?: string
+          id?: string
+          last_error?: string | null
+          provider?: string
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
       }
       templates: {
         Row: {
