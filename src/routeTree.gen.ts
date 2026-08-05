@@ -28,6 +28,7 @@ import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campai
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/public/youtube/callback'
+import { Route as ApiPublicHooksRenderCallbackRouteImport } from './routes/api/public/hooks/render-callback'
 import { Route as ApiPublicHooksProcessCampaignQueueRouteImport } from './routes/api/public/hooks/process-campaign-queue'
 import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
 import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
@@ -131,6 +132,12 @@ const ApiPublicYoutubeCallbackRoute =
     path: '/api/public/youtube/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksRenderCallbackRoute =
+  ApiPublicHooksRenderCallbackRouteImport.update({
+    id: '/api/public/hooks/render-callback',
+    path: '/api/public/hooks/render-callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksProcessCampaignQueueRoute =
   ApiPublicHooksProcessCampaignQueueRouteImport.update({
     id: '/api/public/hooks/process-campaign-queue',
@@ -178,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -202,6 +210,7 @@ export interface FileRoutesByTo {
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRoutesById {
@@ -228,6 +237,7 @@ export interface FileRoutesById {
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
 }
 export interface FileRouteTypes {
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -278,6 +289,7 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
   id:
     | '__root__'
@@ -303,6 +315,7 @@ export interface FileRouteTypes {
     | '/_app/campaigns/$campaignId/queue'
     | '/_app/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
   fileRoutesById: FileRoutesById
 }
@@ -316,6 +329,7 @@ export interface RootRouteChildren {
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicHooksProcessCampaignQueueRoute: typeof ApiPublicHooksProcessCampaignQueueRoute
+  ApiPublicHooksRenderCallbackRoute: typeof ApiPublicHooksRenderCallbackRoute
   ApiPublicYoutubeCallbackRoute: typeof ApiPublicYoutubeCallbackRoute
 }
 
@@ -454,6 +468,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicYoutubeCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/render-callback': {
+      id: '/api/public/hooks/render-callback'
+      path: '/api/public/hooks/render-callback'
+      fullPath: '/api/public/hooks/render-callback'
+      preLoaderRoute: typeof ApiPublicHooksRenderCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/process-campaign-queue': {
       id: '/api/public/hooks/process-campaign-queue'
       path: '/api/public/hooks/process-campaign-queue'
@@ -545,6 +566,7 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicHooksProcessCampaignQueueRoute:
     ApiPublicHooksProcessCampaignQueueRoute,
+  ApiPublicHooksRenderCallbackRoute: ApiPublicHooksRenderCallbackRoute,
   ApiPublicYoutubeCallbackRoute: ApiPublicYoutubeCallbackRoute,
 }
 export const routeTree = rootRouteImport
