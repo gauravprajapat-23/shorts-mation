@@ -58,7 +58,9 @@ function AutomationView() {
 
       {d && !d.serverRenderConfigured && (
         <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Server rendering is not configured yet — add the render provider API key in settings and the queue will start encoding on its own.
+          Server rendering is not configured yet —{" "}
+          <Link to="/settings" className="underline font-semibold">add your render provider API key in Settings</Link>{" "}
+          and the queue will start encoding on its own.
         </div>
       )}
 

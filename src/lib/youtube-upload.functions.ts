@@ -287,24 +287,33 @@ export const publishItemNow = createServerFn({ method: "POST" })
     }
   });
 
-export const processDueCampaignItems = async (): Promise<{ processed: number; errors: number }> => {
+export const processDueCampaignItems = async (): Promise<{ processed: number; errors: number; throttled?: number }> => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { getAutomationLimits, inFlightUploads } = await import("@/lib/automation-limits.server");
+  const limits = await getAutomationLimits();
+  const flight = await inFlightUploads();
+  const globalRoom = Math.max(0, limits.max_global_concurrent_uploads - flight.total);
+  const perTick = Math.min(limits.max_uploads_per_tick, globalRoom);
   const nowIso = new Date().toISOString();
   // Upload starts at the item's upload lead time (20 min before publish) so the
   // bytes are on YouTube early; YouTube itself flips the video public at the
   // scheduled time via publishAt. Items with no lead time fall back to now.
   const { data: due } = await supabaseAdmin
     .from("campaign_items")
-    .select("id, campaign_id, schedule_at, upload_due_at, campaigns!inner(status)")
+    .select("id, user_id, campaign_id, schedule_at, upload_due_at, campaigns!inner(status)")
     .in("status", ["pending", "rendered", "upload_pending"])
     .not("rendered_video_url", "is", null)
     .or(`upload_due_at.lte.${nowIso},and(upload_due_at.is.null,schedule_at.lte.${nowIso})`)
     .order("schedule_at", { ascending: true })
-    .limit(10);
-  const rows = (due ?? []) as Array<{ id: string; schedule_at: string | null; campaigns: { status: string } | null }>;
-  let processed = 0, errors = 0;
+    .limit(Math.max(perTick, 1) * 4);
+  const rows = (due ?? []) as Array<{ id: string; user_id: string; schedule_at: string | null; campaigns: { status: string } | null }>;
+  const perUser: Record<string, number> = { ...flight.perUser };
+  let processed = 0, errors = 0, throttled = 0;
   for (const r of rows) {
+    if (processed >= perTick) { throttled++; continue; }
     if (r.campaigns?.status !== "active") continue;
+    if ((perUser[r.user_id] ?? 0) >= limits.max_user_concurrent_uploads) { throttled++; continue; }
+    perUser[r.user_id] = (perUser[r.user_id] ?? 0) + 1;
     const scheduled = r.schedule_at ? new Date(r.schedule_at).getTime() : 0;
     // Leave ~1 min of headroom; YouTube rejects publishAt in the past.
     const publishAt = scheduled > Date.now() + 60_000 ? new Date(scheduled).toISOString() : null;
@@ -319,5 +328,5 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
     .not("youtube_publish_at", "is", null)
     .lte("youtube_publish_at", nowIso);
 
-  return { processed, errors };
+  return { processed, errors, throttled };
 };

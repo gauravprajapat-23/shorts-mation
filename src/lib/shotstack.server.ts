@@ -8,15 +8,29 @@ import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElem
 
 const MAX_REVEAL_STEPS = 14;
 
-function apiBase(): string {
-  const env = process.env["SHOTSTACK_ENV"] || "v1";
-  return `https://api.shotstack.io/edit/${env}`;
+export type RenderCredentials = { key: string; env: string };
+
+export function apiBase(env?: string): string {
+  const e = env || process.env["SHOTSTACK_ENV"] || "v1";
+  return `https://api.shotstack.io/edit/${e}`;
 }
 
-function apiKey(): string {
-  const key = process.env["SHOTSTACK_API_KEY"];
+function creds(input?: RenderCredentials | null): RenderCredentials {
+  const key = input?.key || process.env["SHOTSTACK_API_KEY"] || "";
   if (!key) throw new Error("Server rendering is not configured yet (missing render provider API key).");
-  return key;
+  return { key, env: input?.env || process.env["SHOTSTACK_ENV"] || "v1" };
+}
+
+/** Cheap authenticated GET used to verify a key the user just pasted. */
+export async function verifyShotstackKey(input: RenderCredentials): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${apiBase(input.env)}/templates`, { headers: { "x-api-key": input.key } });
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "The render provider rejected this API key." };
+    if (!res.ok) return { ok: false, error: `Render provider responded ${res.status}. Check the environment (v1 vs stage).` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not reach the render provider" };
+  }
 }
 
 function escapeHtml(s: string): string {
@@ -98,6 +112,7 @@ export type BuildOptions = {
   audioVolume?: number;
   resolution?: "720p" | "1080p";
   fps?: number;
+  callbackUrl?: string | null;
 };
 
 /** Turns the editor document into a Shotstack edit payload. Scene text reveals
@@ -153,13 +168,15 @@ export function buildShotstackEdit(opts: BuildOptions) {
       tracks,
     },
     output: { format: "mp4", fps: opts.fps ?? 25, size: { width: outW, height: outH } },
+    ...(opts.callbackUrl ? { callback: opts.callbackUrl } : {}),
   };
 }
 
-export async function submitShotstackRender(edit: unknown): Promise<string> {
-  const res = await fetch(`${apiBase()}/render`, {
+export async function submitShotstackRender(edit: unknown, cred?: RenderCredentials | null): Promise<string> {
+  const c = creds(cred);
+  const res = await fetch(`${apiBase(c.env)}/render`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": apiKey() },
+    headers: { "Content-Type": "application/json", "x-api-key": c.key },
     body: JSON.stringify(edit),
   });
   const body = await res.text();
@@ -172,9 +189,10 @@ export async function submitShotstackRender(edit: unknown): Promise<string> {
 
 export type ShotstackStatus = { status: string; url: string | null; error: string | null };
 
-export async function getShotstackRender(id: string): Promise<ShotstackStatus> {
-  const res = await fetch(`${apiBase()}/render/${encodeURIComponent(id)}`, {
-    headers: { "x-api-key": apiKey() },
+export async function getShotstackRender(id: string, cred?: RenderCredentials | null): Promise<ShotstackStatus> {
+  const c = creds(cred);
+  const res = await fetch(`${apiBase(c.env)}/render/${encodeURIComponent(id)}`, {
+    headers: { "x-api-key": c.key },
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`Render status check failed [${res.status}]: ${body}`);

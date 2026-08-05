@@ -44,7 +44,8 @@ export const getAutomationStatus = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<AutomationStatus> => {
     const { supabase } = context;
     const { RENDER_LEAD_MINUTES, UPLOAD_LEAD_MINUTES } = await import("@/lib/render-pipeline.server");
-    const { isServerRenderConfigured } = await import("@/lib/shotstack.server");
+    const { hasRenderCredentials } = await import("@/lib/render-settings.server");
+    const serverRenderConfigured = await hasRenderCredentials(context.userId);
 
     const { data: campaign } = await supabase.from("campaigns").select("status").eq("id", data.campaignId).maybeSingle();
     const { data: rows } = await supabase
@@ -88,7 +89,7 @@ export const getAutomationStatus = createServerFn({ method: "POST" })
     };
 
     return {
-      serverRenderConfigured: isServerRenderConfigured(),
+      serverRenderConfigured,
       renderLeadMinutes: RENDER_LEAD_MINUTES,
       uploadLeadMinutes: UPLOAD_LEAD_MINUTES,
       campaignStatus: campaign?.status ?? null,

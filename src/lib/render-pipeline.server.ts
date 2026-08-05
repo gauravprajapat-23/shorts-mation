@@ -7,11 +7,12 @@
 //      Storage (`renders` bucket) and marks the item `rendered`.
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
-import { buildShotstackEdit, submitShotstackRender, getShotstackRender, isServerRenderConfigured } from "@/lib/shotstack.server";
+import { buildShotstackEdit, submitShotstackRender, getShotstackRender } from "@/lib/shotstack.server";
+import { getRenderCredentials, renderCallbackUrl } from "@/lib/render-settings.server";
+import { getAutomationLimits, inFlightRenders } from "@/lib/automation-limits.server";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
-const SUBMIT_PER_TICK = 3;
 const COLLECT_PER_TICK = 6;
 const SIGN_TTL_SECONDS = 60 * 60 * 6;
 
@@ -106,8 +107,12 @@ export async function submitDueRenders(opts?: {
   ignoreLeadTime?: boolean;
   limit?: number;
 }): Promise<{ submitted: number; errors: number; skipped?: string }> {
-  if (!isServerRenderConfigured()) return { submitted: 0, errors: 0, skipped: "render provider not configured" };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const limits = await getAutomationLimits();
+  const flight = await inFlightRenders();
+  const globalRoom = Math.max(0, limits.max_global_concurrent_renders - flight.total);
+  if (globalRoom === 0) return { submitted: 0, errors: 0, skipped: "global render concurrency limit reached" };
+  const perTick = Math.min(opts?.limit ?? limits.max_renders_per_tick, limits.max_renders_per_tick, globalRoom);
   const nowIso = new Date().toISOString();
   let query = supabaseAdmin
     .from("campaign_items")
@@ -121,11 +126,19 @@ export async function submitDueRenders(opts?: {
   }
   const { data: rows } = await query
     .order("schedule_at", { ascending: true, nullsFirst: false })
-    .limit(opts?.limit ?? SUBMIT_PER_TICK);
+    .limit(perTick * 4);
 
-  let submitted = 0, errors = 0;
+  const callbackUrl = renderCallbackUrl();
+  const perUser = { ...flight.perUser };
+  const credCache = new Map<string, Awaited<ReturnType<typeof getRenderCredentials>>>();
+  let submitted = 0, errors = 0, throttled = 0;
   for (const row of (rows ?? []) as any[]) {
+    if (submitted >= perTick) break;
     if (row.campaigns?.status !== "active") continue;
+    if ((perUser[row.user_id] ?? 0) >= limits.max_user_concurrent_renders) { throttled++; continue; }
+    if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderCredentials(row.user_id));
+    const cred = credCache.get(row.user_id) ?? null;
+    if (!cred) continue;
     try {
       const claim = await supabaseAdmin
         .from("campaign_items")
@@ -157,10 +170,12 @@ export async function submitDueRenders(opts?: {
         audioVolume: audio.volume ?? doc.audio?.volume ?? 0.7,
         resolution: "1080p",
         fps: 25,
+        callbackUrl,
       });
-      const jobId = await submitShotstackRender(edit);
+      const jobId = await submitShotstackRender(edit, cred);
       await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("id", row.id);
       await log(row, "info", `Server render submitted (job ${jobId})`);
+      perUser[row.user_id] = (perUser[row.user_id] ?? 0) + 1;
       submitted++;
     } catch (e) {
       errors++;
@@ -169,11 +184,10 @@ export async function submitDueRenders(opts?: {
       await log(row, "error", msg);
     }
   }
-  return { submitted, errors };
+  return { submitted, errors, ...(throttled ? { skipped: `${throttled} item(s) throttled by per-user render limit` } : {}) };
 }
 
 export async function collectFinishedRenders(): Promise<{ completed: number; pending: number; errors: number }> {
-  if (!isServerRenderConfigured()) return { completed: 0, pending: 0, errors: 0 };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows } = await supabaseAdmin
     .from("campaign_items")
@@ -185,35 +199,78 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
   let completed = 0, pending = 0, errors = 0;
   for (const row of (rows ?? []) as any[]) {
     try {
-      const status = await getShotstackRender(row.render_job_ref as string);
-      if (status.status === "failed") {
-        throw new Error(status.error || "Render provider reported a failed render");
-      }
+      const cred = await getRenderCredentials(row.user_id);
+      if (!cred) { pending++; continue; }
+      const status = await getShotstackRender(row.render_job_ref as string, cred);
+      if (status.status === "failed") throw new Error(status.error || "Render provider reported a failed render");
       if (status.status !== "done" || !status.url) { pending++; continue; }
-
-      const res = await fetch(status.url);
-      if (!res.ok) throw new Error(`Could not download the finished MP4 [${res.status}]`);
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      if (!bytes.byteLength) throw new Error("The finished MP4 was empty");
-      const path = `${row.user_id}/${row.id}-${Date.now()}.mp4`;
-      const up = await supabaseAdmin.storage.from("renders").upload(path, bytes, { contentType: "video/mp4", upsert: true });
-      if (up.error) throw up.error;
-
-      await supabaseAdmin
-        .from("campaign_items")
-        .update({ rendered_video_url: path, status: "rendered", error_message: null })
-        .eq("id", row.id);
-      await log(row, "info", "Server render finished and stored");
+      await storeFinishedRender(row, status.url);
       completed++;
     } catch (e) {
       errors++;
-      const msg = e instanceof Error ? e.message : "Server render failed";
-      await supabaseAdmin
-        .from("campaign_items")
-        .update({ status: "pending", render_job_ref: null, error_message: msg })
-        .eq("id", row.id);
-      await log(row, "error", msg);
+      await failRender(row, e instanceof Error ? e.message : "Server render failed");
     }
   }
   return { completed, pending, errors };
+}
+
+type ItemRef = { id: string; user_id: string; campaign_id: string };
+
+/** Downloads the finished MP4 into the `renders` bucket and marks the row ready
+ *  to upload. Shared by the polling collector and the render webhook. */
+export async function storeFinishedRender(row: ItemRef, url: string): Promise<void> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Could not download the finished MP4 [${res.status}]`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (!bytes.byteLength) throw new Error("The finished MP4 was empty");
+  const path = `${row.user_id}/${row.id}-${Date.now()}.mp4`;
+  const up = await supabaseAdmin.storage.from("renders").upload(path, bytes, { contentType: "video/mp4", upsert: true });
+  if (up.error) throw up.error;
+  await supabaseAdmin
+    .from("campaign_items")
+    .update({ rendered_video_url: path, status: "rendered", error_message: null })
+    .eq("id", row.id);
+  await log(row, "info", "Server render finished and stored");
+}
+
+export async function failRender(row: ItemRef, message: string): Promise<void> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  await supabaseAdmin
+    .from("campaign_items")
+    .update({ status: "pending", render_job_ref: null, error_message: message })
+    .eq("id", row.id);
+  await log(row, "error", message);
+}
+
+/** Webhook entry point: advances one item straight from a provider event. */
+export async function handleRenderCallback(payload: {
+  id?: string;
+  status?: string;
+  url?: string | null;
+  error?: string | null;
+}): Promise<{ ok: boolean; detail: string }> {
+  const jobId = payload.id;
+  if (!jobId) return { ok: false, detail: "missing render id" };
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: row } = await supabaseAdmin
+    .from("campaign_items")
+    .select("id, user_id, campaign_id, rendered_video_url")
+    .eq("render_job_ref", jobId)
+    .maybeSingle();
+  if (!row) return { ok: false, detail: "no item for this render id" };
+  if (row.rendered_video_url) return { ok: true, detail: "already stored" };
+  const status = (payload.status ?? "").toLowerCase();
+  if (status === "failed") {
+    await failRender(row, payload.error || "Render provider reported a failed render");
+    return { ok: true, detail: "marked failed" };
+  }
+  if (status !== "done" || !payload.url) return { ok: true, detail: `ignored status ${status || "unknown"}` };
+  try {
+    await storeFinishedRender(row, payload.url);
+    return { ok: true, detail: "stored" };
+  } catch (e) {
+    await failRender(row, e instanceof Error ? e.message : "Could not store the finished MP4");
+    return { ok: false, detail: "store failed" };
+  }
 }
