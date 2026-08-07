@@ -147,6 +147,8 @@ function SettingsPage() {
         )}
       </section>
 
+      <AutomationLimitsPanel />
+
       <section className="rounded-2xl border border-border bg-panel p-6">
         <h2 className="font-display font-bold mb-3">Compliance</h2>
         <p className="text-xs text-zinc-400 leading-relaxed">
