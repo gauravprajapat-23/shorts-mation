@@ -1014,11 +1014,19 @@ function LeftPanel({ panel, doc, onAddText, onAddTextPreset, onAddShape, onAddIm
   );
 }
 
-function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelete, onLayerUp, onLayerDown, onToggleLock }: {
+type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom" | "fill" | "fitWidth";
+
+function RightPanel({ selected, update, scene, updateScene, onAlign, sceneIndex, sceneCount, onDuplicateScene, onDeleteScene, onMoveScene, onDuplicate, onDelete, onLayerUp, onLayerDown, onToggleLock }: {
   selected: EditorElement | null;
   update: (patch: Partial<EditorElement>) => void;
   scene: EditorScene;
   updateScene: (mut: (s: EditorScene) => EditorScene) => void;
+  onAlign: (mode: AlignMode) => void;
+  sceneIndex: number;
+  sceneCount: number;
+  onDuplicateScene: () => void;
+  onDeleteScene: () => void;
+  onMoveScene: (dir: -1 | 1) => void;
   onDuplicate: () => void;
   onDelete: () => void;
   onLayerUp: () => void;
@@ -1028,12 +1036,46 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
   if (!selected) {
     return (
       <div className="p-4 space-y-4">
-        <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">Scene</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">Scene {sceneIndex + 1}/{sceneCount}</div>
+          <div className="flex items-center gap-1">
+            <button title="Move scene earlier" onClick={() => onMoveScene(-1)} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowUp className="size-3.5" /></button>
+            <button title="Move scene later" onClick={() => onMoveScene(1)} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowDown className="size-3.5" /></button>
+            <button title="Duplicate scene" onClick={onDuplicateScene} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><Copy className="size-3.5" /></button>
+            <button title="Delete scene" onClick={onDeleteScene} className="size-7 grid place-items-center rounded-md hover:bg-brand/10 text-brand"><Trash2 className="size-3.5" /></button>
+          </div>
+        </div>
+        <Row label="Name">
+          <input value={scene.name} onChange={(e) => updateScene((s) => ({ ...s, name: e.target.value }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+        </Row>
         <Row label="Background">
           <input type="color" value={scene.background} onChange={(e) => updateScene((s) => ({ ...s, background: e.target.value }))} className="w-full h-8 rounded-md bg-transparent border border-border" />
         </Row>
         <Row label="Duration (ms)">
-          <input type="number" value={scene.durationMs} onChange={(e) => updateScene((s) => ({ ...s, durationMs: Number(e.target.value) }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          <input type="number" step={250} value={scene.durationMs} onChange={(e) => updateScene((s) => ({ ...s, durationMs: Number(e.target.value) }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+        </Row>
+        <div className="grid grid-cols-4 gap-1">
+          {[2000, 3000, 5000, 8000].map((ms) => (
+            <button key={ms} onClick={() => updateScene((s) => ({ ...s, durationMs: ms }))} className={`h-7 rounded-md text-[11px] border ${scene.durationMs===ms?"border-brand text-brand":"border-border text-zinc-400"}`}>{ms/1000}s</button>
+          ))}
+        </div>
+        <Row label="Transition in">
+          <select
+            value={scene.transitionIn ?? "cut"}
+            onChange={(e) => updateScene((s) => ({ ...s, transitionIn: e.target.value as SceneTransition }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {(["cut","fade","slideLeft","slideRight","wipe"] as SceneTransition[]).map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Row>
+        <Row label="Camera move">
+          <select
+            value={scene.cameraMove ?? "none"}
+            onChange={(e) => updateScene((s) => ({ ...s, cameraMove: e.target.value as CameraMove }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {CAMERA_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </Row>
         <p className="text-xs text-zinc-500">Select an element to edit its properties.</p>
       </div>
@@ -1074,11 +1116,46 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
               ))}
             </div>
           </Row>
+          <Row label="Vertical align">
+            <div className="grid grid-cols-3 gap-1">
+              {(["top","middle","bottom"] as const).map((a) => (
+                <button key={a} onClick={() => update({ vAlign: a } as Partial<TextElement>)} className={`h-8 rounded-md text-xs border ${((selected as TextElement).vAlign ?? "middle")===a?"border-brand text-brand":"border-border text-zinc-400"}`}>{a}</button>
+              ))}
+            </div>
+          </Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Letter spacing"><input type="number" step={1} value={(selected as TextElement).letterSpacing ?? 0} onChange={(e) => update({ letterSpacing: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+            <Row label="Line height"><input type="number" step={0.05} min={0.8} max={2.4} value={(selected as TextElement).lineHeight ?? 1.15} onChange={(e) => update({ lineHeight: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
+          <Row label="Case">
+            <div className="grid grid-cols-4 gap-1">
+              {(["none","uppercase","lowercase"] as const).map((c) => (
+                <button key={c} onClick={() => update({ textTransform: c } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] border ${((selected as TextElement).textTransform ?? "none")===c?"border-brand text-brand":"border-border text-zinc-400"}`}>{c === "none" ? "Aa" : c === "uppercase" ? "AA" : "aa"}</button>
+              ))}
+              <button onClick={() => update({ italic: !(selected as TextElement).italic } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] italic border ${(selected as TextElement).italic?"border-brand text-brand":"border-border text-zinc-400"}`}>I</button>
+            </div>
+          </Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Outline color"><input type="color" value={(selected as TextElement).stroke ?? "#000000"} onChange={(e) => update({ stroke: e.target.value } as Partial<TextElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+            <Row label="Outline width"><input type="number" min={0} max={40} value={(selected as TextElement).strokeWidth ?? 0} onChange={(e) => { const n = Number(e.target.value); update({ strokeWidth: n, stroke: n > 0 ? ((selected as TextElement).stroke ?? "#000000") : undefined } as Partial<TextElement>); }} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
+          <Row label="Shadow">
+            <div className="grid grid-cols-4 gap-1">
+              {SHADOW_PRESETS.map((p) => (
+                <button key={p.label} onClick={() => update({ shadow: p.value } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] border ${((selected as TextElement).shadow ?? undefined)===p.value?"border-brand text-brand":"border-border text-zinc-400"}`}>{p.label}</button>
+              ))}
+            </div>
+          </Row>
         </>
       )}
       {selected.type === "shape" && (
         <>
           <Row label="Fill"><input type="color" value={(selected as ShapeElement).fill} onChange={(e) => update({ fill: e.target.value } as Partial<ShapeElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+          <Row label="Fill opacity"><input type="range" min={0} max={1} step={0.05} value={(selected as ShapeElement).fillOpacity ?? 1} onChange={(e) => update({ fillOpacity: Number(e.target.value) } as Partial<ShapeElement>)} className="w-full" /></Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Outline"><input type="color" value={(selected as ShapeElement).stroke ?? "#FFFFFF"} onChange={(e) => update({ stroke: e.target.value } as Partial<ShapeElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+            <Row label="Outline width"><input type="number" min={0} max={40} value={(selected as ShapeElement).strokeWidth ?? 0} onChange={(e) => { const n = Number(e.target.value); update({ strokeWidth: n, stroke: n > 0 ? ((selected as ShapeElement).stroke ?? "#FFFFFF") : undefined } as Partial<ShapeElement>); }} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
           {(selected as ShapeElement).shape === "rect" && (
             <Row label="Radius"><input type="number" value={(selected as ShapeElement).radius ?? 0} onChange={(e) => update({ radius: Number(e.target.value) } as Partial<ShapeElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
           )}
@@ -1121,6 +1198,17 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
       </div>
       <Row label="Rotation"><input type="range" min={-180} max={180} value={selected.rotation} onChange={(e) => update({ rotation: Number(e.target.value) })} className="w-full" /></Row>
       <Row label="Opacity"><input type="range" min={0} max={1} step={0.05} value={selected.opacity} onChange={(e) => update({ opacity: Number(e.target.value) })} className="w-full" /></Row>
+      <Row label="Position on canvas">
+        <div className="grid grid-cols-3 gap-1">
+          {([["left","⇤"],["hcenter","↔"],["right","⇥"],["top","⇡"],["vcenter","↕"],["bottom","⇣"]] as Array<[AlignMode, string]>).map(([mode, glyph]) => (
+            <button key={mode} title={mode} onClick={() => onAlign(mode)} className="h-8 rounded-md text-xs border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">{glyph}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-1 mt-1">
+          <button onClick={() => onAlign("fitWidth")} className="h-8 rounded-md text-[11px] border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">Fit width</button>
+          <button onClick={() => onAlign("fill")} className="h-8 rounded-md text-[11px] border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">Fill canvas</button>
+        </div>
+      </Row>
       <AnimatePanel selected={selected} update={update} scene={scene} updateScene={updateScene} />
     </div>
   );
