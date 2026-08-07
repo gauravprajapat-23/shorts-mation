@@ -864,10 +864,11 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
   );
 }
 
-function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
+function LeftPanel({ panel, doc, onAddText, onAddTextPreset, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
   panel: Panel; doc: EditorDocument;
   onAddText: () => void;
-  onAddShape: (s: "rect" | "ellipse") => void;
+  onAddTextPreset: (patch: Partial<TextElement>) => void;
+  onAddShape: (s: ShapeElement["shape"]) => void;
   onAddImagePlaceholder: () => void;
   onAddImageFromUrl: (url: string) => void;
   onAddVideoFromUrl: (url: string) => void;
@@ -918,6 +919,17 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
           <div className="font-display text-2xl font-extrabold">Heading</div>
           <div className="text-[10px] text-zinc-500 mt-1">Click to add</div>
         </button>
+        <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold pt-2">Pro presets</div>
+        {TEXT_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => onAddTextPreset(p.patch)}
+            className="w-full p-3 rounded-lg bg-white/5 border border-border hover:border-brand/50 text-left"
+          >
+            <div className="truncate" style={p.preview}>{p.label}</div>
+            <div className="text-[10px] text-zinc-500 mt-1">{p.hint}</div>
+          </button>
+        ))}
       </div>
     );
   }
@@ -928,7 +940,11 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => onAddShape("rect")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand rounded-md" /></button>
           <button onClick={() => onAddShape("ellipse")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand rounded-full" /></button>
+          <button onClick={() => onAddShape("triangle")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand" style={{ clipPath: "polygon(50% 0%, 100% 100%, 0% 100%)" }} /></button>
+          <button onClick={() => onAddShape("star")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand" style={{ clipPath: "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)" }} /></button>
+          <button onClick={() => onAddShape("line")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="w-12 h-1.5 bg-brand rounded-full" /></button>
         </div>
+        <p className="text-[10px] text-zinc-500 pt-1">Shapes support fill opacity and an outline in the properties panel — great for badges, bars and highlight blocks.</p>
       </div>
     );
   }
