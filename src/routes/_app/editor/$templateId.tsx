@@ -377,6 +377,8 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   const [fitScale, setFitScale] = useState(0.3);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
 
   useEffect(() => {
     const calc = () => {
@@ -394,13 +396,72 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
 
   const scale = zoom === "fit" ? fitScale : zoom;
 
-  const onWheel = (e: React.WheelEvent) => {
-    // Zoom on Ctrl/Cmd + wheel (Canva-style)
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    const cur = typeof scale === "number" ? scale : fitScale;
-    const next = Math.min(3, Math.max(0.05, cur * (e.deltaY > 0 ? 0.9 : 1.1)));
+  // Re-center whenever we return to "fit" (or the canvas size changes) so the
+  // artboard never drifts out of view.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || zoom !== "fit") return;
+    setOffset({
+      x: (wrap.clientWidth - dims.w * fitScale) / 2,
+      y: (wrap.clientHeight - dims.h * fitScale) / 2,
+    });
+  }, [zoom, fitScale, dims.w, dims.h]);
+
+  // Wheel handling must be a native non-passive listener — React's onWheel is
+  // passive, so preventDefault() is ignored there and the whole page zooms
+  // instead of the artboard.
+  const stateRef = useRef({ scale, offset, dims });
+  stateRef.current = { scale, offset, dims };
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const { scale: cur, offset: off } = stateRef.current;
+      const rect = el.getBoundingClientRect();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      const dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      if (e.ctrlKey || e.metaKey) {
+        const next = Math.min(4, Math.max(0.05, cur * Math.exp(-dy * 0.0015)));
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const k = next / cur;
+        setOffset({ x: px - (px - off.x) * k, y: py - (py - off.y) * k });
+        setZoom(next);
+      } else {
+        setOffset({ x: off.x - dx, y: off.y - dy });
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const zoomBy = (factor: number) => {
+    const wrap = wrapRef.current;
+    const cur = scale;
+    const next = Math.min(4, Math.max(0.05, cur * factor));
+    if (wrap) {
+      const px = wrap.clientWidth / 2;
+      const py = wrap.clientHeight / 2;
+      const k = next / cur;
+      setOffset({ x: px - (px - offset.x) * k, y: py - (py - offset.y) * k });
+    }
     setZoom(next);
+  };
+
+  // Middle-button (or space-less trackpad) panning of the artboard.
+  const startPan = (e: React.PointerEvent) => {
+    const start = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+    setPanning(true);
+    const move = (ev: PointerEvent) => setOffset({ x: start.ox + (ev.clientX - start.x), y: start.oy + (ev.clientY - start.y) });
+    const up = () => {
+      setPanning(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   // Collect snap targets from every other element + canvas edges/center.
@@ -526,11 +587,25 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   };
 
   return (
-    <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }} onWheel={onWheel}>
+    <div
+      ref={wrapRef}
+      className="w-full h-full relative overflow-hidden touch-none"
+      style={{ cursor: panning ? "grabbing" : undefined }}
+      onPointerDown={(e) => {
+        if (e.button === 1 || e.altKey) { e.preventDefault(); startPan(e); return; }
+        setSelectedId(null);
+        setEditingId(null);
+      }}
+    >
       <div
         data-canvas-root
-        className="relative shadow-2xl shadow-black/60 origin-center"
-        style={{ width: dims.w, height: dims.h, transform: `scale(${scale})`, background: scene.background, outline: "1px solid #262626" }}
+        className="absolute shadow-2xl shadow-black/60"
+        style={{
+          width: dims.w, height: dims.h, left: 0, top: 0,
+          transformOrigin: "0 0",
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          background: scene.background, outline: "1px solid #262626",
+        }}
       >
         {scene.elements.map((el) => (
           <ElementView
@@ -555,10 +630,13 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
 
       {/* Zoom controls */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-panel border border-border rounded-md px-1 py-1 text-xs">
-        <button title="Zoom out" onClick={(e) => { e.stopPropagation(); setZoom(Math.max(0.1, (typeof scale === "number" ? scale : fitScale) - 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
+        <button title="Zoom out" onClick={(e) => { e.stopPropagation(); zoomBy(1 / 1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
         <button onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="px-2 h-7 hover:bg-white/5 rounded font-mono tabular-nums text-zinc-400">{Math.round(scale * 100)}%</button>
-        <button title="Zoom in" onClick={(e) => { e.stopPropagation(); setZoom(Math.min(2, (typeof scale === "number" ? scale : fitScale) + 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
-        <button title="Fit" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
+        <button title="Zoom in" onClick={(e) => { e.stopPropagation(); zoomBy(1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
+        <button title="Fit to screen" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
+      </div>
+      <div className="absolute bottom-3 left-3 text-[10px] text-zinc-500 pointer-events-none">
+        ⌘/Ctrl + scroll to zoom · scroll or Alt-drag to pan
       </div>
     </div>
   );
