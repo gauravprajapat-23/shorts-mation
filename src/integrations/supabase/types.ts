@@ -134,6 +134,36 @@ export type Database = {
           },
         ]
       }
+      automation_user_limits: {
+        Row: {
+          created_at: string
+          max_concurrent_renders: number | null
+          max_concurrent_uploads: number | null
+          note: string | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          max_concurrent_renders?: number | null
+          max_concurrent_uploads?: number | null
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          max_concurrent_renders?: number | null
+          max_concurrent_uploads?: number | null
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_items: {
         Row: {
           asset_json: Json
