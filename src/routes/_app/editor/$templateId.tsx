@@ -20,6 +20,41 @@ type ResizeHandle = "nw" | "ne" | "sw" | "se" | "n" | "s" | "e" | "w";
 
 const FONT_FAMILIES = ["Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Courier New", "Impact", "Arial", "Helvetica"];
 
+const SHADOW_PRESETS: Array<{ label: string; value: string | undefined }> = [
+  { label: "None", value: undefined },
+  { label: "Soft", value: "0 4px 18px rgba(0,0,0,0.45)" },
+  { label: "Hard", value: "0 6px 0 rgba(0,0,0,0.85)" },
+  { label: "Glow", value: "0 0 24px rgba(255,0,51,0.85)" },
+];
+
+const TEXT_PRESETS: Array<{ label: string; hint: string; preview: React.CSSProperties; patch: Partial<TextElement> }> = [
+  {
+    label: "BIG IMPACT TITLE", hint: "heavy, uppercase, hard shadow",
+    preview: { fontSize: 20, fontWeight: 900, letterSpacing: 0.5, textTransform: "uppercase" },
+    patch: { text: "{{headline}}", fontSize: 110, fontWeight: 900, textTransform: "uppercase", letterSpacing: 2, lineHeight: 1.05, shadow: "0 6px 0 rgba(0,0,0,0.85)", h: 320 },
+  },
+  {
+    label: "Outlined headline", hint: "stroke outline for busy footage",
+    preview: { fontSize: 20, fontWeight: 800, WebkitTextStroke: "1px #FF0033" },
+    patch: { text: "{{headline}}", fontSize: 96, fontWeight: 800, stroke: "#000000", strokeWidth: 10, h: 300 },
+  },
+  {
+    label: "Quote — serif italic", hint: "motivation / quote slides",
+    preview: { fontSize: 18, fontFamily: "Georgia", fontStyle: "italic" },
+    patch: { text: "“{{quote}}”", fontFamily: "Georgia", italic: true, fontSize: 76, fontWeight: 500, lineHeight: 1.3, h: 400 },
+  },
+  {
+    label: "Subtitle caption", hint: "small supporting line",
+    preview: { fontSize: 13, letterSpacing: 2, textTransform: "uppercase", opacity: 0.8 },
+    patch: { text: "{{subheadline}}", fontSize: 44, fontWeight: 600, letterSpacing: 6, textTransform: "uppercase", opacity: 0.85, h: 120 },
+  },
+  {
+    label: "Badge / label", hint: "pill background block",
+    preview: { fontSize: 13, fontWeight: 800, background: "#FF0033", padding: "2px 8px", borderRadius: 999, display: "inline-block" },
+    patch: { text: "{{cta}}", fontSize: 48, fontWeight: 800, background: "#FF0033", w: 620, h: 120 },
+  },
+];
+
 async function uploadToAssets(file: File): Promise<string> {
   const { data: u } = await supabase.auth.getUser();
   if (!u.user) throw new Error("Not signed in");
