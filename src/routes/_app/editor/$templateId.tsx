@@ -131,6 +131,53 @@ function EditorPage() {
     commit({ ...doc, scenes: [...doc.scenes, { id: uid("scene"), name: `Scene ${doc.scenes.length + 1}`, durationMs: 5000, background: "#0A0A0A", elements: [] }] });
     setSceneIndex(doc.scenes.length);
   };
+  const duplicateScene = () => {
+    if (!doc) return;
+    const src = doc.scenes[sceneIndex];
+    const copy: EditorScene = {
+      ...src,
+      id: uid("scene"),
+      name: `${src.name} copy`,
+      elements: src.elements.map((e) => ({ ...e, id: uid(e.type) })),
+    };
+    const scenes = [...doc.scenes.slice(0, sceneIndex + 1), copy, ...doc.scenes.slice(sceneIndex + 1)];
+    commit({ ...doc, scenes });
+    setSceneIndex(sceneIndex + 1);
+  };
+  const deleteScene = () => {
+    if (!doc || doc.scenes.length <= 1) { toast.error("A template needs at least one scene"); return; }
+    const scenes = doc.scenes.filter((_, i) => i !== sceneIndex);
+    commit({ ...doc, scenes });
+    setSceneIndex(Math.max(0, sceneIndex - 1));
+    setSelectedId(null);
+  };
+  const moveScene = (dir: -1 | 1) => {
+    if (!doc) return;
+    const to = sceneIndex + dir;
+    if (to < 0 || to >= doc.scenes.length) return;
+    const scenes = [...doc.scenes];
+    [scenes[sceneIndex], scenes[to]] = [scenes[to], scenes[sceneIndex]];
+    commit({ ...doc, scenes });
+    setSceneIndex(to);
+  };
+
+  /** Align / stretch the selection against the artboard. */
+  const alignSelected = (mode: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom" | "fill" | "fitWidth") => {
+    if (!doc || !selectedId) return;
+    const d = CANVAS_DIMS[doc.aspect];
+    updateElement(selectedId, (el) => {
+      switch (mode) {
+        case "left": return { ...el, x: 0 };
+        case "hcenter": return { ...el, x: (d.w - el.w) / 2 };
+        case "right": return { ...el, x: d.w - el.w };
+        case "top": return { ...el, y: 0 };
+        case "vcenter": return { ...el, y: (d.h - el.h) / 2 };
+        case "bottom": return { ...el, y: d.h - el.h };
+        case "fitWidth": return { ...el, x: 80, w: d.w - 160 };
+        case "fill": return { ...el, x: 0, y: 0, w: d.w, h: d.h };
+      }
+    });
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -226,6 +273,13 @@ function EditorPage() {
                 rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
               } as TextElement)
             }
+            onAddTextPreset={(patch) =>
+              addElement({
+                id: uid("text"), type: "text", text: "New text", x: 80, y: dims.h/2 - 120, w: dims.w - 160, h: 240,
+                rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
+                ...patch,
+              } as TextElement)
+            }
             onAddVariable={(name) => addElement({
               id: uid("text"), type: "text", text: `{{${name}}}`, x: dims.w/2 - 200, y: dims.h/2 - 40, w: 400, h: 80,
               rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
@@ -233,6 +287,7 @@ function EditorPage() {
             onAddShape={(shape) => addElement({
               id: uid("shape"), type: "shape", shape, x: dims.w/2 - 150, y: dims.h/2 - 150, w: 300, h: 300,
               rotation: 0, opacity: 1, fill: "#FF0033", radius: shape === "rect" ? 24 : 0,
+              ...(shape === "line" ? { w: 600, h: 40, strokeWidth: 8 } : {}),
             } as ShapeElement)}
             onAddImagePlaceholder={() => addElement({
               id: uid("img"), type: "image", src: "{{background}}", x: 0, y: 0, w: dims.w, h: dims.h,
@@ -282,6 +337,12 @@ function EditorPage() {
             selected={selected}
             update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))}
             scene={scene} updateScene={updateScene}
+            onAlign={alignSelected}
+            sceneIndex={sceneIndex}
+            sceneCount={doc.scenes.length}
+            onDuplicateScene={duplicateScene}
+            onDeleteScene={deleteScene}
+            onMoveScene={moveScene}
             onDuplicate={() => selected && duplicateElement(selected.id)}
             onDelete={() => selected && deleteElement(selected.id)}
             onLayerUp={() => selected && reorderElement(selected.id, 1)}
