@@ -268,7 +268,7 @@ function EditorPage() {
         </aside>
 
         {/* Canvas */}
-        <div className="flex-1 grid place-items-center overflow-auto bg-[radial-gradient(circle_at_center,#1a1a1a,#0a0a0a)] p-8">
+        <div className="flex-1 relative overflow-hidden bg-[radial-gradient(circle_at_center,#1a1a1a,#0a0a0a)]">
           <Canvas
             doc={doc} sceneIndex={sceneIndex} previewVars={previewVars}
             selectedId={selectedId} setSelectedId={setSelectedId}
@@ -720,14 +720,22 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
   if (el.type === "text") {
     const sharedTextStyle: React.CSSProperties = {
       color: el.color, fontFamily: el.fontFamily, fontSize: el.fontSize, fontWeight: el.fontWeight,
-      textAlign: el.align, background: el.background, padding: 8, lineHeight: 1.1,
-      textShadow: el.shadow, WebkitTextStroke: el.stroke,
+      textAlign: el.align, background: el.background, padding: 8,
+      lineHeight: el.lineHeight ?? 1.15,
+      letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
+      fontStyle: el.italic ? "italic" : undefined,
+      textTransform: el.textTransform === "none" ? undefined : el.textTransform,
+      textShadow: el.shadow,
+      WebkitTextStroke: el.stroke ? `${el.strokeWidth ?? 6}px ${el.stroke}` : undefined,
+      width: "100%",
+      overflow: "hidden",
     };
+    const vJustify = el.vAlign === "top" ? "flex-start" : el.vAlign === "bottom" ? "flex-end" : "center";
     return (
       <div
         onPointerDown={editing ? (e) => e.stopPropagation() : onPointerDown}
         onDoubleClick={onDoubleClick}
-        style={{ ...baseStyle, display: "flex", alignItems: "center", justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center" }}
+        style={{ ...baseStyle, display: "flex", alignItems: vJustify, justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center", overflow: "hidden" }}
       >
         {editing ? (
           <textarea
@@ -746,8 +754,30 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
     );
   }
   if (el.type === "shape") {
+    const clip =
+      el.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" :
+      el.shape === "star" ? "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)" :
+      undefined;
+    if (el.shape === "line") {
+      return (
+        <div onPointerDown={onPointerDown} style={{ ...baseStyle, display: "grid", alignItems: "center" }}>
+          <div style={{ width: "100%", height: el.strokeWidth ?? 6, background: el.fill, opacity: el.fillOpacity ?? 1 }} />
+          {handles}
+        </div>
+      );
+    }
     return (
-      <div onPointerDown={onPointerDown} style={{ ...baseStyle, background: el.fill, borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0 }}>
+      <div
+        onPointerDown={onPointerDown}
+        style={{
+          ...baseStyle,
+          background: el.fill,
+          opacity: (el.opacity ?? 1) * (el.fillOpacity ?? 1),
+          borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0,
+          clipPath: clip,
+          border: el.stroke && !clip ? `${el.strokeWidth ?? 4}px solid ${el.stroke}` : undefined,
+        }}
+      >
         {handles}
       </div>
     );
