@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { getRenderSettings, saveRenderSettings, clearRenderSettings } from "@/lib/render-settings.functions";
+import { AutomationLimitsPanel } from "@/components/automation-limits-panel";
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({ meta: [{ title: "Settings — ShortsForge" }] }),
