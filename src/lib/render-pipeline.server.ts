@@ -9,7 +9,7 @@ import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
 import { buildShotstackEdit, submitShotstackRender, getShotstackRender } from "@/lib/shotstack.server";
 import { getRenderCredentials, renderCallbackUrl } from "@/lib/render-settings.server";
-import { getAutomationLimits, inFlightRenders } from "@/lib/automation-limits.server";
+import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders } from "@/lib/automation-limits.server";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
@@ -110,6 +110,7 @@ export async function submitDueRenders(opts?: {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const limits = await getAutomationLimits();
   const flight = await inFlightRenders();
+  const overrides = await getUserLimitOverrides();
   const globalRoom = Math.max(0, limits.max_global_concurrent_renders - flight.total);
   if (globalRoom === 0) return { submitted: 0, errors: 0, skipped: "global render concurrency limit reached" };
   const perTick = Math.min(opts?.limit ?? limits.max_renders_per_tick, limits.max_renders_per_tick, globalRoom);
@@ -135,7 +136,8 @@ export async function submitDueRenders(opts?: {
   for (const row of (rows ?? []) as any[]) {
     if (submitted >= perTick) break;
     if (row.campaigns?.status !== "active") continue;
-    if ((perUser[row.user_id] ?? 0) >= limits.max_user_concurrent_renders) { throttled++; continue; }
+    const cap = effectiveCap(overrides, row.user_id, "renders", limits.max_user_concurrent_renders);
+    if ((perUser[row.user_id] ?? 0) >= cap) { throttled++; continue; }
     if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderCredentials(row.user_id));
     const cred = credCache.get(row.user_id) ?? null;
     if (!cred) continue;

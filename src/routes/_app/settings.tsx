@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { getRenderSettings, saveRenderSettings, clearRenderSettings } from "@/lib/render-settings.functions";
+import { AutomationLimitsPanel } from "@/components/automation-limits-panel";
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({ meta: [{ title: "Settings — ShortsForge" }] }),
@@ -145,6 +146,8 @@ function SettingsPage() {
           </div>
         )}
       </section>
+
+      <AutomationLimitsPanel />
 
       <section className="rounded-2xl border border-border bg-panel p-6">
         <h2 className="font-display font-bold mb-3">Compliance</h2>

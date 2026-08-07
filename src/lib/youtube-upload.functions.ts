@@ -289,9 +289,10 @@ export const publishItemNow = createServerFn({ method: "POST" })
 
 export const processDueCampaignItems = async (): Promise<{ processed: number; errors: number; throttled?: number }> => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { getAutomationLimits, inFlightUploads } = await import("@/lib/automation-limits.server");
+  const { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightUploads } = await import("@/lib/automation-limits.server");
   const limits = await getAutomationLimits();
   const flight = await inFlightUploads();
+  const overrides = await getUserLimitOverrides();
   const globalRoom = Math.max(0, limits.max_global_concurrent_uploads - flight.total);
   const perTick = Math.min(limits.max_uploads_per_tick, globalRoom);
   const nowIso = new Date().toISOString();
@@ -312,7 +313,8 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
   for (const r of rows) {
     if (processed >= perTick) { throttled++; continue; }
     if (r.campaigns?.status !== "active") continue;
-    if ((perUser[r.user_id] ?? 0) >= limits.max_user_concurrent_uploads) { throttled++; continue; }
+    const cap = effectiveCap(overrides, r.user_id, "uploads", limits.max_user_concurrent_uploads);
+    if ((perUser[r.user_id] ?? 0) >= cap) { throttled++; continue; }
     perUser[r.user_id] = (perUser[r.user_id] ?? 0) + 1;
     const scheduled = r.schedule_at ? new Date(r.schedule_at).getTime() : 0;
     // Leave ~1 min of headroom; YouTube rejects publishAt in the past.

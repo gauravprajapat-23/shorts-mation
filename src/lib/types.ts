@@ -49,15 +49,24 @@ export type TextElement = EditorElementBase & {
   align: "left" | "center" | "right";
   shadow?: string;
   stroke?: string;
+  strokeWidth?: number;
   background?: string;
   reveal?: TextReveal;
+  italic?: boolean;
+  letterSpacing?: number;
+  lineHeight?: number;
+  textTransform?: "none" | "uppercase" | "lowercase";
+  vAlign?: "top" | "middle" | "bottom";
 };
 
 export type ShapeElement = EditorElementBase & {
   type: "shape";
-  shape: "rect" | "ellipse";
+  shape: "rect" | "ellipse" | "triangle" | "star" | "line";
   fill: string;
   radius?: number;
+  stroke?: string;
+  strokeWidth?: number;
+  fillOpacity?: number;
 };
 
 export type ImageElement = EditorElementBase & {

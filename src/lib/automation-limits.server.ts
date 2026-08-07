@@ -24,6 +24,43 @@ export async function getAutomationLimits(): Promise<AutomationLimits> {
   return { ...DEFAULTS, ...((data ?? {}) as Partial<AutomationLimits>) };
 }
 
+export type UserLimitOverride = {
+  max_concurrent_renders: number | null;
+  max_concurrent_uploads: number | null;
+  note: string | null;
+};
+
+/** Per-account overrides so single accounts can be boosted or throttled
+ *  without touching the global caps (or redeploying). */
+export async function getUserLimitOverrides(): Promise<Record<string, UserLimitOverride>> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("automation_user_limits")
+    .select("user_id, max_concurrent_renders, max_concurrent_uploads, note")
+    .limit(2000);
+  const map: Record<string, UserLimitOverride> = {};
+  for (const r of (data ?? []) as Array<{ user_id: string } & UserLimitOverride>) {
+    map[r.user_id] = {
+      max_concurrent_renders: r.max_concurrent_renders,
+      max_concurrent_uploads: r.max_concurrent_uploads,
+      note: r.note,
+    };
+  }
+  return map;
+}
+
+/** Effective per-user cap: the override when set, otherwise the global default. */
+export function effectiveCap(
+  overrides: Record<string, UserLimitOverride>,
+  userId: string,
+  kind: "renders" | "uploads",
+  fallback: number,
+): number {
+  const o = overrides[userId];
+  const v = kind === "renders" ? o?.max_concurrent_renders : o?.max_concurrent_uploads;
+  return typeof v === "number" ? v : fallback;
+}
+
 /** In-flight renders: claimed rows that have no stored MP4 yet. */
 export async function inFlightRenders(): Promise<{ total: number; perUser: Record<string, number> }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

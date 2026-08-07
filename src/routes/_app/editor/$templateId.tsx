@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove } from "@/lib/types";
+import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove, SceneTransition } from "@/lib/types";
 import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
@@ -19,6 +19,41 @@ type Panel = "elements" | "text" | "shapes" | "variables" | "layers";
 type ResizeHandle = "nw" | "ne" | "sw" | "se" | "n" | "s" | "e" | "w";
 
 const FONT_FAMILIES = ["Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Courier New", "Impact", "Arial", "Helvetica"];
+
+const SHADOW_PRESETS: Array<{ label: string; value: string | undefined }> = [
+  { label: "None", value: undefined },
+  { label: "Soft", value: "0 4px 18px rgba(0,0,0,0.45)" },
+  { label: "Hard", value: "0 6px 0 rgba(0,0,0,0.85)" },
+  { label: "Glow", value: "0 0 24px rgba(255,0,51,0.85)" },
+];
+
+const TEXT_PRESETS: Array<{ label: string; hint: string; preview: React.CSSProperties; patch: Partial<TextElement> }> = [
+  {
+    label: "BIG IMPACT TITLE", hint: "heavy, uppercase, hard shadow",
+    preview: { fontSize: 20, fontWeight: 900, letterSpacing: 0.5, textTransform: "uppercase" },
+    patch: { text: "{{headline}}", fontSize: 110, fontWeight: 900, textTransform: "uppercase", letterSpacing: 2, lineHeight: 1.05, shadow: "0 6px 0 rgba(0,0,0,0.85)", h: 320 },
+  },
+  {
+    label: "Outlined headline", hint: "stroke outline for busy footage",
+    preview: { fontSize: 20, fontWeight: 800, WebkitTextStroke: "1px #FF0033" },
+    patch: { text: "{{headline}}", fontSize: 96, fontWeight: 800, stroke: "#000000", strokeWidth: 10, h: 300 },
+  },
+  {
+    label: "Quote — serif italic", hint: "motivation / quote slides",
+    preview: { fontSize: 18, fontFamily: "Georgia", fontStyle: "italic" },
+    patch: { text: "“{{quote}}”", fontFamily: "Georgia", italic: true, fontSize: 76, fontWeight: 500, lineHeight: 1.3, h: 400 },
+  },
+  {
+    label: "Subtitle caption", hint: "small supporting line",
+    preview: { fontSize: 13, letterSpacing: 2, textTransform: "uppercase", opacity: 0.8 },
+    patch: { text: "{{subheadline}}", fontSize: 44, fontWeight: 600, letterSpacing: 6, textTransform: "uppercase", opacity: 0.85, h: 120 },
+  },
+  {
+    label: "Badge / label", hint: "pill background block",
+    preview: { fontSize: 13, fontWeight: 800, background: "#FF0033", padding: "2px 8px", borderRadius: 999, display: "inline-block" },
+    patch: { text: "{{cta}}", fontSize: 48, fontWeight: 800, background: "#FF0033", w: 620, h: 120 },
+  },
+];
 
 async function uploadToAssets(file: File): Promise<string> {
   const { data: u } = await supabase.auth.getUser();
@@ -131,6 +166,53 @@ function EditorPage() {
     commit({ ...doc, scenes: [...doc.scenes, { id: uid("scene"), name: `Scene ${doc.scenes.length + 1}`, durationMs: 5000, background: "#0A0A0A", elements: [] }] });
     setSceneIndex(doc.scenes.length);
   };
+  const duplicateScene = () => {
+    if (!doc) return;
+    const src = doc.scenes[sceneIndex];
+    const copy: EditorScene = {
+      ...src,
+      id: uid("scene"),
+      name: `${src.name} copy`,
+      elements: src.elements.map((e) => ({ ...e, id: uid(e.type) })),
+    };
+    const scenes = [...doc.scenes.slice(0, sceneIndex + 1), copy, ...doc.scenes.slice(sceneIndex + 1)];
+    commit({ ...doc, scenes });
+    setSceneIndex(sceneIndex + 1);
+  };
+  const deleteScene = () => {
+    if (!doc || doc.scenes.length <= 1) { toast.error("A template needs at least one scene"); return; }
+    const scenes = doc.scenes.filter((_, i) => i !== sceneIndex);
+    commit({ ...doc, scenes });
+    setSceneIndex(Math.max(0, sceneIndex - 1));
+    setSelectedId(null);
+  };
+  const moveScene = (dir: -1 | 1) => {
+    if (!doc) return;
+    const to = sceneIndex + dir;
+    if (to < 0 || to >= doc.scenes.length) return;
+    const scenes = [...doc.scenes];
+    [scenes[sceneIndex], scenes[to]] = [scenes[to], scenes[sceneIndex]];
+    commit({ ...doc, scenes });
+    setSceneIndex(to);
+  };
+
+  /** Align / stretch the selection against the artboard. */
+  const alignSelected = (mode: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom" | "fill" | "fitWidth") => {
+    if (!doc || !selectedId) return;
+    const d = CANVAS_DIMS[doc.aspect];
+    updateElement(selectedId, (el) => {
+      switch (mode) {
+        case "left": return { ...el, x: 0 };
+        case "hcenter": return { ...el, x: (d.w - el.w) / 2 };
+        case "right": return { ...el, x: d.w - el.w };
+        case "top": return { ...el, y: 0 };
+        case "vcenter": return { ...el, y: (d.h - el.h) / 2 };
+        case "bottom": return { ...el, y: d.h - el.h };
+        case "fitWidth": return { ...el, x: 80, w: d.w - 160 };
+        case "fill": return { ...el, x: 0, y: 0, w: d.w, h: d.h };
+      }
+    });
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -226,6 +308,13 @@ function EditorPage() {
                 rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
               } as TextElement)
             }
+            onAddTextPreset={(patch) =>
+              addElement({
+                id: uid("text"), type: "text", text: "New text", x: 80, y: dims.h/2 - 120, w: dims.w - 160, h: 240,
+                rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
+                ...patch,
+              } as TextElement)
+            }
             onAddVariable={(name) => addElement({
               id: uid("text"), type: "text", text: `{{${name}}}`, x: dims.w/2 - 200, y: dims.h/2 - 40, w: 400, h: 80,
               rotation: 0, opacity: 1, fontFamily: "Plus Jakarta Sans", fontSize: 64, fontWeight: 800, color: "#FFFFFF", align: "center",
@@ -233,6 +322,7 @@ function EditorPage() {
             onAddShape={(shape) => addElement({
               id: uid("shape"), type: "shape", shape, x: dims.w/2 - 150, y: dims.h/2 - 150, w: 300, h: 300,
               rotation: 0, opacity: 1, fill: "#FF0033", radius: shape === "rect" ? 24 : 0,
+              ...(shape === "line" ? { w: 600, h: 40, strokeWidth: 8 } : {}),
             } as ShapeElement)}
             onAddImagePlaceholder={() => addElement({
               id: uid("img"), type: "image", src: "{{background}}", x: 0, y: 0, w: dims.w, h: dims.h,
@@ -268,7 +358,7 @@ function EditorPage() {
         </aside>
 
         {/* Canvas */}
-        <div className="flex-1 grid place-items-center overflow-auto bg-[radial-gradient(circle_at_center,#1a1a1a,#0a0a0a)] p-8">
+        <div className="flex-1 relative overflow-hidden bg-[radial-gradient(circle_at_center,#1a1a1a,#0a0a0a)]">
           <Canvas
             doc={doc} sceneIndex={sceneIndex} previewVars={previewVars}
             selectedId={selectedId} setSelectedId={setSelectedId}
@@ -282,6 +372,12 @@ function EditorPage() {
             selected={selected}
             update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))}
             scene={scene} updateScene={updateScene}
+            onAlign={alignSelected}
+            sceneIndex={sceneIndex}
+            sceneCount={doc.scenes.length}
+            onDuplicateScene={duplicateScene}
+            onDeleteScene={deleteScene}
+            onMoveScene={moveScene}
             onDuplicate={() => selected && duplicateElement(selected.id)}
             onDelete={() => selected && deleteElement(selected.id)}
             onLayerUp={() => selected && reorderElement(selected.id, 1)}
@@ -377,6 +473,8 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   const [fitScale, setFitScale] = useState(0.3);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
 
   useEffect(() => {
     const calc = () => {
@@ -394,13 +492,72 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
 
   const scale = zoom === "fit" ? fitScale : zoom;
 
-  const onWheel = (e: React.WheelEvent) => {
-    // Zoom on Ctrl/Cmd + wheel (Canva-style)
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    const cur = typeof scale === "number" ? scale : fitScale;
-    const next = Math.min(3, Math.max(0.05, cur * (e.deltaY > 0 ? 0.9 : 1.1)));
+  // Re-center whenever we return to "fit" (or the canvas size changes) so the
+  // artboard never drifts out of view.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || zoom !== "fit") return;
+    setOffset({
+      x: (wrap.clientWidth - dims.w * fitScale) / 2,
+      y: (wrap.clientHeight - dims.h * fitScale) / 2,
+    });
+  }, [zoom, fitScale, dims.w, dims.h]);
+
+  // Wheel handling must be a native non-passive listener — React's onWheel is
+  // passive, so preventDefault() is ignored there and the whole page zooms
+  // instead of the artboard.
+  const stateRef = useRef({ scale, offset, dims });
+  stateRef.current = { scale, offset, dims };
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const { scale: cur, offset: off } = stateRef.current;
+      const rect = el.getBoundingClientRect();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      const dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      if (e.ctrlKey || e.metaKey) {
+        const next = Math.min(4, Math.max(0.05, cur * Math.exp(-dy * 0.0015)));
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const k = next / cur;
+        setOffset({ x: px - (px - off.x) * k, y: py - (py - off.y) * k });
+        setZoom(next);
+      } else {
+        setOffset({ x: off.x - dx, y: off.y - dy });
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const zoomBy = (factor: number) => {
+    const wrap = wrapRef.current;
+    const cur = scale;
+    const next = Math.min(4, Math.max(0.05, cur * factor));
+    if (wrap) {
+      const px = wrap.clientWidth / 2;
+      const py = wrap.clientHeight / 2;
+      const k = next / cur;
+      setOffset({ x: px - (px - offset.x) * k, y: py - (py - offset.y) * k });
+    }
     setZoom(next);
+  };
+
+  // Middle-button (or space-less trackpad) panning of the artboard.
+  const startPan = (e: React.PointerEvent) => {
+    const start = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+    setPanning(true);
+    const move = (ev: PointerEvent) => setOffset({ x: start.ox + (ev.clientX - start.x), y: start.oy + (ev.clientY - start.y) });
+    const up = () => {
+      setPanning(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   // Collect snap targets from every other element + canvas edges/center.
@@ -526,11 +683,25 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
   };
 
   return (
-    <div ref={wrapRef} className="w-full h-full relative grid place-items-center" onPointerDown={() => { setSelectedId(null); setEditingId(null); }} onWheel={onWheel}>
+    <div
+      ref={wrapRef}
+      className="w-full h-full relative overflow-hidden touch-none"
+      style={{ cursor: panning ? "grabbing" : undefined }}
+      onPointerDown={(e) => {
+        if (e.button === 1 || e.altKey) { e.preventDefault(); startPan(e); return; }
+        setSelectedId(null);
+        setEditingId(null);
+      }}
+    >
       <div
         data-canvas-root
-        className="relative shadow-2xl shadow-black/60 origin-center"
-        style={{ width: dims.w, height: dims.h, transform: `scale(${scale})`, background: scene.background, outline: "1px solid #262626" }}
+        className="absolute shadow-2xl shadow-black/60"
+        style={{
+          width: dims.w, height: dims.h, left: 0, top: 0,
+          transformOrigin: "0 0",
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          background: scene.background, outline: "1px solid #262626",
+        }}
       >
         {scene.elements.map((el) => (
           <ElementView
@@ -555,10 +726,13 @@ function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updat
 
       {/* Zoom controls */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-panel border border-border rounded-md px-1 py-1 text-xs">
-        <button title="Zoom out" onClick={(e) => { e.stopPropagation(); setZoom(Math.max(0.1, (typeof scale === "number" ? scale : fitScale) - 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
+        <button title="Zoom out" onClick={(e) => { e.stopPropagation(); zoomBy(1 / 1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
         <button onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="px-2 h-7 hover:bg-white/5 rounded font-mono tabular-nums text-zinc-400">{Math.round(scale * 100)}%</button>
-        <button title="Zoom in" onClick={(e) => { e.stopPropagation(); setZoom(Math.min(2, (typeof scale === "number" ? scale : fitScale) + 0.1)); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
-        <button title="Fit" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
+        <button title="Zoom in" onClick={(e) => { e.stopPropagation(); zoomBy(1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
+        <button title="Fit to screen" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
+      </div>
+      <div className="absolute bottom-3 left-3 text-[10px] text-zinc-500 pointer-events-none">
+        ⌘/Ctrl + scroll to zoom · scroll or Alt-drag to pan
       </div>
     </div>
   );
@@ -642,14 +816,22 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
   if (el.type === "text") {
     const sharedTextStyle: React.CSSProperties = {
       color: el.color, fontFamily: el.fontFamily, fontSize: el.fontSize, fontWeight: el.fontWeight,
-      textAlign: el.align, background: el.background, padding: 8, lineHeight: 1.1,
-      textShadow: el.shadow, WebkitTextStroke: el.stroke,
+      textAlign: el.align, background: el.background, padding: 8,
+      lineHeight: el.lineHeight ?? 1.15,
+      letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
+      fontStyle: el.italic ? "italic" : undefined,
+      textTransform: el.textTransform === "none" ? undefined : el.textTransform,
+      textShadow: el.shadow,
+      WebkitTextStroke: el.stroke ? `${el.strokeWidth ?? 6}px ${el.stroke}` : undefined,
+      width: "100%",
+      overflow: "hidden",
     };
+    const vJustify = el.vAlign === "top" ? "flex-start" : el.vAlign === "bottom" ? "flex-end" : "center";
     return (
       <div
         onPointerDown={editing ? (e) => e.stopPropagation() : onPointerDown}
         onDoubleClick={onDoubleClick}
-        style={{ ...baseStyle, display: "flex", alignItems: "center", justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center" }}
+        style={{ ...baseStyle, display: "flex", alignItems: vJustify, justifyContent: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center", overflow: "hidden" }}
       >
         {editing ? (
           <textarea
@@ -668,8 +850,30 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
     );
   }
   if (el.type === "shape") {
+    const clip =
+      el.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" :
+      el.shape === "star" ? "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)" :
+      undefined;
+    if (el.shape === "line") {
+      return (
+        <div onPointerDown={onPointerDown} style={{ ...baseStyle, display: "grid", alignItems: "center" }}>
+          <div style={{ width: "100%", height: el.strokeWidth ?? 6, background: el.fill, opacity: el.fillOpacity ?? 1 }} />
+          {handles}
+        </div>
+      );
+    }
     return (
-      <div onPointerDown={onPointerDown} style={{ ...baseStyle, background: el.fill, borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0 }}>
+      <div
+        onPointerDown={onPointerDown}
+        style={{
+          ...baseStyle,
+          background: el.fill,
+          opacity: (el.opacity ?? 1) * (el.fillOpacity ?? 1),
+          borderRadius: el.shape === "ellipse" ? "50%" : el.radius ?? 0,
+          clipPath: clip,
+          border: el.stroke && !clip ? `${el.strokeWidth ?? 4}px solid ${el.stroke}` : undefined,
+        }}
+      >
         {handles}
       </div>
     );
@@ -695,10 +899,11 @@ function ElementView({ el, selected, editing, onPointerDown, onDoubleClick, onTe
   );
 }
 
-function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
+function LeftPanel({ panel, doc, onAddText, onAddTextPreset, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, scene, selectedId, setSelectedId, deleteElement }: {
   panel: Panel; doc: EditorDocument;
   onAddText: () => void;
-  onAddShape: (s: "rect" | "ellipse") => void;
+  onAddTextPreset: (patch: Partial<TextElement>) => void;
+  onAddShape: (s: ShapeElement["shape"]) => void;
   onAddImagePlaceholder: () => void;
   onAddImageFromUrl: (url: string) => void;
   onAddVideoFromUrl: (url: string) => void;
@@ -749,6 +954,17 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
           <div className="font-display text-2xl font-extrabold">Heading</div>
           <div className="text-[10px] text-zinc-500 mt-1">Click to add</div>
         </button>
+        <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold pt-2">Pro presets</div>
+        {TEXT_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => onAddTextPreset(p.patch)}
+            className="w-full p-3 rounded-lg bg-white/5 border border-border hover:border-brand/50 text-left"
+          >
+            <div className="truncate" style={p.preview}>{p.label}</div>
+            <div className="text-[10px] text-zinc-500 mt-1">{p.hint}</div>
+          </button>
+        ))}
       </div>
     );
   }
@@ -759,7 +975,11 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => onAddShape("rect")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand rounded-md" /></button>
           <button onClick={() => onAddShape("ellipse")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand rounded-full" /></button>
+          <button onClick={() => onAddShape("triangle")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand" style={{ clipPath: "polygon(50% 0%, 100% 100%, 0% 100%)" }} /></button>
+          <button onClick={() => onAddShape("star")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="size-12 bg-brand" style={{ clipPath: "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)" }} /></button>
+          <button onClick={() => onAddShape("line")} className="aspect-square rounded-lg bg-white/5 border border-border hover:border-brand/50 grid place-items-center"><div className="w-12 h-1.5 bg-brand rounded-full" /></button>
         </div>
+        <p className="text-[10px] text-zinc-500 pt-1">Shapes support fill opacity and an outline in the properties panel — great for badges, bars and highlight blocks.</p>
       </div>
     );
   }
@@ -794,11 +1014,19 @@ function LeftPanel({ panel, doc, onAddText, onAddShape, onAddImagePlaceholder, o
   );
 }
 
-function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelete, onLayerUp, onLayerDown, onToggleLock }: {
+type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom" | "fill" | "fitWidth";
+
+function RightPanel({ selected, update, scene, updateScene, onAlign, sceneIndex, sceneCount, onDuplicateScene, onDeleteScene, onMoveScene, onDuplicate, onDelete, onLayerUp, onLayerDown, onToggleLock }: {
   selected: EditorElement | null;
   update: (patch: Partial<EditorElement>) => void;
   scene: EditorScene;
   updateScene: (mut: (s: EditorScene) => EditorScene) => void;
+  onAlign: (mode: AlignMode) => void;
+  sceneIndex: number;
+  sceneCount: number;
+  onDuplicateScene: () => void;
+  onDeleteScene: () => void;
+  onMoveScene: (dir: -1 | 1) => void;
   onDuplicate: () => void;
   onDelete: () => void;
   onLayerUp: () => void;
@@ -808,12 +1036,46 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
   if (!selected) {
     return (
       <div className="p-4 space-y-4">
-        <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">Scene</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">Scene {sceneIndex + 1}/{sceneCount}</div>
+          <div className="flex items-center gap-1">
+            <button title="Move scene earlier" onClick={() => onMoveScene(-1)} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowUp className="size-3.5" /></button>
+            <button title="Move scene later" onClick={() => onMoveScene(1)} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><ArrowDown className="size-3.5" /></button>
+            <button title="Duplicate scene" onClick={onDuplicateScene} className="size-7 grid place-items-center rounded-md hover:bg-white/5 text-zinc-400"><Copy className="size-3.5" /></button>
+            <button title="Delete scene" onClick={onDeleteScene} className="size-7 grid place-items-center rounded-md hover:bg-brand/10 text-brand"><Trash2 className="size-3.5" /></button>
+          </div>
+        </div>
+        <Row label="Name">
+          <input value={scene.name} onChange={(e) => updateScene((s) => ({ ...s, name: e.target.value }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+        </Row>
         <Row label="Background">
           <input type="color" value={scene.background} onChange={(e) => updateScene((s) => ({ ...s, background: e.target.value }))} className="w-full h-8 rounded-md bg-transparent border border-border" />
         </Row>
         <Row label="Duration (ms)">
-          <input type="number" value={scene.durationMs} onChange={(e) => updateScene((s) => ({ ...s, durationMs: Number(e.target.value) }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+          <input type="number" step={250} value={scene.durationMs} onChange={(e) => updateScene((s) => ({ ...s, durationMs: Number(e.target.value) }))} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" />
+        </Row>
+        <div className="grid grid-cols-4 gap-1">
+          {[2000, 3000, 5000, 8000].map((ms) => (
+            <button key={ms} onClick={() => updateScene((s) => ({ ...s, durationMs: ms }))} className={`h-7 rounded-md text-[11px] border ${scene.durationMs===ms?"border-brand text-brand":"border-border text-zinc-400"}`}>{ms/1000}s</button>
+          ))}
+        </div>
+        <Row label="Transition in">
+          <select
+            value={scene.transitionIn ?? "cut"}
+            onChange={(e) => updateScene((s) => ({ ...s, transitionIn: e.target.value as SceneTransition }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {(["cut","fade","slideLeft","slideRight","wipe"] as SceneTransition[]).map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Row>
+        <Row label="Camera move">
+          <select
+            value={scene.cameraMove ?? "none"}
+            onChange={(e) => updateScene((s) => ({ ...s, cameraMove: e.target.value as CameraMove }))}
+            className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"
+          >
+            {CAMERA_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </Row>
         <p className="text-xs text-zinc-500">Select an element to edit its properties.</p>
       </div>
@@ -854,11 +1116,46 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
               ))}
             </div>
           </Row>
+          <Row label="Vertical align">
+            <div className="grid grid-cols-3 gap-1">
+              {(["top","middle","bottom"] as const).map((a) => (
+                <button key={a} onClick={() => update({ vAlign: a } as Partial<TextElement>)} className={`h-8 rounded-md text-xs border ${((selected as TextElement).vAlign ?? "middle")===a?"border-brand text-brand":"border-border text-zinc-400"}`}>{a}</button>
+              ))}
+            </div>
+          </Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Letter spacing"><input type="number" step={1} value={(selected as TextElement).letterSpacing ?? 0} onChange={(e) => update({ letterSpacing: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+            <Row label="Line height"><input type="number" step={0.05} min={0.8} max={2.4} value={(selected as TextElement).lineHeight ?? 1.15} onChange={(e) => update({ lineHeight: Number(e.target.value) } as Partial<TextElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
+          <Row label="Case">
+            <div className="grid grid-cols-4 gap-1">
+              {(["none","uppercase","lowercase"] as const).map((c) => (
+                <button key={c} onClick={() => update({ textTransform: c } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] border ${((selected as TextElement).textTransform ?? "none")===c?"border-brand text-brand":"border-border text-zinc-400"}`}>{c === "none" ? "Aa" : c === "uppercase" ? "AA" : "aa"}</button>
+              ))}
+              <button onClick={() => update({ italic: !(selected as TextElement).italic } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] italic border ${(selected as TextElement).italic?"border-brand text-brand":"border-border text-zinc-400"}`}>I</button>
+            </div>
+          </Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Outline color"><input type="color" value={(selected as TextElement).stroke ?? "#000000"} onChange={(e) => update({ stroke: e.target.value } as Partial<TextElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+            <Row label="Outline width"><input type="number" min={0} max={40} value={(selected as TextElement).strokeWidth ?? 0} onChange={(e) => { const n = Number(e.target.value); update({ strokeWidth: n, stroke: n > 0 ? ((selected as TextElement).stroke ?? "#000000") : undefined } as Partial<TextElement>); }} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
+          <Row label="Shadow">
+            <div className="grid grid-cols-4 gap-1">
+              {SHADOW_PRESETS.map((p) => (
+                <button key={p.label} onClick={() => update({ shadow: p.value } as Partial<TextElement>)} className={`h-8 rounded-md text-[11px] border ${((selected as TextElement).shadow ?? undefined)===p.value?"border-brand text-brand":"border-border text-zinc-400"}`}>{p.label}</button>
+              ))}
+            </div>
+          </Row>
         </>
       )}
       {selected.type === "shape" && (
         <>
           <Row label="Fill"><input type="color" value={(selected as ShapeElement).fill} onChange={(e) => update({ fill: e.target.value } as Partial<ShapeElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+          <Row label="Fill opacity"><input type="range" min={0} max={1} step={0.05} value={(selected as ShapeElement).fillOpacity ?? 1} onChange={(e) => update({ fillOpacity: Number(e.target.value) } as Partial<ShapeElement>)} className="w-full" /></Row>
+          <div className="grid grid-cols-2 gap-2">
+            <Row label="Outline"><input type="color" value={(selected as ShapeElement).stroke ?? "#FFFFFF"} onChange={(e) => update({ stroke: e.target.value } as Partial<ShapeElement>)} className="w-full h-8 rounded-md bg-transparent border border-border" /></Row>
+            <Row label="Outline width"><input type="number" min={0} max={40} value={(selected as ShapeElement).strokeWidth ?? 0} onChange={(e) => { const n = Number(e.target.value); update({ strokeWidth: n, stroke: n > 0 ? ((selected as ShapeElement).stroke ?? "#FFFFFF") : undefined } as Partial<ShapeElement>); }} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
+          </div>
           {(selected as ShapeElement).shape === "rect" && (
             <Row label="Radius"><input type="number" value={(selected as ShapeElement).radius ?? 0} onChange={(e) => update({ radius: Number(e.target.value) } as Partial<ShapeElement>)} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
           )}
@@ -901,6 +1198,17 @@ function RightPanel({ selected, update, scene, updateScene, onDuplicate, onDelet
       </div>
       <Row label="Rotation"><input type="range" min={-180} max={180} value={selected.rotation} onChange={(e) => update({ rotation: Number(e.target.value) })} className="w-full" /></Row>
       <Row label="Opacity"><input type="range" min={0} max={1} step={0.05} value={selected.opacity} onChange={(e) => update({ opacity: Number(e.target.value) })} className="w-full" /></Row>
+      <Row label="Position on canvas">
+        <div className="grid grid-cols-3 gap-1">
+          {([["left","⇤"],["hcenter","↔"],["right","⇥"],["top","⇡"],["vcenter","↕"],["bottom","⇣"]] as Array<[AlignMode, string]>).map(([mode, glyph]) => (
+            <button key={mode} title={mode} onClick={() => onAlign(mode)} className="h-8 rounded-md text-xs border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">{glyph}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-1 mt-1">
+          <button onClick={() => onAlign("fitWidth")} className="h-8 rounded-md text-[11px] border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">Fit width</button>
+          <button onClick={() => onAlign("fill")} className="h-8 rounded-md text-[11px] border border-border text-zinc-400 hover:border-brand/50 hover:text-brand">Fill canvas</button>
+        </div>
+      </Row>
       <AnimatePanel selected={selected} update={update} scene={scene} updateScene={updateScene} />
     </div>
   );
