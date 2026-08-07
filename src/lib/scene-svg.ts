@@ -6,7 +6,7 @@ const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
-function fitText(text: string, maxWidth: number, maxHeight: number, startSize: number): { lines: string[]; fontSize: number } {
+function fitText(text: string, maxWidth: number, maxHeight: number, startSize: number, lh = 1.15): { lines: string[]; fontSize: number } {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return { lines: [""], fontSize: startSize };
   let size = startSize;
@@ -26,11 +26,22 @@ function fitText(text: string, maxWidth: number, maxHeight: number, startSize: n
       }
     }
     if (current) lines.push(current);
-    const totalH = lines.length * size * 1.15;
+    const totalH = lines.length * size * lh;
     if (totalH <= maxHeight || size <= minSize) return { lines, fontSize: size };
     size = Math.max(minSize, Math.floor(size * 0.9));
   }
   return { lines: [text], fontSize: size };
+}
+
+function starPoints(w: number, h: number, points = 5): string {
+  const cx = w / 2, cy = h / 2, ro = Math.min(w, h) / 2, ri = ro * 0.42;
+  const out: string[] = [];
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? ro : ri;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    out.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return out.join(" ");
 }
 
 function renderElement(el: EditorElement, tLocal: number, sceneDur: number, vars: Record<string, string>, includeVideo: boolean): string {
@@ -44,26 +55,39 @@ function renderElement(el: EditorElement, tLocal: number, sceneDur: number, vars
 
   if (el.type === "shape") {
     const s = el as ShapeElement;
-    const body = s.shape === "ellipse"
-      ? `<ellipse cx="${s.w/2}" cy="${s.h/2}" rx="${s.w/2}" ry="${s.h/2}" fill="${s.fill}"/>`
-      : `<rect width="${s.w}" height="${s.h}" fill="${s.fill}" rx="${s.radius ?? 0}"/>`;
+    const paint = `fill="${s.fill}" fill-opacity="${s.fillOpacity ?? 1}"${s.stroke ? ` stroke="${esc(s.stroke)}" stroke-width="${s.strokeWidth ?? 4}"` : ""}`;
+    const body =
+      s.shape === "ellipse" ? `<ellipse cx="${s.w/2}" cy="${s.h/2}" rx="${s.w/2}" ry="${s.h/2}" ${paint}/>`
+      : s.shape === "triangle" ? `<polygon points="${s.w/2},0 ${s.w},${s.h} 0,${s.h}" ${paint}/>`
+      : s.shape === "star" ? `<polygon points="${starPoints(s.w, s.h)}" ${paint}/>`
+      : s.shape === "line" ? `<rect y="${Math.max(0, s.h/2 - (s.strokeWidth ?? 6)/2)}" width="${s.w}" height="${s.strokeWidth ?? 6}" fill="${s.fill}" fill-opacity="${s.fillOpacity ?? 1}"/>`
+      : `<rect width="${s.w}" height="${s.h}" ${paint} rx="${s.radius ?? 0}"/>`;
     return `${openG}${body}</g>`;
   }
 
   if (el.type === "text") {
     const t = el as TextElement;
     let raw = renderText(t.text, vars);
+    if (t.textTransform === "uppercase") raw = raw.toUpperCase();
+    else if (t.textTransform === "lowercase") raw = raw.toLowerCase();
     if (f.visibleChars !== undefined) raw = raw.slice(0, f.visibleChars);
     else if (f.visibleWords !== undefined) raw = raw.split(/\s+/).slice(0, f.visibleWords).join(" ");
     const anchor = t.align === "left" ? "start" : t.align === "right" ? "end" : "middle";
     const xPos = t.align === "left" ? 0 : t.align === "right" ? t.w : t.w / 2;
-    const stroke = t.stroke ? ` stroke="${esc(t.stroke)}" stroke-width="6" paint-order="stroke fill"` : "";
-    const { lines, fontSize } = fitText(raw || " ", t.w, t.h, t.fontSize);
-    const lineHeight = fontSize * 1.15;
+    const stroke = t.stroke ? ` stroke="${esc(t.stroke)}" stroke-width="${t.strokeWidth ?? 6}" paint-order="stroke fill"` : "";
+    const lhFactor = t.lineHeight && t.lineHeight > 0.5 ? t.lineHeight : 1.15;
+    const { lines, fontSize } = fitText(raw || " ", t.w, t.h, t.fontSize, lhFactor);
+    const lineHeight = fontSize * lhFactor;
     const totalH = lineHeight * lines.length;
-    const startY = (t.h - totalH) / 2 + fontSize * 0.85;
+    const vTop = t.vAlign === "top" ? 0 : t.vAlign === "bottom" ? t.h - totalH : (t.h - totalH) / 2;
+    const startY = vTop + fontSize * 0.85;
     const tspans = lines.map((ln, i) => `<tspan x="${xPos}" y="${startY + i * lineHeight}">${esc(ln)}</tspan>`).join("");
-    return `${openG}<text text-anchor="${anchor}" fill="${t.color}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${fontSize}" font-weight="${t.fontWeight}"${stroke}>${tspans}</text></g>`;
+    const extra =
+      `${t.italic ? ` font-style="italic"` : ""}` +
+      `${t.letterSpacing ? ` letter-spacing="${t.letterSpacing}"` : ""}`;
+    const bgRect = t.background && t.background !== "transparent"
+      ? `<rect width="${t.w}" height="${t.h}" fill="${esc(t.background)}" rx="12"/>` : "";
+    return `${openG}${bgRect}<text text-anchor="${anchor}" fill="${t.color}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${fontSize}" font-weight="${t.fontWeight}"${extra}${stroke}>${tspans}</text></g>`;
   }
 
   if (el.type === "image") {
