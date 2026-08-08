@@ -9,7 +9,7 @@ import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
 import { buildShotstackEdit, submitShotstackRender, getShotstackRender } from "@/lib/shotstack.server";
 import { getRenderCredentials, renderCallbackUrl } from "@/lib/render-settings.server";
-import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders } from "@/lib/automation-limits.server";
+import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders, RENDER_STALE_MINUTES } from "@/lib/automation-limits.server";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
@@ -103,6 +103,42 @@ async function log(row: { user_id: string; campaign_id: string; id: string }, le
 }
 
 export async function submitDueRenders(opts?: {
+  campaignId?: string;
+  ignoreLeadTime?: boolean;
+  limit?: number;
+}): Promise<{ submitted: number; errors: number; skipped?: string }> {
+  await reclaimStaleRenders();
+  return submitDueRendersInner(opts);
+}
+
+/** Frees rows whose render claim was abandoned — a closed browser tab that left
+ *  `status = rendering`, or a provider job that never called back. Without this
+ *  a few stuck rows permanently consume the concurrency caps and the whole
+ *  queue stops rendering and uploading. */
+export async function reclaimStaleRenders(): Promise<{ reclaimed: number }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const cutoff = new Date(Date.now() - RENDER_STALE_MINUTES * 60_000).toISOString();
+  const { data: stale } = await supabaseAdmin
+    .from("campaign_items")
+    .select("id, user_id, campaign_id, render_job_ref, render_submitted_at, updated_at")
+    .eq("status", "rendering")
+    .is("rendered_video_url", null)
+    .lt("updated_at", cutoff)
+    .limit(200);
+  const rows = ((stale ?? []) as any[]).filter(
+    (r) => (r.render_submitted_at ?? r.updated_at ?? "") < cutoff,
+  );
+  for (const row of rows) {
+    await supabaseAdmin
+      .from("campaign_items")
+      .update({ status: "pending", render_job_ref: null, render_submitted_at: null })
+      .eq("id", row.id);
+    await log(row, "warn", "Render claim timed out — the video was requeued for a fresh server render");
+  }
+  return { reclaimed: rows.length };
+}
+
+async function submitDueRendersInner(opts?: {
   campaignId?: string;
   ignoreLeadTime?: boolean;
   limit?: number;

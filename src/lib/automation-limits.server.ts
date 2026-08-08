@@ -61,18 +61,31 @@ export function effectiveCap(
   return typeof v === "number" ? v : fallback;
 }
 
-/** In-flight renders: claimed rows that have no stored MP4 yet. */
+/** How long a claimed render may stay unfinished before it stops counting
+ *  against the concurrency caps (and becomes reclaimable). */
+export const RENDER_STALE_MINUTES = 30;
+
+/** In-flight renders: recently claimed rows that have no stored MP4 yet.
+ *  Abandoned claims (e.g. a browser tab closed mid-render) are excluded so a
+ *  handful of stuck rows can never block the whole queue forever. */
 export async function inFlightRenders(): Promise<{ total: number; perUser: Record<string, number> }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const cutoff = new Date(Date.now() - RENDER_STALE_MINUTES * 60_000).toISOString();
   const { data } = await supabaseAdmin
     .from("campaign_items")
-    .select("user_id")
+    .select("user_id, status, render_job_ref, render_submitted_at, updated_at")
     .is("rendered_video_url", null)
     .or("status.eq.rendering,render_job_ref.not.is.null")
     .limit(500);
+  const fresh = ((data ?? []) as Array<{
+    user_id: string;
+    render_job_ref: string | null;
+    render_submitted_at: string | null;
+    updated_at: string | null;
+  }>).filter((r) => (r.render_submitted_at ?? r.updated_at ?? "") > cutoff);
   const perUser: Record<string, number> = {};
-  for (const r of (data ?? []) as Array<{ user_id: string }>) perUser[r.user_id] = (perUser[r.user_id] ?? 0) + 1;
-  return { total: (data ?? []).length, perUser };
+  for (const r of fresh) perUser[r.user_id] = (perUser[r.user_id] ?? 0) + 1;
+  return { total: fresh.length, perUser };
 }
 
 export async function inFlightUploads(): Promise<{ total: number; perUser: Record<string, number> }> {
