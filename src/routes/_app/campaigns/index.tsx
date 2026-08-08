@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Rocket, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/campaigns/")({
   head: () => ({ meta: [{ title: "Campaigns — ShortsForge" }] }),
@@ -21,7 +22,26 @@ function CampaignsPage() {
       if (error) throw error;
       return data ?? [];
     },
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
+
+  // Live counts: the DB trigger recounts campaigns whenever an item transitions,
+  // so listening to both tables keeps the numbers trustworthy mid-run.
+  useEffect(() => {
+    const channel = supabase
+      .channel("campaign-progress")
+      .on("postgres_changes", { event: "*", schema: "public", table: "campaigns" }, () => {
+        qc.invalidateQueries({ queryKey: ["campaigns"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "campaign_items" }, () => {
+        qc.invalidateQueries({ queryKey: ["campaigns"] });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [qc]);
 
   const del = useMutation({
     mutationFn: async (id: string) => {
@@ -63,6 +83,7 @@ function CampaignsPage() {
               <tr>
                 <th className="text-left px-4 py-3 font-semibold">Name</th>
                 <th className="text-left px-4 py-3 font-semibold">Status</th>
+                <th className="text-right px-4 py-3 font-semibold">Generated</th>
                 <th className="text-right px-4 py-3 font-semibold">Uploaded</th>
                 <th className="text-right px-4 py-3 font-semibold">Failed</th>
                 <th className="text-right px-4 py-3 font-semibold">Total</th>
@@ -77,6 +98,7 @@ function CampaignsPage() {
                     <Link to="/campaigns/$campaignId" params={{ campaignId: c.id }} className="font-semibold hover:text-brand">{c.name}</Link>
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.generated_count}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{c.uploaded_count}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{c.failed_count}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{c.total_videos}</td>
