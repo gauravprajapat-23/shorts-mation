@@ -77,12 +77,15 @@ export async function inFlightRenders(): Promise<{ total: number; perUser: Recor
     .is("rendered_video_url", null)
     .or("status.eq.rendering,render_job_ref.not.is.null")
     .limit(500);
+  // Only provider-side jobs (or freshly submitted claims) occupy render slots.
+  // A row left in `rendering` by a closed browser tab has no job reference and
+  // must never consume a slot.
   const fresh = ((data ?? []) as Array<{
     user_id: string;
     render_job_ref: string | null;
     render_submitted_at: string | null;
     updated_at: string | null;
-  }>).filter((r) => (r.render_submitted_at ?? r.updated_at ?? "") > cutoff);
+  }>).filter((r) => Boolean(r.render_job_ref) && (r.render_submitted_at ?? r.updated_at ?? "") > cutoff);
   const perUser: Record<string, number> = {};
   for (const r of fresh) perUser[r.user_id] = (perUser[r.user_id] ?? 0) + 1;
   return { total: fresh.length, perUser };

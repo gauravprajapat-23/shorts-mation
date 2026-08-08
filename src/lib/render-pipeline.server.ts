@@ -154,7 +154,7 @@ async function submitDueRendersInner(opts?: {
   let query = supabaseAdmin
     .from("campaign_items")
     .select("id, user_id, campaign_id, content_json, asset_json, audio_json, schedule_at, campaigns!inner(status, template_id, settings_json)")
-    .in("status", ["pending", "upload_pending"])
+    .in("status", ["pending", "upload_pending", "rendering"])
     .is("rendered_video_url", null)
     .is("render_job_ref", null);
   if (opts?.campaignId) query = query.eq("campaign_id", opts.campaignId);
@@ -183,7 +183,7 @@ async function submitDueRendersInner(opts?: {
         .update({ status: "rendering", error_message: null, render_submitted_at: new Date().toISOString(), render_provider: "shotstack" })
         .eq("id", row.id)
         .is("render_job_ref", null)
-        .in("status", ["pending", "upload_pending"])
+        .in("status", ["pending", "upload_pending", "rendering"])
         .select("id");
       if (!claim.data?.length) continue;
 
