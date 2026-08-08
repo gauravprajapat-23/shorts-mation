@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.recount_campaign_progress() FROM PUBLIC, anon, authenticated;
