@@ -1,4 +1,5 @@
-import type { AspectRatio, EditorDocument, EditorScene } from "./types";
+import type { AspectRatio, EditorDocument, EditorDocumentV2, EditorScene } from "./types";
+import { syncV2Timeline } from "./editor-document-v2";
 
 let __id = 0;
 export const uid = (p = "el") => `${p}_${Date.now().toString(36)}_${(__id++).toString(36)}`;
@@ -13,14 +14,23 @@ export function blankScene(): EditorScene {
   return { id: uid("scene"), name: "Scene 1", durationMs: 5000, background: "#0A0A0A", elements: [] };
 }
 
-export function blankDocument(aspect: AspectRatio = "9:16"): EditorDocument {
-  return {
-    version: 1,
+export function blankDocument(aspect: AspectRatio = "9:16"): EditorDocumentV2 {
+  const dims = CANVAS_DIMS[aspect];
+  return syncV2Timeline({
+    version: 2,
     aspect,
+    width: dims.w,
+    height: dims.h,
+    fps: 30,
+    durationMs: 5000,
     scenes: [blankScene()],
+    tracks: [],
+    audioClips: [],
+    captionClips: [],
+    audioMix: { duckingEnabled: true, duckLevel: 0.22, attackMs: 180, releaseMs: 320 },
     audio: { volume: 0.7 },
     variables: ["headline", "subheadline", "cta"],
-  };
+  });
 }
 
 export function renderText(text: string, vars: Record<string, unknown>) {

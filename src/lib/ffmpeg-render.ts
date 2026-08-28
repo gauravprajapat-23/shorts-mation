@@ -2,8 +2,10 @@
 // an SVG overlay burned in as a PNG. Falls back cleanly when ffmpeg fails to load.
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import { buildSceneSvgAtTime } from "@/lib/scene-svg";
-import { resolveDocVars, totalDocDurationMs } from "@/lib/animate";
+import { buildSceneBackgroundSvgAtTime, buildSceneSvgAtTime } from "@/lib/scene-svg";
+import { resolveDocVars } from "@/lib/animate";
+import { collectTimelineAudioSegments, collectTimelineVideoSegments, timelineDurationMs } from "@/lib/timeline-engine";
+import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument } from "@/lib/types";
 
 // The @ffmpeg/ffmpeg wrapper runs inside a module worker in Vite. Loading the
@@ -97,74 +99,178 @@ export async function renderMp4(opts: ClientRenderOptions): Promise<Blob> {
   const fps = Math.max(12, Math.min(30, opts.fps ?? 20));
   const maxDurationMs = opts.maxDurationMs ?? 30000;
 
-  // Animated path — rasterize every frame from `doc` at the current time.
+  // Animated path — all timing comes from the shared timeline evaluator.
   if (opts.doc) {
     const vars0 = opts.vars ?? {};
-    // Resolve variables before measuring so scenes are long enough for the
-    // fully-substituted text reveal.
     const resolvedDoc = resolveDocVars(opts.doc, vars0);
-    const totalMs = Math.min(maxDurationMs, totalDocDurationMs(resolvedDoc.scenes));
+    const totalMs = Math.min(maxDurationMs, timelineDurationMs(resolvedDoc));
     const totalFrames = Math.max(1, Math.round((totalMs / 1000) * fps));
-    const vars = opts.vars ?? {};
+    const videoSegments = collectTimelineVideoSegments(resolvedDoc);
+    const audioSegments = collectTimelineAudioSegments(resolvedDoc);
+    const design = CANVAS_DIMS[resolvedDoc.aspect];
 
-    // Rasterize each frame → f00001.png
+    // Rasterize transparent graphics/text overlays and, when there is no
+    // external background video, a background-only frame sequence. Videos are
+    // composited between those two layers by FFmpeg.
     for (let i = 0; i < totalFrames; i++) {
       const tMs = (i / fps) * 1000;
-      const svg = buildSceneSvgAtTime({
+      const overlaySvg = buildSceneSvgAtTime({
         doc: resolvedDoc,
         tMs,
-        vars,
-        includeBackground: !opts.backgroundVideoUrl,
+        vars: {},
+        includeBackground: false,
+        includeVideo: false,
       });
-      const png = await svgToPngBlob(svg, w, h);
-      const name = `f${String(i + 1).padStart(5, "0")}.png`;
-      await ff.writeFile(name, new Uint8Array(await png.arrayBuffer()));
-      // 0..60% for rasterization
-      opts.onProgress?.(Math.floor((i / totalFrames) * 60));
-      // yield to the UI every 8 frames so the tab stays responsive
+      const overlayPng = await svgToPngBlob(overlaySvg, w, h);
+      await ff.writeFile(`ov${String(i + 1).padStart(5, "0")}.png`, new Uint8Array(await overlayPng.arrayBuffer()));
+
+      if (!opts.backgroundVideoUrl) {
+        const backgroundSvg = buildSceneBackgroundSvgAtTime({ doc: resolvedDoc, tMs });
+        const backgroundPng = await svgToPngBlob(backgroundSvg, w, h);
+        await ff.writeFile(`bg${String(i + 1).padStart(5, "0")}.png`, new Uint8Array(await backgroundPng.arrayBuffer()));
+      }
+
+      opts.onProgress?.(Math.floor((i / totalFrames) * 55));
       if (i % 8 === 0) await new Promise((r) => setTimeout(r, 0));
     }
 
-    // 60..99% for ffmpeg encode
     ff.on("progress", ({ progress }) => {
-      const pct = 60 + Math.round(progress * 39);
-      opts.onProgress?.(Math.max(60, Math.min(99, pct)));
+      const pct = 55 + Math.round(progress * 44);
+      opts.onProgress?.(Math.max(55, Math.min(99, pct)));
     });
 
-    const durationSec = totalFrames / fps;
+    // Input 0: background. Input 1: transparent overlay frames. Inputs 2+:
+    // timeline video elements. Optional music is appended last.
     if (opts.backgroundVideoUrl) {
       const bgBytes = await fetchFile(opts.backgroundVideoUrl);
-      await ff.writeFile("bg.mp4", bgBytes);
+      await ff.writeFile("project-bg.mp4", bgBytes);
       if (opts.loop) args.push("-stream_loop", "-1");
-      args.push("-i", "bg.mp4");
-      args.push("-framerate", String(fps), "-i", "f%05d.png");
-      args.push("-filter_complex",
-        `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1[bg];[bg][1:v]overlay=0:0:format=auto[v]`,
-      );
-      args.push("-map", "[v]");
-      if (opts.muted) args.push("-an"); else args.push("-map", "0:a?");
+      args.push("-i", "project-bg.mp4");
     } else {
-      args.push("-framerate", String(fps), "-i", "f%05d.png");
-      args.push("-vf", `scale=${w}:${h}`);
-      args.push("-an");
+      args.push("-framerate", String(fps), "-i", "bg%05d.png");
     }
-    args.push("-t", String(durationSec));
+    args.push("-framerate", String(fps), "-i", "ov%05d.png");
 
-    // Optional background music: appended as an extra input and mapped as the
-    // single audio track (replaces the background video's own audio).
-    if (opts.audioUrl) {
+    for (let i = 0; i < videoSegments.length; i++) {
+      const segment = videoSegments[i]!;
+      const bytes = await fetchFile(segment.element.src);
+      const name = `clip-${i}.mp4`;
+      await ff.writeFile(name, bytes);
+      if (segment.loop) args.push("-stream_loop", "-1");
+      args.push("-i", name);
+    }
+
+    const audioInputStart = 2 + videoSegments.length;
+    for (let i = 0; i < audioSegments.length; i++) {
+      const segment = audioSegments[i]!;
+      const bytes = await fetchFile(segment.clip.src);
+      const name = `audio-${i}.bin`;
+      await ff.writeFile(name, bytes);
+      if (segment.clip.loop) args.push("-stream_loop", "-1");
+      args.push("-i", name);
+    }
+    let legacyMusicInputIndex: number | null = null;
+    if (!audioSegments.length && opts.audioUrl) {
       const musicBytes = await fetchFile(opts.audioUrl);
       await ff.writeFile("music.m4a", musicBytes);
-      const audioIndex = opts.backgroundVideoUrl ? 2 : 1;
-      const anIdx = args.indexOf("-an");
-      if (anIdx !== -1) args.splice(anIdx, 1);
-      const mapAudioIdx = args.indexOf("0:a?");
-      if (mapAudioIdx !== -1) args.splice(mapAudioIdx - 1, 2);
+      legacyMusicInputIndex = audioInputStart;
       args.push("-stream_loop", "-1", "-i", "music.m4a");
-      args.push("-map", `${audioIndex}:a`);
-      args.push("-filter:a", `volume=${(opts.audioVolume ?? 0.7).toFixed(2)}`);
-      args.push("-c:a", "aac", "-shortest");
     }
+
+    const filters: string[] = [];
+    if (opts.backgroundVideoUrl) {
+      filters.push(`[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1[base0]`);
+    } else {
+      filters.push(`[0:v]scale=${w}:${h},setsar=1[base0]`);
+    }
+
+    let current = "base0";
+    for (let i = 0; i < videoSegments.length; i++) {
+      const segment = videoSegments[i]!;
+      const inputIndex = i + 2;
+      const targetW = Math.max(2, Math.round((segment.element.w / design.w) * w));
+      const targetH = Math.max(2, Math.round((segment.element.h / design.h) * h));
+      const x = Math.round((segment.frame.x / design.w) * w);
+      const y = Math.round((segment.frame.y / design.h) * h);
+      const sourceStart = Math.max(0, segment.sourceStartMs / 1000);
+      const sourceEnd = Math.max(sourceStart + 0.001, segment.sourceEndMs / 1000);
+      const startSec = segment.startMs / 1000;
+      const endSec = segment.endMs / 1000;
+      const fit = segment.element.fit === "contain"
+        ? `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+        : `scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH}`;
+      const alpha = Math.max(0, Math.min(1, segment.frame.opacity));
+      filters.push(`[${inputIndex}:v]trim=start=${sourceStart.toFixed(6)}:end=${sourceEnd.toFixed(6)},setpts=(PTS-STARTPTS)/${segment.playbackRate.toFixed(6)}+${startSec.toFixed(6)}/TB,${fit},format=rgba,colorchannelmixer=aa=${alpha.toFixed(4)}[clip${i}]`);
+      filters.push(`[${current}][clip${i}]overlay=${x}:${y}:enable='between(t,${startSec.toFixed(6)},${endSec.toFixed(6)})'[comp${i}]`);
+      current = `comp${i}`;
+    }
+    filters.push(`[${current}][1:v]overlay=0:0:format=auto[v]`);
+
+    const audioLabels: string[] = [];
+    const hasSolo = resolvedDoc.version === 2 && resolvedDoc.audioClips.some((clip) => clip.solo && !clip.muted);
+    const mixSettings = resolvedDoc.version === 2 ? resolvedDoc.audioMix : undefined;
+    const duckExpr = (clipId: string) => {
+      if (resolvedDoc.version !== 2 || !mixSettings?.duckingEnabled) return "1";
+      const music = resolvedDoc.audioClips.find((clip) => clip.id === clipId);
+      if (!music || music.role !== "music" || music.ducking === false) return "1";
+      const voices = resolvedDoc.audioClips.filter((clip) => clip.role === "voiceover" && !clip.muted);
+      if (!voices.length) return "1";
+      const level = Math.max(0, Math.min(1, mixSettings.duckLevel));
+      const clauses = voices.map((voice) => {
+        const a0 = Math.max(0, voice.startMs - mixSettings.attackMs) / 1000;
+        const a1 = voice.startMs / 1000;
+        const r0 = (voice.startMs + voice.durationMs) / 1000;
+        const r1 = (voice.startMs + voice.durationMs + mixSettings.releaseMs) / 1000;
+        const attack = mixSettings.attackMs > 0 ? `if(between(t,${a0.toFixed(4)},${a1.toFixed(4)}),1-(1-${level.toFixed(4)})*(t-${a0.toFixed(4)})/${Math.max(0.001,(a1-a0)).toFixed(4)},` : "";
+        const body = `if(between(t,${a1.toFixed(4)},${r0.toFixed(4)}),${level.toFixed(4)},`;
+        const release = mixSettings.releaseMs > 0 ? `if(between(t,${r0.toFixed(4)},${r1.toFixed(4)}),${level.toFixed(4)}+(1-${level.toFixed(4)})*(t-${r0.toFixed(4)})/${Math.max(0.001,(r1-r0)).toFixed(4)},1)` : "1";
+        return `${attack}${body}${release})${mixSettings.attackMs > 0 ? ")" : ""}`;
+      });
+      return clauses.reduce((acc, expr) => `min(${acc},${expr})`, "1");
+    };
+    const atempo = (rate: number) => {
+      const parts: number[] = []; let r = Math.max(0.25, Math.min(4, rate));
+      while (r > 2) { parts.push(2); r /= 2; }
+      while (r < 0.5) { parts.push(0.5); r /= 0.5; }
+      parts.push(r);
+      return parts.map((v) => `atempo=${v.toFixed(6)}`).join(",");
+    };
+    for (let i = 0; i < audioSegments.length; i++) {
+      const segment = audioSegments[i]!;
+      const clip = segment.clip;
+      const inputIndex = audioInputStart + i;
+      const sourceStart = segment.sourceStartMs / 1000;
+      const sourceEnd = segment.sourceEndMs / 1000;
+      const delay = Math.max(0, Math.round(segment.startMs));
+      const muted = clip.muted || (hasSolo && !clip.solo);
+      const baseVolume = muted ? 0 : Math.max(0, Math.min(1, clip.volume));
+      const chain = [
+        `atrim=start=${sourceStart.toFixed(6)}:end=${sourceEnd.toFixed(6)}`,
+        "asetpts=PTS-STARTPTS",
+        atempo(segment.playbackRate),
+        ...(clip.fadeInMs && clip.fadeInMs > 0 ? [`afade=t=in:st=0:d=${(clip.fadeInMs/1000).toFixed(4)}`] : []),
+        ...(clip.fadeOutMs && clip.fadeOutMs > 0 ? [`afade=t=out:st=${Math.max(0,(segment.durationMs-clip.fadeOutMs)/1000).toFixed(4)}:d=${(clip.fadeOutMs/1000).toFixed(4)}`] : []),
+        `adelay=${delay}|${delay}`,
+        `volume='${baseVolume.toFixed(4)}*${duckExpr(clip.id)}':eval=frame`,
+      ].join(",");
+      filters.push(`[${inputIndex}:a]${chain}[aud${i}]`);
+      audioLabels.push(`[aud${i}]`);
+    }
+    if (audioLabels.length) filters.push(`${audioLabels.join("")}amix=inputs=${audioLabels.length}:normalize=0:dropout_transition=0[aout]`);
+    if (legacyMusicInputIndex != null) filters.push(`[${legacyMusicInputIndex}:a]volume=${(opts.audioVolume ?? 0.7).toFixed(2)}[aout]`);
+
+    args.push("-filter_complex", filters.join(";"));
+    args.push("-map", "[v]");
+
+    if (audioLabels.length || legacyMusicInputIndex != null) {
+      args.push("-map", "[aout]", "-c:a", "aac", "-shortest");
+    } else if (opts.backgroundVideoUrl && !opts.muted) {
+      args.push("-map", "0:a?");
+    } else {
+      args.push("-an");
+    }
+
+    args.push("-t", String(totalFrames / fps));
   } else {
     // Legacy path — single overlay PNG burned over background/black canvas.
     if (!opts.overlaySvg || !opts.durationSeconds) throw new Error("renderMp4: provide doc or overlaySvg+durationSeconds");
