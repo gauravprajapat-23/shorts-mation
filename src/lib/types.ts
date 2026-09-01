@@ -123,6 +123,9 @@ export type TextElement = EditorElementBase & {
   lineHeight?: number;
   textTransform?: "none" | "uppercase" | "lowercase";
   vAlign?: "top" | "middle" | "bottom";
+  /** Optional non-destructive crop of the text layer in percentages.
+   * Useful for split/half-letter effects while keeping both halves perfectly aligned. */
+  clipInsetPct?: { top?: number; right?: number; bottom?: number; left?: number };
 };
 
 export type ShapeElement = EditorElementBase & {

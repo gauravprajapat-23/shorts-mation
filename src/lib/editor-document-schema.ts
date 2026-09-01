@@ -20,7 +20,10 @@ const elementBase = z.object({
 }).passthrough();
 
 const editorElement = z.discriminatedUnion("type", [
-  elementBase.extend({ type: z.literal("text"), text: z.string(), fontFamily: z.string().min(1), fontSize: positive, fontWeight: finite, color: z.string(), align: z.enum(["left", "center", "right"]) }),
+  elementBase.extend({
+    type: z.literal("text"), text: z.string(), fontFamily: z.string().min(1), fontSize: positive, fontWeight: finite, color: z.string(), align: z.enum(["left", "center", "right"]),
+    clipInsetPct: z.object({ top: finite.min(0).max(100).optional(), right: finite.min(0).max(100).optional(), bottom: finite.min(0).max(100).optional(), left: finite.min(0).max(100).optional() }).optional(),
+  }),
   elementBase.extend({ type: z.literal("shape"), shape: z.enum(["rect", "ellipse", "triangle", "star", "line"]), fill: z.string() }),
   elementBase.extend({ type: z.literal("image"), src: z.string(), fit: z.enum(["cover", "contain"]) }),
   elementBase.extend({ type: z.literal("video"), src: z.string(), fit: z.enum(["cover", "contain"]) }),

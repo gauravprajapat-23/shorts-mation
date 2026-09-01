@@ -78,7 +78,19 @@ function renderElement(state: TimelineElementState, vars: Record<string, string>
     const textGradId = `text-grad-${safeId}`;
     const bgGradId = `bg-grad-${safeId}`;
     const shadowId = `text-shadow-${safeId}`;
+    const clipId = `text-clip-${safeId}`;
     const defs: string[] = [];
+    if (t.clipInsetPct) {
+      const left = Math.max(0, Math.min(100, t.clipInsetPct.left ?? 0));
+      const right = Math.max(0, Math.min(100, t.clipInsetPct.right ?? 0));
+      const top = Math.max(0, Math.min(100, t.clipInsetPct.top ?? 0));
+      const bottom = Math.max(0, Math.min(100, t.clipInsetPct.bottom ?? 0));
+      const x = t.w * left / 100;
+      const y = t.h * top / 100;
+      const width = Math.max(0, t.w * (100 - left - right) / 100);
+      const height = Math.max(0, t.h * (100 - top - bottom) / 100);
+      defs.push(`<clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${width}" height="${height}"/></clipPath>`);
+    }
     if (t.textGradient) defs.push(`<linearGradient id="${textGradId}" x1="0%" y1="0%" x2="100%" y2="0%" gradientTransform="rotate(${t.textGradient.angle ?? 90} .5 .5)"><stop offset="0%" stop-color="${esc(t.textGradient.from)}"/><stop offset="100%" stop-color="${esc(t.textGradient.to)}"/></linearGradient>`);
     if (t.backgroundGradient) defs.push(`<linearGradient id="${bgGradId}" x1="0%" y1="0%" x2="100%" y2="0%" gradientTransform="rotate(${t.backgroundGradient.angle ?? 90} .5 .5)"><stop offset="0%" stop-color="${esc(t.backgroundGradient.from)}"/><stop offset="100%" stop-color="${esc(t.backgroundGradient.to)}"/></linearGradient>`);
     const shadowLayers = [...(t.shadows ?? [])];
@@ -95,7 +107,8 @@ function renderElement(state: TimelineElementState, vars: Record<string, string>
       ? `<rect width="${t.w}" height="${t.h}" fill="${bgFill}" fill-opacity="${t.backgroundOpacity ?? 1}" rx="${t.backgroundRadius ?? 12}"${(t.backgroundBorderWidth ?? 0) > 0 ? ` stroke="${esc(t.backgroundBorderColor ?? "#FFFFFF")}" stroke-width="${t.backgroundBorderWidth}"` : ""}/>` : "";
     const fill = t.textGradient ? `url(#${textGradId})` : esc(t.color);
     const shadowFilter = shadowLayers.length ? ` filter="url(#${shadowId})"` : "";
-    return `${openG}${defsSvg}${bgRect}<text text-anchor="${anchor}" fill="${fill}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${fontSize}" font-weight="${t.fontWeight}"${extra}${stroke}${shadowFilter}>${tspans}</text></g>`;
+    const content = `${bgRect}<text text-anchor="${anchor}" fill="${fill}" font-family="${esc(t.fontFamily)}, sans-serif" font-size="${fontSize}" font-weight="${t.fontWeight}"${extra}${stroke}${shadowFilter}>${tspans}</text>`;
+    return `${openG}${defsSvg}${t.clipInsetPct ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
   }
 
   if (el.type === "image") {

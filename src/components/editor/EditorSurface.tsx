@@ -522,11 +522,14 @@ function ElementView({ el, frame, videoState, selected, editing, onPointerDown, 
       paintOrder: "stroke fill",
       width: "100%", overflow: "hidden", whiteSpace: "pre-wrap",
     };
+    const clip = el.clipInsetPct;
+    const clipPath = clip ? `inset(${clip.top ?? 0}% ${clip.right ?? 0}% ${clip.bottom ?? 0}% ${clip.left ?? 0}%)` : undefined;
     const textBoxStyle: React.CSSProperties = {
       width: "100%", height: "100%", boxSizing: "border-box", position: "relative",
       padding: `${el.backgroundPaddingY ?? 8}px ${el.backgroundPaddingX ?? 8}px`,
       display: "flex", alignItems: vJustify, overflow: "hidden",
       borderRadius: el.backgroundRadius ?? (el.background || el.backgroundGradient ? 12 : 0),
+      clipPath,
     };
     const textBgStyle: React.CSSProperties = {
       position: "absolute", inset: 0, pointerEvents: "none",

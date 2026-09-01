@@ -71,7 +71,7 @@ function TemplatesPage() {
       const { error } = await supabase.from("templates").insert(rows);
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); toast.success("4 animated starter templates added"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); toast.success(`${STARTER_TEMPLATES.length} animated starter templates added`); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -89,7 +89,7 @@ function TemplatesPage() {
               onClick={() => loadStarters.mutate()}
               disabled={loadStarters.isPending}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-brand/40 bg-brand/10 text-brand font-semibold text-sm hover:bg-brand/20 disabled:opacity-50"
-              title="Insert 4 pre-animated templates (Quiz, Motivation, Fact, Top 5) into your library"
+              title="Insert animated starter templates including Letter Match, Quiz, Motivation, Fact, and Top 5 into your library"
             >
               <Zap className="size-4" /> {loadStarters.isPending ? "Adding…" : "Load animated starters"}
             </button>

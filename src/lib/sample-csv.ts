@@ -45,6 +45,24 @@ const EXAMPLES: Record<string, string[]> = {
   step_title: ["Set up the workspace", "Install dependencies", "Run the app"],
   step_body: ["Create a new folder and open it in your editor of choice.", "Run npm install to pull all required packages.", "Start the dev server with npm run dev — you're live."],
   tool: ["VS Code", "Terminal", "Browser"],
+  word: ["_NT", "M_NGO", "T_GER", "H_USE", "_RANGE", "_XE", "H_N", "C_CK", "R_T", "C_T", "D_G", "K_TE"],
+  missingLetter: ["A", "A", "I", "O", "O", "A", "E", "O", "A", "A", "O", "I"],
+  optionA: ["A", "E", "U", "O", "E", "A", "E", "U", "I", "A", "E", "O"],
+  optionB: ["O", "A", "I", "A", "O", "E", "I", "O", "A", "E", "O", "I"],
+  optionC: ["E", "O", "E", "U", "A", "I", "A", "A", "O", "O", "I", "E"],
+  objectImage: [
+    "https://example.com/ant.png", "https://example.com/mango.png", "https://example.com/tiger.png", "https://example.com/house.png",
+    "https://example.com/orange.png", "https://example.com/axe.png", "https://example.com/hen.png", "https://example.com/cock.png",
+    "https://example.com/rat.png", "https://example.com/cat.png", "https://example.com/dog.png", "https://example.com/kite.png",
+  ],
+  clue: [
+    "A tiny insect", "A sweet yellow fruit", "A big striped cat", "A place where people live",
+    "A round citrus fruit", "A tool used for chopping", "A female chicken", "A male chicken",
+    "A small rodent", "A popular pet that says meow", "A loyal pet that barks", "It flies in the wind",
+  ],
+  letter1: ["A", "C", "D", "R", "H", "A"],
+  letter2: ["N", "A", "O", "A", "E", "X"],
+  letter3: ["T", "T", "G", "T", "N", "E"],
 };
 
 function csvEscape(value: string): string {
@@ -70,7 +88,10 @@ export function generateSampleCsv(doc: EditorDocument, templateName: string): st
     "background_file_name",
   ];
   const rows: string[][] = [];
-  const rowCount = 3;
+  const isLetterMatch = /letter\s*match/i.test(templateName) && vars.includes("missingLetter") && vars.includes("objectImage");
+  const isHalfLetterMatch = /half\s*letter\s*match/i.test(templateName) && vars.includes("letter1") && vars.includes("letter2") && vars.includes("letter3");
+  const halfWords = ["ANT", "CAT", "DOG", "RAT", "HEN", "AXE"];
+  const rowCount = isLetterMatch ? 12 : isHalfLetterMatch ? halfWords.length : 3;
   for (let i = 0; i < rowCount; i++) {
     const slug = templateName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const row: Record<string, string> = {
@@ -86,6 +107,16 @@ export function generateSampleCsv(doc: EditorDocument, templateName: string): st
     for (const v of vars) {
       const examples = EXAMPLES[v] ?? EXAMPLES[v.toLowerCase()] ?? [`Sample ${v} ${i + 1}`];
       row[v] = examples[i % examples.length];
+    }
+    if (isHalfLetterMatch) {
+      const word = halfWords[i % halfWords.length]!;
+      row.word = word;
+      row.letter1 = word[0] ?? "A";
+      row.letter2 = word[1] ?? "N";
+      row.letter3 = word[2] ?? "T";
+      row.cta = "Did you match all 3?";
+      row.title = `Half Letter Match: ${word}`;
+      row.hashtags = "#shorts|#lettermatch|#kidslearning|#puzzle";
     }
     rows.push(headers.map((h) => row[h] ?? ""));
   }

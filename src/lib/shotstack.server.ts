@@ -60,6 +60,12 @@ function sample(parts: string[], steps: number): string[] {
   return out;
 }
 
+function publicAssetUrl(src: string): string {
+  if (!src.startsWith("/")) return src;
+  const base = (process.env["PUBLIC_APP_URL"] || "").replace(/\/$/, "");
+  return base ? `${base}${src}` : src;
+}
+
 function elementHtml(el: EditorElement, frame: ElementFrame, textOverride?: string): string {
   const base = `position:absolute;left:${frame.x}px;top:${frame.y}px;width:${el.w}px;height:${el.h}px;opacity:${frame.opacity};transform:scale(${frame.scale}) rotate(${frame.rotation}deg);transform-origin:center center;overflow:hidden;${frame.blurPx > 0.1 ? `filter:blur(${frame.blurPx}px);` : ""}`;
   if (el.type === "shape") {
@@ -92,7 +98,8 @@ function elementHtml(el: EditorElement, frame: ElementFrame, textOverride?: stri
     const lines = layout.lines.map(escapeHtml).join("<br/>");
     const radius = t.backgroundRadius ?? (t.background || t.backgroundGradient ? 12 : 0);
     const border = (t.backgroundBorderWidth ?? 0) > 0 ? `border:${t.backgroundBorderWidth}px solid ${t.backgroundBorderColor ?? "#FFFFFF"};` : "";
-    return `<div style="${base}box-sizing:border-box;display:flex;align-items:${valign};justify-content:${justify};text-align:${t.align};padding:${t.backgroundPaddingY ?? 8}px ${t.backgroundPaddingX ?? 8}px;border-radius:${radius}px;overflow:hidden;"><div style="position:absolute;inset:0;background:${background};opacity:${t.backgroundOpacity ?? 1};border-radius:${radius}px;${border}"></div><span style="position:relative;font-family:'${escapeHtml(t.fontFamily)}',sans-serif;font-size:${layout.fontSize}px;font-weight:${t.fontWeight};line-height:${t.lineHeight ?? 1.15};letter-spacing:${t.letterSpacing ?? 0}px;${t.italic ? "font-style:italic;" : ""}${textStyle}${stroke}${shadow ? `text-shadow:${shadow};` : ""}">${lines}</span></div>`;
+    const clip = t.clipInsetPct ? `clip-path:inset(${t.clipInsetPct.top ?? 0}% ${t.clipInsetPct.right ?? 0}% ${t.clipInsetPct.bottom ?? 0}% ${t.clipInsetPct.left ?? 0}%);` : "";
+    return `<div style="${base}${clip}box-sizing:border-box;display:flex;align-items:${valign};justify-content:${justify};text-align:${t.align};padding:${t.backgroundPaddingY ?? 8}px ${t.backgroundPaddingX ?? 8}px;border-radius:${radius}px;overflow:hidden;"><div style="position:absolute;inset:0;background:${background};opacity:${t.backgroundOpacity ?? 1};border-radius:${radius}px;${border}"></div><span style="position:relative;font-family:'${escapeHtml(t.fontFamily)}',sans-serif;font-size:${layout.fontSize}px;font-weight:${t.fontWeight};line-height:${t.lineHeight ?? 1.15};letter-spacing:${t.letterSpacing ?? 0}px;${t.italic ? "font-style:italic;" : ""}${textStyle}${stroke}${shadow ? `text-shadow:${shadow};` : ""}">${lines}</span></div>`;
   }
   return "";
 }
@@ -290,7 +297,7 @@ export function buildShotstackEdit(opts: BuildOptions) {
         audioClips.push({
           asset: {
             type: "audio",
-            src: clip.src,
+            src: publicAssetUrl(clip.src),
             trim: sourceAtStart / 1000,
             volume: state.gain,
             ...(Math.abs(segment.playbackRate - 1) > 0.001 ? { speed: segment.playbackRate } : {}),
