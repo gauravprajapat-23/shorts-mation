@@ -1,4 +1,6 @@
 import { effectiveSceneDurationMs } from "@/lib/timeline-duration";
+import { normalizeBrandKit } from "@/lib/brand-components";
+import { normalizeRetention } from "@/lib/retention";
 import type {
   EditorDocument,
   EditorDocumentV2,
@@ -55,10 +57,11 @@ export function syncV2Timeline(doc: EditorDocumentV2): EditorDocumentV2 {
 
   const captionTrack = tracks.get("captions")!;
   const normalizedCaptions = (doc.captionClips ?? []).map((clip) => {
-    const startMs = Math.max(0, Math.min(clip.startMs, Math.max(0, sceneStartMs - 100)));
-    const durationMs = Math.max(100, Math.min(clip.durationMs, Math.max(100, sceneStartMs - startMs)));
+    const startMs = Math.max(0, Math.min(clip.startMs, Math.max(0, sceneStartMs)));
+    const remainingMs = Math.max(0, sceneStartMs - startMs);
+    const durationMs = remainingMs > 0 ? Math.max(1, Math.min(clip.durationMs, remainingMs)) : 0;
     return { ...clip, startMs, durationMs };
-  });
+  }).filter((clip) => clip.durationMs > 0);
   for (const clip of normalizedCaptions) captionTrack.clips.push({
     id: `caption_${clip.id}`, sceneId: "__project_captions__", elementId: clip.id, kind: "captions",
     name: clip.name || clip.words.map((word) => word.text).join(" ").slice(0, 32) || "Caption", startMs: clip.startMs, durationMs: clip.durationMs,
@@ -66,10 +69,11 @@ export function syncV2Timeline(doc: EditorDocumentV2): EditorDocumentV2 {
 
   const audioTrack = tracks.get("audio")!;
   const normalizedAudio = (doc.audioClips ?? []).map((clip) => {
-    const startMs = Math.max(0, Math.min(clip.startMs, Math.max(0, sceneStartMs - 100)));
-    const durationMs = Math.max(100, Math.min(clip.durationMs, Math.max(100, sceneStartMs - startMs)));
+    const startMs = Math.max(0, Math.min(clip.startMs, Math.max(0, sceneStartMs)));
+    const remainingMs = Math.max(0, sceneStartMs - startMs);
+    const durationMs = remainingMs > 0 ? Math.max(1, Math.min(clip.durationMs, remainingMs)) : 0;
     return { ...clip, startMs, durationMs };
-  });
+  }).filter((clip) => clip.durationMs > 0);
   for (const clip of normalizedAudio) {
     audioTrack.clips.push({
       id: `audio_${clip.id}`,
@@ -82,12 +86,28 @@ export function syncV2Timeline(doc: EditorDocumentV2): EditorDocumentV2 {
     });
   }
 
+  const effectsTrack = tracks.get("effects")!;
+  const normalizedEffects = (doc.effectClips ?? []).map((clip) => {
+    const startMs = Math.max(0, Math.min(clip.startMs, Math.max(0, sceneStartMs)));
+    const remainingMs = Math.max(0, sceneStartMs - startMs);
+    const durationMs = remainingMs > 0 ? Math.max(1, Math.min(clip.durationMs, remainingMs)) : 0;
+    return { ...clip, startMs, durationMs, intensity: Math.max(0, Math.min(1, clip.intensity ?? 0.5)) };
+  }).filter((clip) => clip.durationMs > 0);
+  for (const clip of normalizedEffects) effectsTrack.clips.push({
+    id: `effect_${clip.id}`, sceneId: "__project_effects__", elementId: clip.id, kind: "effects",
+    name: clip.name || clip.kind, startMs: clip.startMs, durationMs: clip.durationMs,
+  });
+
   return {
     ...doc,
     durationMs: Math.max(250, sceneStartMs),
     audioClips: normalizedAudio,
     captionClips: normalizedCaptions,
+    effectClips: normalizedEffects,
     audioMix: doc.audioMix ?? { duckingEnabled: true, duckLevel: 0.22, attackMs: 180, releaseMs: 320 },
+    brand: normalizeBrandKit(doc.brand),
+    components: doc.components ?? [],
+    retention: normalizeRetention(doc.retention),
     tracks: TRACK_ORDER.map(({ kind }) => tracks.get(kind)!).filter((track) => track.clips.length > 0 || track.kind === "video" || track.kind === "text"),
   };
 }
@@ -130,6 +150,7 @@ export function migrateDocumentV1ToV2(input: EditorDocument): EditorDocumentV2 {
     scenes,
     tracks: [],
     captionClips: [],
+    effectClips: [],
     audioClips: input.audio?.src ? [{
       id: "legacy_music",
       name: "Legacy music",
@@ -148,6 +169,10 @@ export function migrateDocumentV1ToV2(input: EditorDocument): EditorDocumentV2 {
     audioMix: { duckingEnabled: true, duckLevel: 0.22, attackMs: 180, releaseMs: 320 },
     audio: input.audio,
     variables: input.variables ?? [],
+    automationVariables: (input.variables ?? []).map((name) => ({ id: `var_${name}`, name, label: name, type: "text" as const })),
+    brand: normalizeBrandKit(),
+    components: [],
+    retention: normalizeRetention(),
   });
 }
 

@@ -6,6 +6,7 @@ const doc: EditorDocumentV2 = {
   version: 2, aspect: "9:16", width: 1080, height: 1920, fps: 30, durationMs: 6000,
   variables: [], tracks: [], scenes: [{ id: "s", name: "Scene", durationMs: 6000, background: "#000", elements: [] }],
   captionClips: [],
+  effectClips: [],
   audioMix: { duckingEnabled: true, duckLevel: 0.2, attackMs: 200, releaseMs: 300 },
   audioClips: [
     { id: "music", name: "Music", src: "music.mp3", role: "music", startMs: 0, durationMs: 6000, volume: 1, ducking: true },

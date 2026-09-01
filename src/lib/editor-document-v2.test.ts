@@ -61,4 +61,21 @@ describe("EditorDocument V2 migration", () => {
     expect(clip?.startMs).toBe(1200);
     expect(clip?.durationMs).toBe(1800);
   });
+  it("preserves project-clip start times near the end instead of shifting them earlier", () => {
+    const base = migrateDocumentV1ToV2(legacy);
+    const synced = syncV2Timeline({
+      ...base,
+      captionClips: [{
+        id: "late_caption", name: "Late", startMs: 4975, durationMs: 200, x: 40, y: 1400, w: 1000, h: 160,
+        words: [{ id: "w1", text: "End", startMs: 0, endMs: 25 }],
+        style: { preset: "clean", animation: "minimal", fontFamily: "Inter", fontSize: 48, fontWeight: 700, color: "#fff", activeColor: "#fff", background: "transparent" },
+      }],
+      effectClips: [{ id: "late_fx", name: "Late FX", kind: "flash", startMs: 4980, durationMs: 200, intensity: .5, opacity: .5 }],
+    });
+    expect(synced.captionClips[0]?.startMs).toBe(4975);
+    expect(synced.captionClips[0]?.durationMs).toBe(25);
+    expect(synced.effectClips[0]?.startMs).toBe(4980);
+    expect(synced.effectClips[0]?.durationMs).toBe(20);
+  });
+
 });

@@ -1,6 +1,9 @@
 import type { AnimationSpec, EaseName, EditorDocument, EditorElement, EditorScene, TextElement } from "@/lib/types";
 import { renderText } from "@/lib/editor-defaults";
+import { resolveElementVariables } from "@/lib/brand-components";
+import { materializeAutomationDocument } from "@/lib/automation-variables";
 import { computeRevealDurationMs, effectiveSceneDurationMs } from "@/lib/timeline-duration";
+import { evaluateKeyframes } from "@/lib/keyframes";
 export { calculateSlideDuration, computeMinSceneDurationMs, computeRevealDurationMs, effectiveSceneDurationMs } from "@/lib/timeline-duration";
 export type { SlideType } from "@/lib/timeline-duration";
 
@@ -11,21 +14,26 @@ export type { SlideType } from "@/lib/timeline-duration";
 export function resolveSceneVars(scene: EditorScene, vars: Record<string, string>): EditorScene {
   return {
     ...scene,
-    elements: scene.elements.map((el) =>
-      el.type === "text" ? { ...el, text: renderText((el as TextElement).text, vars) } : el,
-    ),
+    elements: scene.elements.map((el) => resolveElementVariables(el, vars)),
   };
 }
 
 export function resolveDocVars(doc: EditorDocument, vars: Record<string, string>): EditorDocument {
-  if (!vars || Object.keys(vars).length === 0) return doc;
-  return { ...doc, scenes: doc.scenes.map((s) => resolveSceneVars(s, vars)) };
+  return materializeAutomationDocument(doc, vars).document;
 }
 
 export function ease(tRaw: number, name: EaseName = "easeOut"): number {
   const t = Math.min(1, Math.max(0, tRaw));
   switch (name) {
     case "linear": return t;
+    case "easeIn": return t * t * t;
+    case "bounce": {
+      const n1 = 7.5625, d1 = 2.75;
+      if (t < 1/d1) return n1*t*t;
+      if (t < 2/d1) { const x=t-1.5/d1; return n1*x*x+.75; }
+      if (t < 2.5/d1) { const x=t-2.25/d1; return n1*x*x+.9375; }
+      const x=t-2.625/d1; return n1*x*x+.984375;
+    }
     case "easeInOut": return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     case "spring": {
       // Damped spring that overshoots slightly, then settles.
@@ -44,6 +52,7 @@ export type ElementFrame = {
   opacity: number;
   visible: boolean;
   blurPx: number;
+  cropX: number; cropY: number; cropScale: number;
   visibleChars?: number;
   visibleWords?: number;
 };
@@ -135,7 +144,15 @@ export function computeElementFrame(el: EditorElement, tMs: number, sceneDuratio
     }
   }
 
-  return { x, y, scale, rotation, opacity, visible, blurPx, visibleChars, visibleWords };
+  const keyed = evaluateKeyframes(el, tMs);
+  if (keyed.x !== undefined) x = keyed.x;
+  if (keyed.y !== undefined) y = keyed.y;
+  if (keyed.scale !== undefined) scale *= keyed.scale;
+  if (keyed.rotation !== undefined) rotation = keyed.rotation;
+  if (keyed.opacity !== undefined) opacity *= keyed.opacity;
+  if (keyed.blur !== undefined) blurPx = Math.max(blurPx, keyed.blur);
+  const cropX = keyed.cropX ?? 0, cropY = keyed.cropY ?? 0, cropScale = keyed.cropScale ?? 1;
+  return { x, y, scale, rotation, opacity, visible, blurPx, cropX, cropY, cropScale, visibleChars, visibleWords };
 }
 
 export function computeCamera(scene: EditorScene, tMs: number): { scale: number; tx: number; ty: number } {

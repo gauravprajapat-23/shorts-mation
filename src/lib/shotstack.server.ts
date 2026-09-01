@@ -8,6 +8,7 @@ import type { ElementFrame } from "@/lib/animate";
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, EditorCaptionClip } from "@/lib/types";
 import { cssTextShadows, gradientCss, layoutText } from "@/lib/text-design";
+import { cssFilterForLook, resolveMediaLook } from "@/lib/effects";
 
 const MAX_REVEAL_STEPS = 14;
 
@@ -60,7 +61,7 @@ function sample(parts: string[], steps: number): string[] {
 }
 
 function elementHtml(el: EditorElement, frame: ElementFrame, textOverride?: string): string {
-  const base = `position:absolute;left:${frame.x}px;top:${frame.y}px;width:${el.w}px;height:${el.h}px;opacity:${frame.opacity};transform:scale(${frame.scale}) rotate(${frame.rotation}deg);transform-origin:center center;${frame.blurPx > 0.1 ? `filter:blur(${frame.blurPx}px);` : ""}`;
+  const base = `position:absolute;left:${frame.x}px;top:${frame.y}px;width:${el.w}px;height:${el.h}px;opacity:${frame.opacity};transform:scale(${frame.scale}) rotate(${frame.rotation}deg);transform-origin:center center;overflow:hidden;${frame.blurPx > 0.1 ? `filter:blur(${frame.blurPx}px);` : ""}`;
   if (el.type === "shape") {
     const s = el as ShapeElement;
     const radius = s.shape === "ellipse" ? "50%" : `${s.radius ?? 0}px`;
@@ -69,7 +70,8 @@ function elementHtml(el: EditorElement, frame: ElementFrame, textOverride?: stri
   if (el.type === "image") {
     const im = el as ImageElement;
     if (!im.src || im.src.startsWith("{{")) return "";
-    return `<div style="${base}"><img src="${escapeHtml(im.src)}" style="width:100%;height:100%;object-fit:${im.fit === "contain" ? "contain" : "cover"};"/></div>`;
+    const look = resolveMediaLook(im.filterPreset, im.colorAdjustments);
+    return `<div style="${base}"><img src="${escapeHtml(im.src)}" style="width:100%;height:100%;object-fit:${im.fit === "contain" ? "contain" : "cover"};filter:${cssFilterForLook(look)};transform:translate(${frame.cropX}%,${frame.cropY}%) scale(${frame.cropScale});transform-origin:center center;"/></div>`;
   }
   if (el.type === "text") {
     const t = el as TextElement;
@@ -113,8 +115,17 @@ function sceneHtml(doc: EditorDocument, tMs: number, w: number, h: number): stri
       parts.push(elementHtml(el, state.frame));
     }
   }
-  const cam = frame.camera;
-  return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden;"><div style="position:absolute;inset:0;transform-origin:center center;transform:translate(${cam.tx}px,${cam.ty}px) scale(${cam.scale});">${parts.join("")}</div></div>`;
+  const cam = frame.camera; const tr = frame.transition;
+  const effects = frame.visibleEffects.map((fx) => {
+    const o = Math.max(0,Math.min(1,(fx.opacity??1)*fx.intensity));
+    if (fx.kind === "vignette") return `<div style="position:absolute;inset:0;background:radial-gradient(circle at center,transparent 42%,rgba(0,0,0,.92) 100%);opacity:${o};"></div>`;
+    if (fx.kind === "light-leak") return `<div style="position:absolute;inset:0;background:radial-gradient(circle at ${20+60*fx.progress}% 15%,${fx.color??"#FF7A18"},transparent 38%);opacity:${o};mix-blend-mode:screen;"></div>`;
+    if (fx.kind === "flash") return `<div style="position:absolute;inset:0;background:#fff;opacity:${o*Math.sin(fx.progress*Math.PI)};"></div>`;
+    if (fx.kind === "grain") return `<div style="position:absolute;inset:0;opacity:${o*.22};background-image:repeating-radial-gradient(circle at 20% 30%,#fff 0 1px,transparent 1px 3px);mix-blend-mode:overlay;"></div>`;
+    return `<div style="position:absolute;inset:0;opacity:${o*.4};background:repeating-linear-gradient(0deg,rgba(255,0,90,.4) 0 2px,rgba(0,230,255,.3) 2px 4px,transparent 4px 8px);mix-blend-mode:screen;"></div>`;
+  }).join("");
+  const flash = tr.flash > .001 ? `<div style="position:absolute;inset:0;background:#fff;opacity:${tr.flash};"></div>` : "";
+  return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden;"><div style="position:absolute;inset:0;transform-origin:center center;transform:translate(${cam.tx+tr.tx}px,${cam.ty+tr.ty}px) scale(${cam.scale*tr.scale});opacity:${tr.opacity};filter:${tr.blur>0.1?`blur(${tr.blur}px)`:"none"};">${parts.join("")}</div>${effects}${flash}</div>`;
 }
 
 
@@ -141,6 +152,13 @@ function sceneRevealSteps(scene: EditorScene): number {
     steps = Math.max(steps, Math.min(MAX_REVEAL_STEPS, sample(revealParts(el as TextElement), MAX_REVEAL_STEPS).length));
   }
   return steps;
+}
+
+function shotstackFilterForPreset(preset?: import("@/lib/types").MediaFilterPreset): string | undefined {
+  switch (preset) {
+    case "mono": return "greyscale"; case "high-contrast": return "contrast"; case "gaming": case "cinematic": return "boost";
+    case "vintage": case "podcast": case "documentary": return "muted"; default: return undefined;
+  }
 }
 
 export type BuildOptions = {
@@ -229,11 +247,12 @@ export function buildShotstackEdit(opts: BuildOptions) {
       start: segment.startMs / 1000,
       length: segment.durationMs / 1000,
       fit: el.fit === "contain" ? "contain" : "crop",
-      width: Math.max(1, Math.round(el.w * scale)),
-      height: Math.max(1, Math.round(el.h * scale)),
+      width: Math.max(1, Math.round(el.w * scale * segment.frame.scale)),
+      height: Math.max(1, Math.round(el.h * scale * segment.frame.scale)),
       position: "topLeft",
-      offset: { x: segment.frame.x / dims.w, y: -(segment.frame.y / dims.h) },
+      offset: { x: (segment.frame.x - (el.w * (segment.frame.scale - 1) / 2)) / dims.w, y: -((segment.frame.y - (el.h * (segment.frame.scale - 1) / 2)) / dims.h) },
       opacity: Math.max(0, Math.min(1, segment.frame.opacity)),
+      ...(shotstackFilterForPreset(el.filterPreset) ? { filter: shotstackFilterForPreset(el.filterPreset) } : {}),
     }] });
   }
 

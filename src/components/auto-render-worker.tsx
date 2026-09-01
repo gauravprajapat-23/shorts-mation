@@ -6,11 +6,16 @@ import { runAutoRenderPass } from "@/lib/auto-render";
  *  uploading videos for active campaigns so the user never has to click
  *  "Render MP4" for each row. */
 export function AutoRenderWorker() {
+  // V2.13+ uses the canonical server queue by default. The browser renderer is
+  // retained only as an explicit local/offline fallback and must never compete
+  // with production server workers.
+  const enabled = import.meta.env.VITE_ENABLE_LEGACY_BROWSER_RENDERER === "true";
   const busy = useRef(false);
   const [active, setActive] = useState(false);
   const [pct, setPct] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let stopped = false;
     let timer = 0;
 
@@ -51,9 +56,9 @@ export function AutoRenderWorker() {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [enabled]);
 
-  if (!active) return null;
+  if (!enabled || !active) return null;
   return (
     <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-border bg-panel px-3 py-2 text-xs text-zinc-300 shadow-lg">
       <Loader2 className="size-3.5 animate-spin text-brand" />

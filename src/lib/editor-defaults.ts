@@ -27,9 +27,16 @@ export function blankDocument(aspect: AspectRatio = "9:16"): EditorDocumentV2 {
     tracks: [],
     audioClips: [],
     captionClips: [],
+  effectClips: [],
     audioMix: { duckingEnabled: true, duckLevel: 0.22, attackMs: 180, releaseMs: 320 },
     audio: { volume: 0.7 },
     variables: ["headline", "subheadline", "cta"],
+    automationVariables: [
+      { id: "var_headline", name: "headline", label: "Headline", type: "text", required: true, validation: { maxLength: 180 } },
+      { id: "var_subheadline", name: "subheadline", label: "Subheadline", type: "text", defaultValue: "" },
+      { id: "var_cta", name: "cta", label: "CTA", type: "text", defaultValue: "Follow for more" },
+    ],
+    components: [],
   });
 }
 

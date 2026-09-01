@@ -25,9 +25,9 @@ export default defineTool({
       client.from("campaigns").select("*").eq("id", campaign_id).maybeSingle(),
       client
         .from("campaign_items")
-        .select("id,status,title,scheduled_at,youtube_video_id,error_message")
+        .select("id,status,video_file_name,schedule_at,youtube_video_id,youtube_url,error_message")
         .eq("campaign_id", campaign_id)
-        .order("scheduled_at", { ascending: true })
+        .order("schedule_at", { ascending: true })
         .limit(items_limit ?? 50),
     ]);
     if (cErr) return { content: [{ type: "text", text: cErr.message }], isError: true };

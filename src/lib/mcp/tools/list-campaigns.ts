@@ -15,7 +15,7 @@ export default defineTool({
   description: "List the signed-in user's campaigns with counts and status.",
   inputSchema: {
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25)."),
-    status: z.string().optional().describe("Optional status filter (draft, scheduled, running, completed, failed)."),
+    status: z.enum(["draft", "active", "paused", "completed", "failed"]).optional().describe("Optional campaign status filter."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ limit, status }, ctx) => {
@@ -25,7 +25,7 @@ export default defineTool({
       .select("id,name,status,total_videos,generated_count,scheduled_count,uploaded_count,failed_count,timezone,updated_at")
       .order("updated_at", { ascending: false })
       .limit(limit ?? 25);
-    if (status) q = q.eq("status", status as never);
+    if (status) q = q.eq("status", status);
     const { data, error } = await q;
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     return {

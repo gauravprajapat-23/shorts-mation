@@ -14,7 +14,7 @@ export default defineTool({
   title: "List assets",
   description: "List the signed-in user's uploaded assets (videos, images, audio).",
   inputSchema: {
-    type: z.enum(["video", "image", "audio", "font"]).optional().describe("Filter by asset type."),
+    type: z.enum(["video", "image", "audio", "logo"]).optional().describe("Filter by asset type."),
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

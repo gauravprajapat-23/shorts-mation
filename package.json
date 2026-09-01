@@ -10,7 +10,20 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:editor": "vitest run src/lib/*.test.ts",
+    "integrity": "node scripts/check-source-integrity.mjs",
+    "verify": "npm run integrity && npm run typecheck && npm run test && npm run build && npm run lint",
+    "test:integration": "node scripts/run-vitest-with-env.mjs RUN_SUPABASE_INTEGRATION run src/integration/*.integration.test.ts",
+    "test:parity": "vitest run src/lib/render-certification.test.ts",
+    "test:stress": "node scripts/run-vitest-with-env.mjs RUN_STRESS_TESTS run src/lib/long-timeline.stress.test.ts",
+    "test:e2e": "node scripts/playwright-release-e2e.mjs",
+    "profile:browser": "node scripts/browser-memory-profile.mjs",
+    "verify:fresh-supabase": "node scripts/verify-fresh-supabase.mjs",
+    "certify:staging": "node scripts/staging-release-certification.mjs",
+    "verify:release": "npm run integrity && npm run integrity:migrations && npm run typecheck && npm run test && npm run test:parity && npm run test:stress && npm run build && npm run lint",
+    "integrity:migrations": "node scripts/check-migrations.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",

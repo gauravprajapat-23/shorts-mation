@@ -108,3 +108,28 @@ V2.5 introduces project-level audio clips (`audioClips`) and shared mix settings
 V2.7 adds deterministic text auto-fit/max-line layout, richer typography controls, text/background gradients, advanced text cards, border/radius/padding/opacity controls, stronger outline/shadow/glow rendering and Shorts-specific presets. The same text layout/design data is consumed by the editor canvas, SVG/FFmpeg path and Shotstack HTML path.
 
 Windows editor UX was also hardened: keyboard hints are platform-aware and advertise Ctrl+Z/Ctrl+Y/Ctrl+S/Ctrl+D on Windows while retaining Command shortcuts on macOS.
+
+## Editor V2.8 — Advanced Animation + Keyframes
+
+Implemented clip-local property keyframes for position, scale, rotation, opacity, blur and media crop. The timeline displays draggable keyframe diamonds and the Animation inspector exposes precise timing, easing and value editing. Reusable motion presets create normal editable keyframes rather than a separate preset-only renderer path.
+
+The shared `computeElementFrame()` / timeline evaluator remains the canonical motion source for editor preview, SVG/FFmpeg and Shotstack. Keyframed video clips are sampled into short render descriptors where the backend cannot consume the editor's keyframe model directly.
+
+
+## V2.9 — Professional Transitions + Effects + Filters
+Added shared transition/effect evaluation, media color presets/adjustments, project-level effect timeline clips, SVG/FFmpeg rendering support, and Shotstack-compatible filter mapping. Account creation was also repaired for both email confirmation and Google OAuth session finalization.
+
+## Editor V2.10 — Brand Kits + Reusable Components
+
+V2.10 adds typed brand kits, flattened `brand.*` automation bindings, reusable component groups, built-in CTA/logo/social/watermark blocks, property-level brand bindings, and browser-persistent libraries for applying saved kits/components across templates. Brand resolution is part of the shared variable/render pipeline so editor preview, campaign preview, FFmpeg and Shotstack consume the same values.
+
+## V2.11 — Automation Variables + Conditional/Dynamic Scenes
+
+V2.11 introduces `automationVariables` while retaining legacy `variables` compatibility. `materializeAutomationDocument()` is now the canonical generation step: it validates/coerces inputs, applies defaults, evaluates conditional scenes/layers, expands array-driven repeating scenes, resolves item aliases/brand bindings, and returns a concrete document for the existing unified timeline/render stack. Campaign array/object values are preserved as JSON at server ingestion so dynamic scenes behave the same in automated renders as in editor preview.
+
+## Editor V2.12 — Shorts Retention Intelligence & Visual Presets
+- Added semantic scene roles (`hook`, `context`, `value`, `pattern-interrupt`, `payoff`, `cta`).
+- Added project-level visual rhythm settings and five automation-safe presets.
+- Added deterministic retention analysis with exact timeline suggestions for static stretches, B-roll, pattern interrupts, caption emphasis and CTA placement.
+- Applying a preset materializes editable transitions, effect clips, caption styles and micro-zoom keyframes rather than hiding behavior in an AI-only runtime.
+- CTA scenes receive configurable minimum screen time so automated variants retain the intended call-to-action beat.

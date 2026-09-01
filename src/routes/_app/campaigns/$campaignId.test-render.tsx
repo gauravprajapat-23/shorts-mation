@@ -6,8 +6,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { startRenderJob, pollRenderJob } from "@/lib/render-jobs.functions";
 import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2, Film, Volume2, VolumeX, Repeat } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
+import { resolveDocVars } from "@/lib/animate";
 import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { toast } from "sonner";
+import { parseEditorDocument } from "@/lib/editor-document-schema";
+import { materializeAutomationDocument } from "@/lib/automation-variables";
 // Types duplicated locally to avoid a static import of a `.client.*` module,
 // which the TanStack import-protection plugin blocks from the server graph.
 type RenderResolution = "720p" | "1080p" | "4k";
@@ -52,7 +55,7 @@ function TestRenderPage() {
     queryFn: async () => (await supabase.from("templates").select("*").eq("id", campaign.data!.template_id!).single()).data,
   });
 
-  const templateDoc = template.data?.template_json as EditorDocument | undefined;
+  const templateDoc = template.data?.template_json ? parseEditorDocument(template.data.template_json) : undefined;
   const settings = (campaign.data?.settings_json ?? {}) as Settings;
   const mapping = settings.field_mapping ?? {};
   const item = items.data?.[rowIndex];
@@ -82,7 +85,7 @@ function TestRenderPage() {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(content)) {
       if (k.startsWith("_")) continue;
-      out[k] = v == null ? "" : String(v);
+      out[k] = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
     }
     // also expose seo fields
     const seo = (item.seo_json ?? {}) as { title?: string; description?: string };
@@ -92,8 +95,8 @@ function TestRenderPage() {
   }, [item]);
 
   const doc = useMemo<EditorDocument>(() => {
-    if (templateDoc) return templateDoc;
-    return fallbackDocumentFromVars(previewVars);
+    const source = templateDoc ?? fallbackDocumentFromVars(previewVars);
+    return materializeAutomationDocument(source, previewVars).document;
   }, [templateDoc, previewVars]);
 
   const scene = doc.scenes[sceneIndex];
@@ -557,7 +560,8 @@ function fallbackDocumentFromVars(vars: Record<string, string>): EditorDocument 
 function PreviewCanvas({ doc, sceneIndex, previewVars, dims }: {
   doc: EditorDocument; sceneIndex: number; previewVars: Record<string, string>; dims: { w: number; h: number };
 }) {
-  const scene = doc.scenes[sceneIndex];
+  const resolvedDoc = resolveDocVars(doc, previewVars);
+  const scene = resolvedDoc.scenes[sceneIndex];
   // fit into ~520px tall for 9:16
   const maxH = 560;
   const maxW = 720;

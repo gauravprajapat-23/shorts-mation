@@ -14,6 +14,8 @@ import type {
   CaptionWord,
 } from "@/lib/types";
 import type { ElementFrame } from "@/lib/animate";
+import { evaluateEffectClips, evaluateTransition } from "@/lib/effects";
+import type { EffectState, TransitionFrame } from "@/lib/effects";
 
 export type TimelineVideoState = {
   sourceTimeMs: number;
@@ -62,6 +64,9 @@ export type TimelineFrameState = {
   localMs: number;
   camera: { scale: number; tx: number; ty: number };
   transitionOverlayOpacity: number;
+  transition: TransitionFrame;
+  effects: EffectState[];
+  visibleEffects: EffectState[];
   elements: TimelineElementState[];
   visibleElements: TimelineElementState[];
   captions: TimelineCaptionState[];
@@ -159,7 +164,7 @@ export function evaluateTimelineFrame(
   tMs: number,
   vars: Record<string, string> = {},
 ): TimelineFrameState {
-  const doc = Object.keys(vars).length ? resolveDocVars(inputDoc, vars) : inputDoc;
+  const doc = resolveDocVars(inputDoc, vars);
   const ranges = getTimelineSceneRanges(doc);
   const durationMs = Math.max(250, ranges[ranges.length - 1]?.endMs ?? 250);
   const safeTime = Math.max(0, Math.min(tMs, Math.max(0, durationMs - 0.001)));
@@ -176,6 +181,9 @@ export function evaluateTimelineFrame(
       localMs: 0,
       camera: { scale: 1, tx: 0, ty: 0 },
       transitionOverlayOpacity: 0,
+      transition: evaluateTransition("cut", 0),
+      effects: [],
+      visibleEffects: [],
       elements: [],
       visibleElements: [],
       captions: [],
@@ -205,6 +213,8 @@ export function evaluateTimelineFrame(
   });
 
   const captions = evaluateTimelineCaptions(doc, safeTime);
+  const effects = doc.version === 2 ? evaluateEffectClips(doc.effectClips ?? [], safeTime) : [];
+  const transition = evaluateTransition(range.scene.transitionIn ?? "cut", localMs);
 
   return {
     tMs: safeTime,
@@ -216,6 +226,9 @@ export function evaluateTimelineFrame(
     localMs,
     camera: computeCamera(range.scene, localMs),
     transitionOverlayOpacity: sceneTransitionOverlayOpacity(range.scene, localMs),
+    transition,
+    effects,
+    visibleEffects: effects.filter((item) => item.visible),
     elements,
     visibleElements: elements.filter((item) => item.visible),
     captions,
@@ -243,7 +256,7 @@ export function collectTimelineVideoSegments(
   inputDoc: EditorDocument,
   vars: Record<string, string> = {},
 ): TimelineVideoSegment[] {
-  const doc = Object.keys(vars).length ? resolveDocVars(inputDoc, vars) : inputDoc;
+  const doc = resolveDocVars(inputDoc, vars);
   const ranges = getTimelineSceneRanges(doc);
   const out: TimelineVideoSegment[] = [];
   for (const range of ranges) {
@@ -251,25 +264,29 @@ export function collectTimelineVideoSegments(
       if (element.type !== "video" || !element.src || element.src.startsWith("{{")) continue;
       const localStart = Math.max(0, Math.min(element.startMs ?? 0, range.durationMs));
       const durationMs = Math.max(1, Math.min(element.durationMs ?? (range.durationMs - localStart), Math.max(1, range.durationMs - localStart)));
-      const startMs = range.startMs + localStart;
-      const sampleTime = Math.min(startMs + 1, startMs + durationMs / 2);
-      const frameState = evaluateTimelineFrame(doc, sampleTime, {});
-      const item = frameState.elements.find((candidate) => candidate.element.id === element.id);
-      const video = item?.video ?? videoState(element, 0, durationMs);
-      out.push({
-        element,
-        sceneIndex: range.index,
-        startMs,
-        durationMs,
-        endMs: startMs + durationMs,
-        sourceStartMs: video.sourceStartMs,
-        sourceEndMs: video.sourceEndMs,
-        playbackRate: video.playbackRate,
-        volume: video.volume,
-        muted: video.muted,
-        loop: video.loop,
-        frame: item?.frame ?? computeElementFrame(element, 0, durationMs),
-      });
+      const baseStartMs = range.startMs + localStart;
+      // Keyframed video clips are sampled into short render descriptors. This
+      // lets FFmpeg and Shotstack follow the same x/y/scale/rotation/opacity/
+      // blur/crop curve even though their native animation APIs differ.
+      const hasKeyframes = Boolean(element.keyframes?.length);
+      const stepMs = hasKeyframes ? Math.max(50, Math.min(125, durationMs / 60)) : durationMs;
+      for (let offset = 0; offset < durationMs - 0.5; offset += stepMs) {
+        const chunkDuration = Math.min(stepMs, durationMs - offset);
+        const projectStart = baseStartMs + offset;
+        const frameState = evaluateTimelineFrame(doc, projectStart + Math.min(1, chunkDuration / 2), {});
+        const item = frameState.elements.find((candidate) => candidate.element.id === element.id);
+        const video = item?.video ?? videoState(element, offset, durationMs);
+        const sourceAtStart = videoState(element, offset, durationMs).sourceTimeMs;
+        const sourceAtEnd = videoState(element, offset + chunkDuration, durationMs).sourceTimeMs;
+        out.push({
+          element, sceneIndex: range.index, startMs: projectStart, durationMs: chunkDuration, endMs: projectStart + chunkDuration,
+          sourceStartMs: sourceAtStart,
+          sourceEndMs: Math.max(sourceAtStart + 1, sourceAtEnd),
+          playbackRate: video.playbackRate, volume: video.volume, muted: video.muted, loop: video.loop,
+          frame: item?.frame ?? computeElementFrame(element, offset, durationMs),
+        });
+        if (!hasKeyframes) break;
+      }
     }
   }
   return out;

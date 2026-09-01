@@ -169,6 +169,8 @@ export type Database = {
           asset_json: Json
           audio_json: Json
           campaign_id: string
+          active_render_attempt_id: string | null
+          active_upload_attempt_id: string | null
           content_json: Json
           created_at: string
           error_message: string | null
@@ -196,6 +198,8 @@ export type Database = {
           asset_json?: Json
           audio_json?: Json
           campaign_id: string
+          active_render_attempt_id?: string | null
+          active_upload_attempt_id?: string | null
           content_json?: Json
           created_at?: string
           error_message?: string | null
@@ -223,6 +227,8 @@ export type Database = {
           asset_json?: Json
           audio_json?: Json
           campaign_id?: string
+          active_render_attempt_id?: string | null
+          active_upload_attempt_id?: string | null
           content_json?: Json
           created_at?: string
           error_message?: string | null

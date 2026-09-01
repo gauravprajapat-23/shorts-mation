@@ -5,7 +5,7 @@ const COLORS: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   paused: "bg-amber-500/10 text-amber-400 border-amber-500/20",
   completed: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-  failed: "bg-brand/10 text-brand border-brand/20",
+  failed: "bg-red-500/10 text-red-400 border-red-500/20",
   pending: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
   rendering: "bg-violet-500/10 text-violet-400 border-violet-500/20",
   rendered: "bg-sky-500/10 text-sky-400 border-sky-500/20",

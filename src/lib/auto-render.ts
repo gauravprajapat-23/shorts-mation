@@ -23,7 +23,7 @@ export function varsFromContent(content: Record<string, unknown> | null): Record
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(content ?? {})) {
     if (k.startsWith("_")) continue;
-    out[k] = v == null ? "" : String(v);
+    out[k] = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
   }
   return out;
 }
@@ -122,6 +122,7 @@ export async function runAutoRenderPass(limit = 2, onProgress?: (pct: number, la
     // Never fight the backend renderer: skip rows it already claimed, and stay
     // inside the same staggered render window so the load is spread out.
     .is("render_job_ref", null)
+    .is("active_render_attempt_id", null)
     .or(`render_due_at.is.null,render_due_at.lte.${nowIso}`)
     .order("schedule_at", { ascending: true, nullsFirst: false })
     .limit(limit);
@@ -139,6 +140,7 @@ export async function runAutoRenderPass(limit = 2, onProgress?: (pct: number, la
         .update({ status: "rendering", error_message: null })
         .eq("id", item.id)
         .in("status", ["pending", "upload_pending"])
+        .is("active_render_attempt_id", null)
         .select("id");
       if (!claimed || claimed.length === 0) continue;
 

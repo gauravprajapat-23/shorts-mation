@@ -56,6 +56,11 @@ function AutomationView() {
         }
       />
 
+      <div className="mb-5 flex gap-2 border-b border-border">
+        <Link to="/campaigns/$campaignId/queue" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Queue & schedule</Link>
+        <span className="px-3 py-2 text-xs font-semibold text-white border-b-2 border-brand">Activity</span>
+      </div>
+
       {d && !d.serverRenderConfigured && (
         <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           Server rendering is not configured yet —{" "}

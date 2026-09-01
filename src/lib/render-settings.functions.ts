@@ -25,7 +25,7 @@ export const getRenderSettings = createServerFn({ method: "POST" })
   .handler(async ({ context }): Promise<RenderSettingsView> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { getAutomationLimits } = await import("@/lib/automation-limits.server");
-    const { renderCallbackUrl } = await import("@/lib/render-settings.server");
+    const { renderCallbackBaseUrl } = await import("@/lib/render-settings.server");
     const { decryptToken } = await import("@/lib/token-crypto.server");
 
     const { data } = await supabaseAdmin
@@ -47,7 +47,7 @@ export const getRenderSettings = createServerFn({ method: "POST" })
       verifiedAt: data?.verified_at ?? null,
       lastError: data?.last_error ?? null,
       keyHint: active ? `${active.slice(0, 4)}••••${active.slice(-4)}` : null,
-      webhookConfigured: Boolean(renderCallbackUrl()),
+      webhookConfigured: Boolean(renderCallbackBaseUrl()),
       limits: {
         maxGlobalConcurrentRenders: limits.max_global_concurrent_renders,
         maxUserConcurrentRenders: limits.max_user_concurrent_renders,

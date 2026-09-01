@@ -8,7 +8,9 @@
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
 import { buildShotstackEdit, submitShotstackRender, getShotstackRender } from "@/lib/shotstack.server";
-import { getRenderCredentials, renderCallbackUrl } from "@/lib/render-settings.server";
+import { getRenderCredentials, renderCallbackBaseUrl } from "@/lib/render-settings.server";
+import { parseEditorDocument } from "@/lib/editor-document-schema";
+import { createHash, randomUUID } from "node:crypto";
 import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders, RENDER_STALE_MINUTES } from "@/lib/automation-limits.server";
 
 export const RENDER_LEAD_MINUTES = 60;
@@ -20,7 +22,7 @@ function varsFromContent(content: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries((content ?? {}) as Record<string, unknown>)) {
     if (k.startsWith("_")) continue;
-    out[k] = v == null ? "" : String(v);
+    out[k] = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
   }
   return out;
 }
@@ -129,11 +131,17 @@ export async function reclaimStaleRenders(): Promise<{ reclaimed: number }> {
     (r) => (r.render_submitted_at ?? r.updated_at ?? "") < cutoff,
   );
   for (const row of rows) {
+    const { data: current } = await supabaseAdmin.from("campaign_items").select("active_render_attempt_id").eq("id", row.id).maybeSingle();
+    const attemptId = (current as any)?.active_render_attempt_id as string | null;
+    if (attemptId) {
+      await (supabaseAdmin as any).from("render_attempts").update({ status: "abandoned", error_message: "stale render timeout", finished_at: new Date().toISOString() }).eq("id", attemptId);
+    }
     await supabaseAdmin
       .from("campaign_items")
-      .update({ status: "pending", render_job_ref: null, render_submitted_at: null })
-      .eq("id", row.id);
-    await log(row, "warn", "Render claim timed out — the video was requeued for a fresh server render");
+      .update({ status: "pending", render_job_ref: null, render_submitted_at: null, active_render_attempt_id: null })
+      .eq("id", row.id)
+      .eq("status", "rendering");
+    await log(row, "warn", "Render attempt timed out — the active attempt was abandoned and the item requeued");
   }
   return { reclaimed: rows.length };
 }
@@ -154,7 +162,7 @@ async function submitDueRendersInner(opts?: {
   let query = supabaseAdmin
     .from("campaign_items")
     .select("id, user_id, campaign_id, content_json, asset_json, audio_json, schedule_at, campaigns!inner(status, template_id, settings_json)")
-    .in("status", ["pending", "upload_pending", "rendering"])
+    .in("status", ["pending", "upload_pending"])
     .is("rendered_video_url", null)
     .is("render_job_ref", null);
   if (opts?.campaignId) query = query.eq("campaign_id", opts.campaignId);
@@ -165,7 +173,8 @@ async function submitDueRendersInner(opts?: {
     .order("schedule_at", { ascending: true, nullsFirst: false })
     .limit(perTick * 4);
 
-  const callbackUrl = renderCallbackUrl();
+  const callbackBaseUrl = renderCallbackBaseUrl();
+  const workerId = `render-worker:${randomUUID()}`;
   const perUser = { ...flight.perUser };
   const credCache = new Map<string, Awaited<ReturnType<typeof getRenderCredentials>>>();
   let submitted = 0, errors = 0, throttled = 0;
@@ -177,21 +186,26 @@ async function submitDueRendersInner(opts?: {
     if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderCredentials(row.user_id));
     const cred = credCache.get(row.user_id) ?? null;
     if (!cred) continue;
+    let attemptId: string | undefined;
     try {
-      const claim = await supabaseAdmin
-        .from("campaign_items")
-        .update({ status: "rendering", error_message: null, render_submitted_at: new Date().toISOString(), render_provider: "shotstack" })
-        .eq("id", row.id)
-        .is("render_job_ref", null)
-        .in("status", ["pending", "upload_pending", "rendering"])
-        .select("id");
-      if (!claim.data?.length) continue;
+      const idempotencyKey = `render:${row.id}:${randomUUID()}`;
+      const claim = await (supabaseAdmin as any).rpc("claim_render_item", {
+        p_item_id: row.id,
+        p_worker_id: workerId,
+        p_idempotency_key: idempotencyKey,
+      });
+      attemptId = claim.data?.[0]?.attempt_id as string | undefined;
+      if (!attemptId) continue;
+      const callbackToken = randomUUID();
+      const callbackTokenHash = createHash("sha256").update(callbackToken).digest("hex");
+      await (supabaseAdmin as any).from("render_attempts").update({ callback_token_hash: callbackTokenHash }).eq("id", attemptId);
+      const callbackUrl = `${callbackBaseUrl}?attempt=${encodeURIComponent(attemptId)}&token=${encodeURIComponent(callbackToken)}`;
 
       const vars = varsFromContent(row.content_json);
       let doc: EditorDocument | null = null;
       if (row.campaigns?.template_id) {
         const { data: tpl } = await supabaseAdmin.from("templates").select("template_json").eq("id", row.campaigns.template_id).maybeSingle();
-        doc = (tpl?.template_json ?? null) as EditorDocument | null;
+        if (tpl?.template_json) doc = parseEditorDocument(tpl.template_json);
       }
       if (!doc?.scenes?.length) doc = fallbackDocument(vars);
 
@@ -211,14 +225,18 @@ async function submitDueRendersInner(opts?: {
         callbackUrl,
       });
       const jobId = await submitShotstackRender(edit, cred);
-      await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("id", row.id);
-      await log(row, "info", `Server render submitted (job ${jobId})`);
+      await (supabaseAdmin as any).from("render_attempts").update({ provider_job_ref: jobId, status: "submitted", submitted_at: new Date().toISOString() }).eq("id", attemptId);
+      await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
+      await log(row, "info", `Server render submitted (attempt ${attemptId}, job ${jobId})`);
       perUser[row.user_id] = (perUser[row.user_id] ?? 0) + 1;
       submitted++;
     } catch (e) {
       errors++;
       const msg = e instanceof Error ? e.message : "Server render submit failed";
-      await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, error_message: msg }).eq("id", row.id);
+      if (attemptId) {
+        await (supabaseAdmin as any).from("render_attempts").update({ status: "failed", error_message: msg, finished_at: new Date().toISOString() }).eq("id", attemptId);
+        await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, error_message: msg }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
+      }
       await log(row, "error", msg);
     }
   }
@@ -229,7 +247,7 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows } = await supabaseAdmin
     .from("campaign_items")
-    .select("id, user_id, campaign_id, render_job_ref")
+    .select("id, user_id, campaign_id, render_job_ref, active_render_attempt_id")
     .not("render_job_ref", "is", null)
     .is("rendered_video_url", null)
     .limit(COLLECT_PER_TICK);
@@ -242,73 +260,126 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
       const status = await getShotstackRender(row.render_job_ref as string, cred);
       if (status.status === "failed") throw new Error(status.error || "Render provider reported a failed render");
       if (status.status !== "done" || !status.url) { pending++; continue; }
-      await storeFinishedRender(row, status.url);
+      await storeFinishedRender(row, status.url, (row as any).active_render_attempt_id);
       completed++;
     } catch (e) {
       errors++;
-      await failRender(row, e instanceof Error ? e.message : "Server render failed");
+      await failRender(row, e instanceof Error ? e.message : "Server render failed", (row as any).active_render_attempt_id);
     }
   }
   return { completed, pending, errors };
 }
 
-type ItemRef = { id: string; user_id: string; campaign_id: string };
+type ItemRef = { id: string; user_id: string; campaign_id: string; active_render_attempt_id?: string | null };
 
-/** Downloads the finished MP4 into the `renders` bucket and marks the row ready
- *  to upload. Shared by the polling collector and the render webhook. */
-export async function storeFinishedRender(row: ItemRef, url: string): Promise<void> {
+function allowedRenderOutputUrl(raw: string): URL {
+  const url = new URL(raw);
+  if (url.protocol !== "https:") throw new Error("Render output must use HTTPS");
+  const configured = (process.env.RENDER_OUTPUT_HOSTS ?? "")
+    .split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+  const host = url.hostname.toLowerCase();
+  const shotstackHost = host === "shotstack.io" || host.endsWith(".shotstack.io");
+  const explicitlyAllowed = configured.some((allowed) => host === allowed || (allowed.startsWith("*.") && host.endsWith(allowed.slice(1))));
+  if (!shotstackHost && !explicitlyAllowed) {
+    throw new Error(`Untrusted render output host: ${host}. Configure RENDER_OUTPUT_HOSTS for your provider output CDN.`);
+  }
+  return url;
+}
+
+/** Downloads an authoritative provider output into storage. The active attempt
+ * compare-and-set prevents late callbacks from overwriting a newer render. */
+export async function storeFinishedRender(row: ItemRef, url: string, attemptId?: string | null): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const res = await fetch(url);
+  const safeUrl = allowedRenderOutputUrl(url);
+  const res = await fetch(safeUrl);
   if (!res.ok) throw new Error(`Could not download the finished MP4 [${res.status}]`);
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType && !contentType.startsWith("video/") && contentType !== "application/octet-stream") {
+    throw new Error(`Render output was not a video (${contentType})`);
+  }
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (!bytes.byteLength) throw new Error("The finished MP4 was empty");
   const path = `${row.user_id}/${row.id}-${Date.now()}.mp4`;
   const up = await supabaseAdmin.storage.from("renders").upload(path, bytes, { contentType: "video/mp4", upsert: true });
   if (up.error) throw up.error;
-  await supabaseAdmin
-    .from("campaign_items")
-    .update({ rendered_video_url: path, status: "rendered", error_message: null })
-    .eq("id", row.id);
+
+  let update = supabaseAdmin.from("campaign_items").update({
+    rendered_video_url: path, status: "rendered", error_message: null,
+    active_render_attempt_id: null,
+  }).eq("id", row.id);
+  if (attemptId) update = update.eq("active_render_attempt_id", attemptId);
+  const { data: changed } = await update.select("id");
+  if (attemptId && !changed?.length) {
+    await supabaseAdmin.storage.from("renders").remove([path]);
+    throw new Error("Render attempt is no longer active; refusing stale completion");
+  }
+  if (attemptId) {
+    await (supabaseAdmin as any).from("render_attempts").update({ status: "completed", finished_at: new Date().toISOString() }).eq("id", attemptId);
+  }
   await log(row, "info", "Server render finished and stored");
 }
 
-export async function failRender(row: ItemRef, message: string): Promise<void> {
+export async function failRender(row: ItemRef, message: string, attemptId?: string | null): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  await supabaseAdmin
-    .from("campaign_items")
-    .update({ status: "pending", render_job_ref: null, error_message: message })
-    .eq("id", row.id);
+  if (attemptId) {
+    await (supabaseAdmin as any).from("render_attempts").update({ status: "failed", error_message: message, finished_at: new Date().toISOString() }).eq("id", attemptId);
+    await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, error_message: message }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
+  } else {
+    await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, error_message: message }).eq("id", row.id);
+  }
   await log(row, "error", message);
 }
 
-/** Webhook entry point: advances one item straight from a provider event. */
+/** Webhook entry point. The callback URL carries a one-attempt token. We ignore
+ * provider-supplied output URLs and re-query Shotstack for authoritative state. */
 export async function handleRenderCallback(payload: {
   id?: string;
   status?: string;
   url?: string | null;
   error?: string | null;
-}): Promise<{ ok: boolean; detail: string }> {
+}, auth: { attemptId?: string | null; token?: string | null }): Promise<{ ok: boolean; detail: string }> {
   const jobId = payload.id;
-  if (!jobId) return { ok: false, detail: "missing render id" };
+  if (!jobId || !auth.attemptId || !auth.token) return { ok: false, detail: "missing render callback identity" };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: row } = await supabaseAdmin
-    .from("campaign_items")
-    .select("id, user_id, campaign_id, rendered_video_url")
-    .eq("render_job_ref", jobId)
-    .maybeSingle();
-  if (!row) return { ok: false, detail: "no item for this render id" };
-  if (row.rendered_video_url) return { ok: true, detail: "already stored" };
-  const status = (payload.status ?? "").toLowerCase();
-  if (status === "failed") {
-    await failRender(row, payload.error || "Render provider reported a failed render");
-    return { ok: true, detail: "marked failed" };
+  const { data: attempt } = await (supabaseAdmin as any).from("render_attempts")
+    .select("id,user_id,campaign_id,campaign_item_id,provider_job_ref,callback_token_hash,status")
+    .eq("id", auth.attemptId).maybeSingle();
+  if (!attempt) return { ok: false, detail: "render attempt mismatch" };
+  const tokenHash = createHash("sha256").update(auth.token).digest("hex");
+  const expected = String(attempt.callback_token_hash ?? "");
+  if (!expected || expected.length !== tokenHash.length) return { ok: false, detail: "invalid callback token" };
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ tokenHash.charCodeAt(i);
+  if (diff !== 0) return { ok: false, detail: "invalid callback token" };
+  if (attempt.provider_job_ref && attempt.provider_job_ref !== jobId) return { ok: false, detail: "render job mismatch" };
+  if (!attempt.provider_job_ref) {
+    const { data: recovered } = await (supabaseAdmin as any).from("render_attempts")
+      .update({ provider_job_ref: jobId, status: "submitted", submitted_at: new Date().toISOString() })
+      .eq("id", attempt.id).is("provider_job_ref", null).select("id");
+    if (!recovered?.length) return { ok: false, detail: "could not recover render job" };
+    await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("active_render_attempt_id", attempt.id);
   }
-  if (status !== "done" || !payload.url) return { ok: true, detail: `ignored status ${status || "unknown"}` };
+  if (attempt.status === "completed") return { ok: true, detail: "already stored" };
+
+  const { data: row } = await supabaseAdmin.from("campaign_items")
+    .select("id,user_id,campaign_id,rendered_video_url,active_render_attempt_id")
+    .eq("id", attempt.campaign_item_id).maybeSingle();
+  if (!row || (row as any).active_render_attempt_id !== attempt.id) return { ok: true, detail: "stale attempt ignored" };
+
+  const cred = await getRenderCredentials(attempt.user_id);
+  if (!cred) return { ok: false, detail: "render credentials unavailable" };
   try {
-    await storeFinishedRender(row, payload.url);
+    const authoritative = await getShotstackRender(jobId, cred);
+    if (authoritative.status === "failed") {
+      await failRender(row as ItemRef, authoritative.error || payload.error || "Render provider reported failure", attempt.id);
+      return { ok: true, detail: "marked failed" };
+    }
+    if (authoritative.status !== "done" || !authoritative.url) return { ok: true, detail: `provider status ${authoritative.status}` };
+    await storeFinishedRender(row as ItemRef, authoritative.url, attempt.id);
     return { ok: true, detail: "stored" };
   } catch (e) {
-    await failRender(row, e instanceof Error ? e.message : "Could not store the finished MP4");
+    await failRender(row as ItemRef, e instanceof Error ? e.message : "Could not store finished render", attempt.id);
     return { ok: false, detail: "store failed" };
   }
 }
+

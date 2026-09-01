@@ -1,72 +1,49 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement } from "@/lib/types";
-import { renderText } from "@/lib/editor-defaults";
+import type { EditorDocument, TextElement } from "@/lib/types";
+import { CANVAS_DIMS } from "@/lib/editor-defaults";
+import { parseEditorDocument } from "@/lib/editor-document-schema";
+import { materializeAutomationDocument } from "@/lib/automation-variables";
+import { buildSceneSvgAtTime } from "@/lib/scene-svg";
+import { evaluateTimelineFrame } from "@/lib/timeline-engine";
 
-function escapeXml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+function varsFromContent(content: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries((content ?? {}) as Record<string, unknown>)) if (!k.startsWith("_")) out[k] = v;
+  return out;
 }
 
-function renderSceneSvg(doc: EditorDocument, vars: Record<string, string>): string {
-  const dims = doc.aspect === "9:16" ? { w: 1080, h: 1920 } : doc.aspect === "16:9" ? { w: 1920, h: 1080 } : { w: 1080, h: 1080 };
-  const scene = doc.scenes[0];
-  if (!scene) return "";
-  const parts: string[] = [];
-  parts.push(`<rect width="${dims.w}" height="${dims.h}" fill="${scene.background ?? "#0a0a0a"}"/>`);
-  for (const el of scene.elements as EditorElement[]) {
-    const transform = `translate(${el.x} ${el.y}) rotate(${el.rotation} ${el.w / 2} ${el.h / 2})`;
-    if (el.type === "shape") {
-      const s = el as ShapeElement;
-      if (s.shape === "ellipse") {
-        parts.push(`<g transform="${transform}" opacity="${el.opacity}"><ellipse cx="${s.w / 2}" cy="${s.h / 2}" rx="${s.w / 2}" ry="${s.h / 2}" fill="${s.fill}"/></g>`);
-      } else {
-        parts.push(`<g transform="${transform}" opacity="${el.opacity}"><rect width="${s.w}" height="${s.h}" fill="${s.fill}" rx="${s.radius ?? 0}"/></g>`);
-      }
-    } else if (el.type === "text") {
-      const t = el as TextElement;
-      const txt = escapeXml(renderText(t.text, vars));
-      const anchor = t.align === "left" ? "start" : t.align === "right" ? "end" : "middle";
-      const xPos = t.align === "left" ? 0 : t.align === "right" ? t.w : t.w / 2;
-      parts.push(`<g transform="${transform}" opacity="${el.opacity}"><text x="${xPos}" y="${t.h / 2}" dominant-baseline="middle" text-anchor="${anchor}" fill="${t.color}" font-family="${escapeXml(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}">${txt}</text></g>`);
-    } else if (el.type === "image") {
-      const im = el as ImageElement;
-      const src = im.src.startsWith("{{") ? "" : im.src;
-      if (src) parts.push(`<g transform="${transform}" opacity="${el.opacity}"><image href="${escapeXml(src)}" width="${im.w}" height="${im.h}" preserveAspectRatio="${im.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}"/></g>`);
-    }
+function fallbackDocumentFromVars(vars: Record<string, unknown>): EditorDocument {
+  const dims = CANVAS_DIMS["9:16"];
+  const entries = Object.entries(vars).filter(([, value]) => String(value ?? "").trim()).slice(0, 3);
+  const elements: TextElement[] = entries.map(([key, value], index) => ({
+    id: `fallback_${key}`, type: "text", x: 80, y: 520 + index * 360, w: dims.w - 160, h: 260,
+    rotation: 0, opacity: 1, text: String(value), fontFamily: "Inter", fontSize: index === 0 ? 96 : 60,
+    fontWeight: index === 0 ? 900 : 700, color: "#FFFFFF", align: "center",
+  }));
+  return { version: 1, aspect: "9:16", variables: entries.map(([key]) => key), scenes: [{ id: "fallback", name: "Preview", durationMs: 6000, background: "#0A0A0A", elements }] };
+}
+
+function previewDataUrl(doc: EditorDocument, vars: Record<string, string>): string {
+  const svg = buildSceneSvgAtTime({ doc, tMs: 0, vars, includeBackground: true, includeVideo: true });
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+async function loadConcreteDocument(supabase: any, templateId: string | null, content: unknown) {
+  const rawVars = varsFromContent(content);
+  let source: EditorDocument | null = null;
+  if (templateId) {
+    const { data: template } = await supabase.from("templates").select("template_json").eq("id", templateId).maybeSingle();
+    if (template?.template_json) source = parseEditorDocument(template.template_json);
   }
-  const svg = `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}">${parts.join("")}</svg>`;
-  return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
-}
-
-function fallbackDocumentFromVars(vars: Record<string, string>): EditorDocument {
-  const entries = Object.entries(vars).filter(([k, v]) => !k.startsWith("_") && String(v ?? "").trim());
-  const pick = (...keys: string[]) => {
-    for (const key of keys) {
-      const found = entries.find(([k]) => k.toLowerCase() === key || k.toLowerCase().includes(key));
-      if (found?.[1]) return found[1];
-    }
-    return "";
-  };
-  const headline = pick("headline", "title", "quote", "text") || entries[0]?.[1] || "Test render";
-  const subheadline = pick("subheadline", "subtitle", "description", "body") || entries[1]?.[1] || "";
-  const cta = pick("cta", "call", "action") || entries[2]?.[1] || "";
-  return {
-    version: 1,
-    aspect: "9:16",
-    variables: entries.map(([k]) => k),
-    scenes: [{
-      id: "fallback-scene",
-      name: "Generated preview",
-      durationMs: 6000,
-      background: "#0A0A0A",
-      elements: [
-        { id: "fallback-accent", type: "shape", shape: "rect", x: 70, y: 1540, w: 940, h: 12, rotation: 0, opacity: 1, fill: "#FF0033", radius: 999 },
-        { id: "fallback-headline", type: "text", x: 82, y: 560, w: 916, h: 390, rotation: 0, opacity: 1, text: headline, fontFamily: "Plus Jakarta Sans", fontSize: 108, fontWeight: 900, color: "#FFFFFF", align: "center" },
-        { id: "fallback-sub", type: "text", x: 130, y: 1000, w: 820, h: 190, rotation: 0, opacity: 0.9, text: subheadline, fontFamily: "Inter", fontSize: 48, fontWeight: 700, color: "#D4D4D8", align: "center" },
-        { id: "fallback-cta", type: "text", x: 170, y: 1360, w: 740, h: 130, rotation: 0, opacity: 1, text: cta, fontFamily: "Inter", fontSize: 44, fontWeight: 800, color: "#FF0033", align: "center" },
-      ],
-    }],
-  };
+  source ??= fallbackDocumentFromVars(rawVars);
+  const concrete = materializeAutomationDocument(source, rawVars);
+  if (concrete.errors.length) {
+    throw new Error(`Automation input validation failed: ${concrete.errors.map((e) => `${e.variable}: ${e.message}`).join("; ")}`);
+  }
+  // Force canonical timeline evaluation now so malformed timing fails at the boundary.
+  const frame = evaluateTimelineFrame(concrete.document, 0, concrete.values);
+  return { doc: concrete.document, vars: concrete.values, durationMs: frame.durationMs };
 }
 
 export const startRenderJob = createServerFn({ method: "POST" })
@@ -74,29 +51,19 @@ export const startRenderJob = createServerFn({ method: "POST" })
   .inputValidator((d: { campaignId: string; campaignItemId?: string | null; renderOptions?: Record<string, unknown> }) => d)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const { data: campaign, error: cErr } = await supabase.from("campaigns").select("*").eq("id", data.campaignId).single();
-    if (cErr || !campaign) throw new Error("Campaign not found");
-    let item = null as null | { id: string; content_json: unknown; seo_json: unknown };
-    if (data.campaignItemId) {
-      const r = await supabase.from("campaign_items").select("id, content_json, seo_json").eq("id", data.campaignItemId).single();
-      item = r.data ?? null;
-    } else {
-      const r = await supabase.from("campaign_items").select("id, content_json, seo_json").eq("campaign_id", data.campaignId).order("created_at").limit(1).single();
-      item = r.data ?? null;
-    }
-    const content = (item?.content_json ?? {}) as Record<string, unknown>;
-    const vars: Record<string, string> = {};
-    for (const [k, v] of Object.entries(content)) if (!k.startsWith("_")) vars[k] = v == null ? "" : String(v);
+    const { data: campaign, error: cErr } = await supabase.from("campaigns").select("id,user_id,template_id").eq("id", data.campaignId).single();
+    if (cErr || !campaign || campaign.user_id !== userId) throw new Error("Campaign not found");
+    const itemQuery = supabase.from("campaign_items").select("id,user_id,content_json,seo_json");
+    const result = data.campaignItemId
+      ? await itemQuery.eq("id", data.campaignItemId).eq("campaign_id", data.campaignId).single()
+      : await itemQuery.eq("campaign_id", data.campaignId).order("created_at").limit(1).single();
+    const item = result.data;
+    if (!item || item.user_id !== userId) throw new Error("Campaign item not found");
+    const concrete = await loadConcreteDocument(supabase, campaign.template_id, item.content_json);
     const { data: inserted, error } = await supabase.from("render_jobs").insert({
-      user_id: userId,
-      campaign_id: data.campaignId,
-      campaign_item_id: item?.id ?? null,
-      template_id: campaign.template_id,
-      status: "rendering",
-      progress: 0,
-      total_ms: 6000,
-      input_vars: vars,
-      render_options: (data.renderOptions ?? {}) as never,
+      user_id: userId, campaign_id: data.campaignId, campaign_item_id: item.id, template_id: campaign.template_id,
+      status: "rendering", progress: 0, total_ms: Math.max(250, concrete.durationMs),
+      input_vars: varsFromContent(item.content_json) as never, render_options: (data.renderOptions ?? {}) as never,
     }).select("id").single();
     if (error) throw error;
     return { jobId: inserted.id };
@@ -106,20 +73,19 @@ export const pollRenderJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { jobId: string }) => d)
   .handler(async ({ data, context }) => {
-    const { supabase } = context;
+    const { supabase, userId } = context;
     const { data: job, error } = await supabase.from("render_jobs").select("*").eq("id", data.jobId).single();
-    if (error || !job) throw new Error("Job not found");
+    if (error || !job || job.user_id !== userId) throw new Error("Job not found");
     if (job.status === "completed" || job.status === "failed") return job;
     const elapsed = Date.now() - new Date(job.started_at).getTime();
-    const pct = Math.min(99, Math.floor((elapsed / job.total_ms) * 100));
-    if (elapsed >= job.total_ms) {
-      // finalize: render the SVG preview from the template
-      const { data: tmpl } = job.template_id
-        ? await supabase.from("templates").select("template_json").eq("id", job.template_id).maybeSingle()
+    const totalMs = Math.max(250, job.total_ms || 250);
+    const pct = Math.min(99, Math.floor((elapsed / totalMs) * 100));
+    if (elapsed >= totalMs) {
+      const { data: item } = job.campaign_item_id
+        ? await supabase.from("campaign_items").select("content_json").eq("id", job.campaign_item_id).maybeSingle()
         : { data: null };
-      const inputVars = (job.input_vars ?? {}) as Record<string, string>;
-      const doc = (tmpl?.template_json as EditorDocument | undefined) ?? fallbackDocumentFromVars(inputVars);
-      const preview = doc ? renderSceneSvg(doc, inputVars) : null;
+      const concrete = await loadConcreteDocument(supabase, job.template_id, item?.content_json ?? job.input_vars);
+      const preview = previewDataUrl(concrete.doc, concrete.vars);
       const { data: updated } = await supabase.from("render_jobs").update({
         status: "completed", progress: 100, preview_url: preview, thumbnail_url: preview, finished_at: new Date().toISOString(),
       }).eq("id", job.id).select("*").single();

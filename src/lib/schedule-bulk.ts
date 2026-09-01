@@ -10,6 +10,7 @@ export type ScheduleRow = {
   status: string;
   schedule_at: string | null;
   privacy: string;
+  timezone?: string;
 };
 
 export type ScheduleUpdate = { id: string; schedule_at: string | null; privacy?: string };
@@ -52,6 +53,7 @@ export function buildScheduleCsv(rows: ScheduleRow[]): string {
       status: r.status,
       schedule_at: toLocalInput(r.schedule_at),
       privacy: r.privacy,
+      timezone: r.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     })),
   );
 }
@@ -77,6 +79,10 @@ export function parseScheduleCsv(text: string, knownIds: Set<string>): ScheduleI
       return;
     }
     const privacy = (row.privacy ?? "").trim().toLowerCase();
+    if (privacy && !PRIVACY.has(privacy)) {
+      errors.push(`Row ${line}: invalid privacy "${privacy}" (use private, unlisted, or public)`);
+      return;
+    }
     updates.push({ id, schedule_at: res.iso, ...(PRIVACY.has(privacy) ? { privacy } : {}) });
   });
   return { updates, errors };

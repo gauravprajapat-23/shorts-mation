@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-type Tokens = { access_token: string; expires_at: string | null };
 type PublishResult = { ok: true; videoId: string } | { ok: false; error: string };
 
 // SSRF guard: only fetch video bytes from Supabase storage signed URLs on
@@ -57,7 +56,7 @@ async function resolveStoredUrl(bucket: "assets" | "renders", fileUrl?: string |
   return signedStorageUrl(bucket, candidate.replace(new RegExp(`^${bucket}/`), ""));
 }
 
-async function refreshIfNeeded(conn: {
+export async function getFreshYouTubeAccessToken(conn: {
   id: string;
   user_id: string;
   access_token_encrypted: string | null;
@@ -83,7 +82,7 @@ async function refreshIfNeeded(conn: {
   const now = Date.now();
   const expiry = conn.token_expiry ? new Date(conn.token_expiry).getTime() : 0;
   if (expiry - now > 60_000) {
-    return { access_token: currentAccess, expires_at: conn.token_expiry };
+    return currentAccess;
   }
   const refreshToken = await decryptToken(conn.refresh_token_encrypted);
   if (!refreshToken) {
@@ -112,7 +111,23 @@ async function refreshIfNeeded(conn: {
     access_token_encrypted: encAccess,
     token_expiry: expiresAt,
   }).eq("id", conn.id);
-  return { access_token: j.access_token, expires_at: expiresAt };
+  return j.access_token;
+}
+
+class UploadAlreadyClaimedError extends Error {}
+
+async function claimUploadAttempt(itemId: string): Promise<string> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const nonce = globalThis.crypto.randomUUID();
+  const { data, error } = await (supabaseAdmin as any).rpc("claim_upload_item", {
+    p_item_id: itemId,
+    p_worker_id: `youtube-worker:${nonce}`,
+    p_idempotency_key: `youtube:${itemId}:${nonce}`,
+  });
+  if (error) throw new Error(error.message || "Could not claim YouTube upload");
+  const attemptId = data?.[0]?.attempt_id as string | undefined;
+  if (!attemptId) throw new UploadAlreadyClaimedError("This item is already being uploaded or was already published.");
+  return attemptId;
 }
 
 async function pickVideoUrl(userId: string, backgroundFileName: string | undefined | null, storedUrl: string | null | undefined): Promise<string> {
@@ -151,13 +166,14 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
 }
 
 async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string | null }) {
+  const attemptId = await claimUploadAttempt(itemId);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: item, error: iErr } = await supabaseAdmin.from("campaign_items").select("*").eq("id", itemId).single();
   if (iErr || !item) throw new Error("Item not found");
   const { data: campaign } = await supabaseAdmin.from("campaigns").select("*").eq("id", item.campaign_id).single();
   if (!campaign) throw new Error("Campaign not found");
 
-  await supabaseAdmin.from("campaign_items").update({ status: "uploading", error_message: null }).eq("id", itemId);
+  await (supabaseAdmin as any).from("upload_attempts").update({ status: "uploading", started_at: new Date().toISOString() }).eq("id", attemptId);
 
   try {
     let conn: any = null;
@@ -180,7 +196,7 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
       }
     }
     if (!conn) throw new Error("No YouTube channel connected. Open YouTube page and connect your channel, then retry.");
-    const tokens = await refreshIfNeeded(conn);
+    const accessToken = await getFreshYouTubeAccessToken(conn);
     const seo = (item.seo_json ?? {}) as { title?: string; description?: string; tags?: string[]; hashtags?: string[] };
     const yt = (item.youtube_settings_json ?? {}) as { privacy?: "private" | "unlisted" | "public"; category?: string };
     const asset = (item.asset_json ?? {}) as { background_file_name?: string };
@@ -216,7 +232,7 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
     const startRes = await fetch("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json; charset=UTF-8",
         "X-Upload-Content-Type": videoBlob.type || "video/mp4",
         "X-Upload-Content-Length": String(videoBlob.size),
@@ -236,14 +252,22 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
     if (!putRes.ok) throw new Error(`YouTube upload failed: ${putRes.status} ${await putRes.text()}`);
     const uploaded = (await putRes.json()) as { id?: string };
     if (!uploaded.id) throw new Error("YouTube did not return a video id");
+    // Persist the external side effect first. If the process crashes before the
+    // campaign row update, the next claim reconciles this ID instead of uploading twice.
+    await (supabaseAdmin as any).from("upload_attempts").update({ youtube_video_id: uploaded.id, provider_upload_ref: uploadUrl }).eq("id", attemptId);
 
-    await supabaseAdmin.from("campaign_items").update({
+    const { data: changed } = await supabaseAdmin.from("campaign_items").update({
       status: opts?.publishAt ? "scheduled" : "uploaded",
       youtube_publish_at: opts?.publishAt ?? null,
       youtube_video_id: uploaded.id,
       youtube_url: `https://youtube.com/shorts/${uploaded.id}`,
       error_message: null,
-    }).eq("id", itemId);
+      active_upload_attempt_id: null,
+    }).eq("id", itemId).eq("active_upload_attempt_id", attemptId).select("id");
+    if (!changed?.length) throw new Error("Upload attempt is no longer active; refusing stale completion");
+    await (supabaseAdmin as any).from("upload_attempts").update({
+      status: "completed", youtube_video_id: uploaded.id, finished_at: new Date().toISOString(),
+    }).eq("id", attemptId);
 
     await supabaseAdmin.from("automation_logs").insert({
       user_id: item.user_id,
@@ -258,7 +282,8 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
     return { videoId: uploaded.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Upload failed";
-    await supabaseAdmin.from("campaign_items").update({ status: "failed", error_message: msg }).eq("id", itemId);
+    await (supabaseAdmin as any).from("upload_attempts").update({ status: "failed", error_message: msg, finished_at: new Date().toISOString() }).eq("id", attemptId);
+    await supabaseAdmin.from("campaign_items").update({ status: "failed", active_upload_attempt_id: null, error_message: msg }).eq("id", itemId).eq("active_upload_attempt_id", attemptId);
     await supabaseAdmin.from("automation_logs").insert({
       user_id: item.user_id,
       campaign_id: item.campaign_id,
@@ -319,16 +344,36 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
     const scheduled = r.schedule_at ? new Date(r.schedule_at).getTime() : 0;
     // Leave ~1 min of headroom; YouTube rejects publishAt in the past.
     const publishAt = scheduled > Date.now() + 60_000 ? new Date(scheduled).toISOString() : null;
-    try { await uploadItemToYouTube(r.id, { publishAt }); processed++; } catch { errors++; }
+    try { await uploadItemToYouTube(r.id, { publishAt }); processed++; } catch (e) { if (e instanceof UploadAlreadyClaimedError) { throttled++; } else { errors++; } }
   }
 
-  // Mark scheduled videos as published once their YouTube publish time passed.
-  await supabaseAdmin
+  // Reconcile scheduled rows with YouTube instead of assuming that a passed
+  // publishAt means the remote video actually became public.
+  const { data: publishDue } = await supabaseAdmin
     .from("campaign_items")
-    .update({ status: "uploaded" })
+    .select("id,user_id,campaign_id,youtube_video_id,youtube_publish_at,campaigns!inner(youtube_connection_id)")
     .eq("status", "scheduled")
+    .not("youtube_video_id", "is", null)
     .not("youtube_publish_at", "is", null)
-    .lte("youtube_publish_at", nowIso);
+    .lte("youtube_publish_at", nowIso)
+    .limit(20);
+  for (const row of (publishDue ?? []) as any[]) {
+    try {
+      const connectionId = row.campaigns?.youtube_connection_id as string | undefined;
+      if (!connectionId) continue;
+      const { data: conn } = await supabaseAdmin.from("youtube_connections").select("*").eq("id", connectionId).eq("user_id", row.user_id).single();
+      if (!conn) continue;
+      const token = await getFreshYouTubeAccessToken(conn as any);
+      const check = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(row.youtube_video_id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!check.ok) continue;
+      const body = await check.json() as { items?: Array<{ status?: { privacyStatus?: string } }> };
+      if (body.items?.[0]?.status?.privacyStatus === "public") {
+        await supabaseAdmin.from("campaign_items").update({ status: "uploaded", error_message: null }).eq("id", row.id).eq("status", "scheduled");
+      }
+    } catch {
+      // Keep the row scheduled; the next cron pass can reconcile again.
+    }
+  }
 
   return { processed, errors, throttled };
 };

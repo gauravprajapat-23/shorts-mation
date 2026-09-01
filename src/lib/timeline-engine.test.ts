@@ -33,6 +33,7 @@ const doc: EditorDocumentV2 = {
   tracks: [],
   audioClips: [],
   captionClips: [],
+  effectClips: [],
   audioMix: { duckingEnabled: true, duckLevel: 0.22, attackMs: 180, releaseMs: 320 },
   scenes: [{
     id: "s1",

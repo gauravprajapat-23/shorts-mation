@@ -8,6 +8,7 @@ import { extractVariables } from "@/lib/editor-defaults";
 import type { EditorDocument } from "@/lib/types";
 import { Upload, Check, AlertTriangle, Download, ArrowRight, FileJson, FileSpreadsheet, Link2 } from "lucide-react";
 import { toast } from "sonner";
+import { campaignSourceValue, displayCampaignValue, hasCampaignValue } from "@/lib/campaign-mapping";
 
 export const Route = createFileRoute("/_app/campaigns/new")({
   head: () => ({ meta: [{ title: "New campaign — ShortsForge" }] }),
@@ -88,15 +89,8 @@ function NewCampaignPage() {
     [templateVars, mapping, autoMapping],
   );
 
-  function valueFor(video: ParsedCampaign["videos"][number], src: string): string {
-    if (!src || src === NONE) return "";
-    if (src.startsWith("seo.")) {
-      const k = src.slice(4) as keyof typeof video.seo;
-      const val = video.seo[k];
-      return typeof val === "string" ? val : "";
-    }
-    const val = video.content?.[src];
-    return val == null ? "" : String(val);
+  function valueFor(video: ParsedCampaign["videos"][number], src: string): unknown {
+    return campaignSourceValue(video as unknown as { content?: Record<string, unknown>; seo?: Record<string, unknown> }, src);
   }
 
   const mappingIssues = useMemo<ValidationIssue[]>(() => {
@@ -111,7 +105,7 @@ function NewCampaignPage() {
         const src = effectiveMapping[tv];
         if (src === NONE) continue;
         const val = valueFor(v, src);
-        if (!val.trim()) out.push({ row: i, field: `{{${tv}}}`, message: `empty value from "${src}"`, severity: "error" });
+        if (!hasCampaignValue(val)) out.push({ row: i, field: `{{${tv}}}`, message: `empty value from "${src}"`, severity: "error" });
       }
     });
     return out;
@@ -151,7 +145,7 @@ function NewCampaignPage() {
       }).select("id").single();
       if (error) throw error;
       const items = parsed.videos.map((v) => {
-        const mapped: Record<string, string> = {};
+        const mapped: Record<string, unknown> = {};
         for (const tv of templateVars) {
           const src = effectiveMapping[tv];
           if (src && src !== NONE) mapped[tv] = valueFor(v, src);
@@ -313,7 +307,7 @@ function NewCampaignPage() {
                     <tbody className="divide-y divide-border">
                       {templateVars.map((v) => {
                         const src = effectiveMapping[v];
-                        const example = parsed ? valueFor(parsed.videos[0], src) : "";
+                        const example = parsed ? displayCampaignValue(valueFor(parsed.videos[0], src)) : "";
                         return (
                           <tr key={v}>
                             <td className="px-4 py-2.5 font-mono text-brand">{`{{${v}}}`}</td>

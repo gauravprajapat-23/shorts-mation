@@ -20,6 +20,7 @@ export function EditorTimeline({
   selectedId,
   selectedAudioId,
   selectedCaptionId,
+  selectedEffectId,
   playheadMs,
   playing,
   zoom,
@@ -30,16 +31,19 @@ export function EditorTimeline({
   onSelectElement,
   onSelectAudio,
   onSelectCaption,
+  onSelectEffect,
   onZoomChange,
   onClipTimingChange,
   onSplitSelected,
   canSplitSelected,
+  onKeyframeTimingChange,
 }: {
   doc: EditorDocumentV2;
   sceneIndex: number;
   selectedId: string | null;
   selectedAudioId: string | null;
   selectedCaptionId: string | null;
+  selectedEffectId: string | null;
   playheadMs: number;
   playing: boolean;
   zoom: number;
@@ -50,10 +54,12 @@ export function EditorTimeline({
   onSelectElement: (elementId: string, sceneId: string) => void;
   onSelectAudio: (audioId: string) => void;
   onSelectCaption: (captionId: string) => void;
+  onSelectEffect: (effectId: string) => void;
   onZoomChange: (zoom: number) => void;
   onClipTimingChange: (clip: EditorTimelineClip, nextStartMs: number, nextDurationMs: number, mode: "move" | "trim-left" | "trim-right") => void;
   onSplitSelected: () => void;
   canSplitSelected: boolean;
+  onKeyframeTimingChange: (elementId: string, sceneId: string, keyframeId: string, timeMs: number) => void;
 }) {
   const pxPerMs = (BASE_PX_PER_SEC * zoom) / 1000;
   const contentWidth = Math.max(720, doc.durationMs * pxPerMs + 120);
@@ -94,6 +100,18 @@ export function EditorTimeline({
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  };
+
+  const beginKeyframeDrag = (e: React.PointerEvent, clip: EditorTimelineClip, keyframeId: string, initialMs: number) => {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const onMove = (ev: PointerEvent) => {
+      if (!clip.elementId) return;
+      const next = Math.max(0, Math.min(clip.durationMs, initialMs + (ev.clientX - startX) / pxPerMs));
+      onKeyframeTimingChange(clip.elementId, clip.sceneId, keyframeId, next);
+    };
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
   };
 
   return (
@@ -140,14 +158,17 @@ export function EditorTimeline({
                   {track.clips.map((clip) => {
                     const isAudio = track.kind === "audio" && clip.sceneId === "__project_audio__";
                     const isCaption = track.kind === "captions" && clip.sceneId === "__project_captions__";
-                    const selected = isAudio ? clip.elementId === selectedAudioId : isCaption ? clip.elementId === selectedCaptionId : clip.elementId === selectedId;
+                    const isEffect = track.kind === "effects" && clip.sceneId === "__project_effects__";
+                    const selected = isAudio ? clip.elementId === selectedAudioId : isCaption ? clip.elementId === selectedCaptionId : isEffect ? clip.elementId === selectedEffectId : clip.elementId === selectedId;
                     const audio = isAudio ? doc.audioClips.find((item) => item.id === clip.elementId) : undefined;
                     const caption = isCaption ? doc.captionClips.find((item) => item.id === clip.elementId) : undefined;
+                    const effect = isEffect ? doc.effectClips.find((item) => item.id === clip.elementId) : undefined;
                     return (
-                      <div key={clip.id} onPointerDown={(e) => { beginClipDrag(e, clip, "move"); if (isAudio && clip.elementId) onSelectAudio(clip.elementId); if (isCaption && clip.elementId) onSelectCaption(clip.elementId); }} onDoubleClick={(e) => { e.stopPropagation(); if (!clip.elementId) return; isAudio ? onSelectAudio(clip.elementId) : isCaption ? onSelectCaption(clip.elementId) : onSelectElement(clip.elementId, clip.sceneId); }} className={`absolute top-1 h-7 rounded border text-[9px] overflow-hidden cursor-grab active:cursor-grabbing ${selected ? "border-brand bg-brand/25 text-white" : "border-white/15 bg-white/10 text-zinc-300"}`} style={{ left: clip.startMs * pxPerMs, width: Math.max(18, clip.durationMs * pxPerMs) }} title={`${clip.name} · ${(clip.durationMs/1000).toFixed(2)}s`}>
+                      <div key={clip.id} onPointerDown={(e) => { beginClipDrag(e, clip, "move"); if (isAudio && clip.elementId) onSelectAudio(clip.elementId); if (isCaption && clip.elementId) onSelectCaption(clip.elementId); if (isEffect && clip.elementId) onSelectEffect(clip.elementId); }} onDoubleClick={(e) => { e.stopPropagation(); if (!clip.elementId) return; isAudio ? onSelectAudio(clip.elementId) : isCaption ? onSelectCaption(clip.elementId) : isEffect ? onSelectEffect(clip.elementId) : onSelectElement(clip.elementId, clip.sceneId); }} className={`absolute top-1 h-7 rounded border text-[9px] overflow-hidden cursor-grab active:cursor-grabbing ${selected ? "border-brand bg-brand/25 text-white" : "border-white/15 bg-white/10 text-zinc-300"}`} style={{ left: clip.startMs * pxPerMs, width: Math.max(18, clip.durationMs * pxPerMs) }} title={`${clip.name} · ${(clip.durationMs/1000).toFixed(2)}s`}>
                         <div onPointerDown={(e) => beginClipDrag(e, clip, "trim-left")} className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-white/10 hover:bg-brand/60" />
                         {audio?.waveform?.length ? <div className="absolute inset-x-2 top-1 bottom-1 flex items-center gap-px opacity-50 pointer-events-none">{audio.waveform.slice(0, 80).map((peak, i) => <span key={i} className="flex-1 bg-current rounded-full" style={{ height: `${Math.max(8, peak * 100)}%` }} />)}</div> : null}
-                        <div className="relative z-10 px-2.5 leading-7 truncate">{audio ? `${audio.role.toUpperCase()} · ${clip.name}` : caption ? `CC · ${caption.words.map((word) => word.text).join(" ").slice(0, 36)}` : clip.name}</div>
+                        {!isAudio && !isCaption && clip.elementId ? (doc.scenes.find((s)=>s.id===clip.sceneId)?.elements.find((el)=>el.id===clip.elementId)?.keyframes ?? []).map((kf) => <button key={kf.id} title={`Keyframe ${Math.round(kf.timeMs)}ms · drag to retime`} onPointerDown={(e)=>beginKeyframeDrag(e,clip,kf.id,kf.timeMs)} onClick={(e)=>{e.stopPropagation();onSeek(clip.startMs+kf.timeMs);}} className="absolute z-20 top-1/2 size-2.5 -translate-y-1/2 rotate-45 bg-amber-300 border border-black/60 hover:scale-125" style={{ left: Math.max(7, Math.min(clip.durationMs*pxPerMs-7,kf.timeMs*pxPerMs)) }} />) : null}
+                        <div className="relative z-10 px-2.5 leading-7 truncate">{audio ? `${audio.role.toUpperCase()} · ${clip.name}` : caption ? `CC · ${caption.words.map((word) => word.text).join(" ").slice(0, 36)}` : effect ? `FX · ${effect.kind}` : clip.name}</div>
                         <div onPointerDown={(e) => beginClipDrag(e, clip, "trim-right")} className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-white/10 hover:bg-brand/60" />
                       </div>
                     );

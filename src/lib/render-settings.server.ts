@@ -9,10 +9,8 @@ export function appBaseUrl(): string {
   return (process.env["PUBLIC_APP_URL"] || PROJECT_URL).replace(/\/+$/, "");
 }
 
-export function renderCallbackUrl(): string | null {
-  const secret = process.env["RENDER_WEBHOOK_SECRET"];
-  if (!secret) return null;
-  return `${appBaseUrl()}/api/public/hooks/render-callback?token=${encodeURIComponent(secret)}`;
+export function renderCallbackBaseUrl(): string {
+  return `${appBaseUrl()}/api/public/hooks/render-callback`;
 }
 
 /** Resolves the key for a user: their saved key first, project env as fallback. */

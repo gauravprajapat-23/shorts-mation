@@ -3,6 +3,7 @@ import { evaluateTimelineFrame } from "@/lib/timeline-engine";
 import type { EditorDocument, EditorElement, ImageElement, ShapeElement, TextElement } from "@/lib/types";
 import type { TimelineElementState } from "@/lib/timeline-engine";
 import { layoutText } from "@/lib/text-design";
+import { cssFilterForLook, resolveMediaLook } from "@/lib/effects";
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -101,13 +102,28 @@ function renderElement(state: TimelineElementState, vars: Record<string, string>
     const im = el as ImageElement;
     const src = im.src.startsWith("{{") ? "" : im.src;
     if (!src) return "";
-    return `${openG}<image href="${esc(src)}" width="${im.w}" height="${im.h}" preserveAspectRatio="${im.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}"/></g>`;
+    const look = resolveMediaLook(im.filterPreset, im.colorAdjustments);
+    const style = cssFilterForLook(look);
+    const localId = `media-${im.id.replace(/[^a-zA-Z0-9_-]/g,"_")}`;
+    const vignette = look.vignette > .01 ? `<defs><radialGradient id="${localId}-v"><stop offset="48%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="1"/></radialGradient></defs><rect width="${im.w}" height="${im.h}" fill="url(#${localId}-v)" opacity="${look.vignette}"/>` : "";
+    const grain = look.grain > .01 ? `<defs><filter id="${localId}-g"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" seed="7"/></filter></defs><rect width="${im.w}" height="${im.h}" filter="url(#${localId}-g)" opacity="${look.grain*.28}" style="mix-blend-mode:overlay"/>` : "";
+    return `${openG}<g style="filter:${esc(style)}" transform="translate(${(f.cropX/100)*im.w} ${(f.cropY/100)*im.h}) scale(${f.cropScale}) translate(${im.w*(1-f.cropScale)/2} ${im.h*(1-f.cropScale)/2})"><image href="${esc(src)}" width="${im.w}" height="${im.h}" preserveAspectRatio="${im.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}"/></g>${vignette}${grain}</g>`;
   }
 
   if (el.type === "video" && includeVideo) {
     return `${openG}<rect width="${el.w}" height="${el.h}" fill="#000"/></g>`;
   }
   return "";
+}
+
+function renderEffectSvg(effect: import("@/lib/effects").EffectState, w: number, h: number): string {
+  const opacity = Math.max(0, Math.min(1, (effect.opacity ?? 1) * effect.intensity));
+  const id = `fx-${effect.id.replace(/[^a-zA-Z0-9_-]/g,"_")}`;
+  if (effect.kind === "vignette") return `<defs><radialGradient id="${id}"><stop offset="45%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity="1"/></radialGradient></defs><rect width="${w}" height="${h}" fill="url(#${id})" opacity="${opacity}"/>`;
+  if (effect.kind === "grain") return `<defs><filter id="${id}"><feTurbulence type="fractalNoise" baseFrequency=".78" numOctaves="3" seed="${effect.seed ?? 7}"/></filter></defs><rect width="${w}" height="${h}" filter="url(#${id})" opacity="${opacity*.32}" style="mix-blend-mode:overlay"/>`;
+  if (effect.kind === "light-leak") { const cx=20+60*effect.progress; return `<defs><radialGradient id="${id}" cx="${cx}%" cy="15%"><stop offset="0%" stop-color="${esc(effect.color ?? "#FF7A18")}" stop-opacity=".95"/><stop offset="70%" stop-color="${esc(effect.color ?? "#FF7A18")}" stop-opacity="0"/></radialGradient></defs><rect width="${w}" height="${h}" fill="url(#${id})" opacity="${opacity}" style="mix-blend-mode:screen"/>`; }
+  if (effect.kind === "flash") return `<rect width="${w}" height="${h}" fill="#fff" opacity="${(opacity*Math.sin(effect.progress*Math.PI)).toFixed(3)}"/>`;
+  return `<g opacity="${(opacity*.45).toFixed(3)}"><rect width="${w}" height="${h}" fill="#ff0055"/><rect x="${Math.sin(effect.localMs/35)*12}" width="${w}" height="${h}" fill="#00e5ff" opacity=".5"/></g>`;
 }
 
 export function buildSceneSvgAtTime(opts: {
@@ -124,13 +140,18 @@ export function buildSceneSvgAtTime(opts: {
   const scene = frame.scene;
   if (!scene) return "";
   const cam = frame.camera;
-  const camTr = `translate(${dims.w/2 + cam.tx} ${dims.h/2 + cam.ty}) scale(${cam.scale}) translate(${-dims.w/2} ${-dims.h/2})`;
+  const trn = frame.transition;
+  const camTr = `translate(${dims.w/2 + cam.tx + trn.tx} ${dims.h/2 + cam.ty + trn.ty}) scale(${cam.scale * trn.scale}) translate(${-dims.w/2} ${-dims.h/2})`;
   const parts = frame.visibleElements.map((state) => renderElement(state, opts.vars, includeVideo));
   const captions = frame.visibleCaptions.map(renderCaption);
   const bg = includeBg ? `<rect width="${dims.w}" height="${dims.h}" fill="${scene.background ?? "#000"}"/>` : "";
   const fade = frame.transitionOverlayOpacity;
   const fadeRect = fade > 0.001 ? `<rect width="${dims.w}" height="${dims.h}" fill="#000" opacity="${fade.toFixed(3)}"/>` : "";
-  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}" overflow="hidden">${bg}<g transform="${camTr}">${parts.join("")}</g>${captions.join("")}${fadeRect}</svg>`;
+  const transitionFilter = trn.blur > 0.1 ? ` style="filter:blur(${trn.blur.toFixed(2)}px)"` : "";
+  const fx = frame.visibleEffects.map((effect) => renderEffectSvg(effect, dims.w, dims.h)).join("");
+  const flash = trn.flash > .001 ? `<rect width="${dims.w}" height="${dims.h}" fill="#fff" opacity="${trn.flash.toFixed(3)}"/>` : "";
+  const glitch = trn.glitch > .001 ? `<g opacity="${(trn.glitch*.35).toFixed(3)}"><rect width="${dims.w}" height="${dims.h}" fill="#ff0055"/><rect x="12" width="${dims.w}" height="${dims.h}" fill="#00ddff" opacity=".45"/></g>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${dims.w} ${dims.h}" width="${dims.w}" height="${dims.h}" overflow="hidden">${bg}<g transform="${camTr}" opacity="${trn.opacity.toFixed(3)}"${transitionFilter}>${parts.join("")}</g>${captions.join("")}${fx}${flash}${glitch}${fadeRect}</svg>`;
 }
 
 
