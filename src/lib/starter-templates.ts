@@ -272,6 +272,77 @@ const LETTER_MATCH: EditorDocument = {
 };
 
 
+const HALF_CUT_WORD_MATCH_BASE: EditorDocument = {
+  version: 1,
+  aspect: "9:16",
+  variables: ["word", "backgroundImage", "cta"],
+  scenes: [
+    {
+      id: "hlw-game",
+      name: "Half-Cut Word Match",
+      durationMs: 5000,
+      background: "#26D9F2",
+      transitionIn: "fade",
+      dynamicLayout: {
+        type: "halfLetterWord",
+        wordVariable: "word",
+        maxCharacters: 10,
+        correctSfx: "/sounds/letter-match-correct.wav",
+        wrongSfx: "/sounds/letter-match-wrong.wav",
+      },
+      elements: [
+        // Default background is intentionally built from editable shapes — no generated image required.
+        { id: "hlw-bg-sky", type: "shape", shape: "rect", x: 0, y: 0, w: 1080, h: 1285, rotation: 0, opacity: 1, fill: "#27DDF2",
+          visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-bg-horizon", type: "shape", shape: "rect", x: 0, y: 1240, w: 1080, h: 120, rotation: 0, opacity: 1, fill: "#54E88B",
+          visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-bg-grass", type: "shape", shape: "rect", x: 0, y: 1300, w: 1080, h: 620, rotation: 0, opacity: 1, fill: "#35E51D",
+          visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-custom-background", type: "image", src: "{{backgroundImage}}", x: 0, y: 0, w: 1080, h: 1920, rotation: 0, opacity: 1, fit: "cover",
+          visibleWhen: { variable: "backgroundImage", operator: "notEmpty" } },
+        { id: "hlw-header", type: "text", text: "MATCH THE CUT LETTERS", x: 90, y: 70, w: 900, h: 100, rotation: 0, opacity: 1,
+          fontFamily: "Plus Jakarta Sans", fontSize: 48, fontWeight: 900, color: "#FFFFFF", align: "center", letterSpacing: 2,
+          stroke: "#0F172A", strokeWidth: 3, animations: { in: { type: "slideDown", durationMs: 380, easing: "spring" } } },
+        { id: "hlw-word-label", type: "text", text: "{{word}}", x: 150, y: 155, w: 780, h: 90, rotation: 0, opacity: 0.88,
+          fontFamily: "Plus Jakarta Sans", fontSize: 42, fontWeight: 900, color: "#FACC15", align: "center", textTransform: "uppercase", letterSpacing: 7,
+          stroke: "#0F172A", strokeWidth: 2 },
+      ],
+    },
+    {
+      id: "hlw-cta",
+      name: "Finished Word",
+      durationMs: 2100,
+      background: "#27DDF2",
+      transitionIn: "flash",
+      elements: [
+        { id: "hlw-cta-bg-sky", type: "shape", shape: "rect", x: 0, y: 0, w: 1080, h: 1285, rotation: 0, opacity: 1, fill: "#27DDF2", visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-cta-bg-horizon", type: "shape", shape: "rect", x: 0, y: 1240, w: 1080, h: 120, rotation: 0, opacity: 1, fill: "#54E88B", visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-cta-bg-grass", type: "shape", shape: "rect", x: 0, y: 1300, w: 1080, h: 620, rotation: 0, opacity: 1, fill: "#35E51D", visibleWhen: { variable: "backgroundImage", operator: "falsy" } },
+        { id: "hlw-cta-custom-background", type: "image", src: "{{backgroundImage}}", x: 0, y: 0, w: 1080, h: 1920, rotation: 0, opacity: 1, fit: "cover", visibleWhen: { variable: "backgroundImage", operator: "notEmpty" } },
+        { id: "hlw-cta-word", type: "text", text: "{{word}}", x: 90, y: 560, w: 900, h: 260, rotation: 0, opacity: 1,
+          fontFamily: "Arial Black", fontSize: 170, fontWeight: 900, color: "#FFFFFF", align: "center", textTransform: "uppercase", autoFit: true, maxLines: 1,
+          textGradient: { from: "#FF2F92", to: "#22C55E", angle: 90 }, stroke: "#0F172A", strokeWidth: 4,
+          animations: { in: { type: "pop", durationMs: 450, easing: "spring" } } },
+        { id: "hlw-cta-text", type: "text", text: "{{cta}}", x: 100, y: 920, w: 880, h: 260, rotation: 0, opacity: 1,
+          fontFamily: "Plus Jakarta Sans", fontSize: 72, fontWeight: 900, color: "#FACC15", align: "center", autoFit: true, maxLines: 2,
+          animations: { in: { type: "slideUp", delayMs: 250, durationMs: 450, easing: "spring" }, loop: { type: "pulse", amplitude: 1, speedMs: 950 } } },
+      ],
+    },
+  ],
+};
+
+const HALF_CUT_WORD_MATCH = (() => {
+  const doc = migrateDocumentV1ToV2(HALF_CUT_WORD_MATCH_BASE);
+  doc.automationVariables = [
+    { id: "var_word", name: "word", label: "Word", type: "text", required: true, defaultValue: "HOUSE", description: "Enter one word. The template automatically creates and animates every half letter.", validation: { minLength: 2, maxLength: 10, pattern: "^[A-Za-z0-9]+$" } },
+    { id: "var_backgroundImage", name: "backgroundImage", label: "Custom background", type: "image", defaultValue: "", description: "Optional image URL or uploaded asset. Leave empty to use the editable sky + grass background." },
+    { id: "var_cta", name: "cta", label: "Ending text", type: "text", defaultValue: "How many did you match?" },
+  ];
+  doc.audioMix = { duckingEnabled: false, duckLevel: 1, attackMs: 0, releaseMs: 0 };
+  return syncV2Timeline(doc);
+})();
+
+
 const HALF_LETTER_MATCH_BASE: EditorDocument = {
   version: 1,
   aspect: "9:16",
@@ -394,6 +465,7 @@ const HALF_LETTER_MATCH = (() => {
 export type StarterTemplate = { name: string; type: string; doc: EditorDocument };
 
 export const STARTER_TEMPLATES: StarterTemplate[] = [
+  { name: "Half-Cut Word Match — Any Word", type: "half_cut_word_match", doc: HALF_CUT_WORD_MATCH },
   { name: "Half Letter Match — Sliding Halves", type: "half_letter_match", doc: HALF_LETTER_MATCH },
   { name: "Letter Match — Complete the Word", type: "letter_match", doc: LETTER_MATCH },
   { name: "Quiz — Guess the Answer", type: "quiz",       doc: QUIZ },

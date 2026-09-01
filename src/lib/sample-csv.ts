@@ -90,8 +90,10 @@ export function generateSampleCsv(doc: EditorDocument, templateName: string): st
   const rows: string[][] = [];
   const isLetterMatch = /letter\s*match/i.test(templateName) && vars.includes("missingLetter") && vars.includes("objectImage");
   const isHalfLetterMatch = /half\s*letter\s*match/i.test(templateName) && vars.includes("letter1") && vars.includes("letter2") && vars.includes("letter3");
+  const isHalfCutWordMatch = /half[- ]*cut\s*word\s*match|any\s*word/i.test(templateName) && vars.includes("word") && vars.includes("backgroundImage");
   const halfWords = ["ANT", "CAT", "DOG", "RAT", "HEN", "AXE"];
-  const rowCount = isLetterMatch ? 12 : isHalfLetterMatch ? halfWords.length : 3;
+  const flexibleWords = ["APPLE", "MANGO", "LION", "ZEBRA", "COCK", "HOUSE"];
+  const rowCount = isLetterMatch ? 12 : isHalfCutWordMatch ? flexibleWords.length : isHalfLetterMatch ? halfWords.length : 3;
   for (let i = 0; i < rowCount; i++) {
     const slug = templateName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const row: Record<string, string> = {
@@ -107,6 +109,14 @@ export function generateSampleCsv(doc: EditorDocument, templateName: string): st
     for (const v of vars) {
       const examples = EXAMPLES[v] ?? EXAMPLES[v.toLowerCase()] ?? [`Sample ${v} ${i + 1}`];
       row[v] = examples[i % examples.length];
+    }
+    if (isHalfCutWordMatch) {
+      const word = flexibleWords[i % flexibleWords.length]!;
+      row.word = word;
+      row.backgroundImage = "";
+      row.cta = "How many did you match?";
+      row.title = `Half-Cut Word Match: ${word}`;
+      row.hashtags = "#shorts|#lettermatch|#wordgame|#kidslearning";
     }
     if (isHalfLetterMatch) {
       const word = halfWords[i % halfWords.length]!;

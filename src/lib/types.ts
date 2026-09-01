@@ -67,6 +67,15 @@ export type VisibilityOperator = "exists" | "notEmpty" | "equals" | "notEquals" 
 export type VisibilityCondition = { variable: string; operator: VisibilityOperator; value?: string };
 export type DynamicSceneRepeat = { variable: string; itemAlias?: string; indexAlias?: string; maxItems?: number };
 
+export type DynamicSceneLayout =
+  | {
+      type: "halfLetterWord";
+      wordVariable: string;
+      maxCharacters?: number;
+      correctSfx?: string;
+      wrongSfx?: string;
+    };
+
 
 export type EditorElementBase = {
   id: string;
@@ -198,6 +207,8 @@ export type EditorScene = {
   visibleWhen?: VisibilityCondition;
   /** Repeat this scene for each item of an array automation variable. */
   repeat?: DynamicSceneRepeat;
+  /** Optional deterministic scene generator resolved from automation input before rendering. */
+  dynamicLayout?: DynamicSceneLayout;
 };
 
 export type EditorDocumentV1 = {
