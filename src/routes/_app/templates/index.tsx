@@ -1,14 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet, Zap } from "lucide-react";
+import { Sparkles, Plus, Copy, Trash2, Pencil, FileSpreadsheet, Zap, Upload, Download, FileJson } from "lucide-react";
 import { toast } from "sonner";
 import { generateSampleCsv, downloadCsv } from "@/lib/sample-csv";
 import type { EditorDocument } from "@/lib/types";
 import { TemplatePreview } from "@/lib/template-preview";
 import { STARTER_TEMPLATES } from "@/lib/starter-templates";
+import { downloadPortableTemplate, readTemplateFile } from "@/lib/template-io";
 
 export const Route = createFileRoute("/_app/templates/")({
   head: () => ({ meta: [{ title: "Templates — ShortsForge" }] }),
@@ -17,6 +19,7 @@ export const Route = createFileRoute("/_app/templates/")({
 
 function TemplatesPage() {
   const qc = useQueryClient();
+  const importInputRef = useRef<HTMLInputElement>(null);
   const { data } = useQuery({
     queryKey: ["templates"],
     queryFn: async () => {
@@ -75,6 +78,48 @@ function TemplatesPage() {
     onError: (e) => toast.error(e.message),
   });
 
+
+  const importTemplate = useMutation({
+    mutationFn: async (file: File) => {
+      const imported = await readTemplateFile(file);
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("Not signed in");
+      const { error } = await supabase.from("templates").insert({
+        user_id: u.user.id,
+        name: imported.name,
+        type: imported.type,
+        aspect_ratio: imported.document.aspect,
+        template_json: imported.document as never,
+        is_default: false,
+      });
+      if (error) throw error;
+      return imported;
+    },
+    onSuccess: (imported) => {
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      toast.success(`Imported “${imported.name}”`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Template import failed"),
+  });
+
+  const downloadTemplateSample = () => {
+    const sample = STARTER_TEMPLATES.find((item) => item.type === "half_cut_word_match") ?? STARTER_TEMPLATES[0];
+    if (!sample) { toast.error("No sample template is available"); return; }
+    downloadPortableTemplate({ name: `${sample.name} — Sample`, type: sample.type, document: sample.doc });
+    toast.success("Sample template downloaded");
+  };
+
+
+  const exportTemplate = (template: { name: string; type: string; template_json?: unknown }) => {
+    try {
+      if (!template.template_json) throw new Error("Template has no document data");
+      downloadPortableTemplate({ name: template.name, type: template.type, document: template.template_json as EditorDocument });
+      toast.success("Template exported");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Template export failed");
+    }
+  };
+
   const defaults = data?.filter((t) => t.is_default) ?? [];
   const mine = data?.filter((t) => !t.is_default) ?? [];
 
@@ -84,7 +129,35 @@ function TemplatesPage() {
         title="Templates"
         description="Reusable designs with variable placeholders. Pick a default to start fast, or build your own."
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (file) importTemplate.mutate(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importTemplate.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-border bg-panel text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
+              title="Import a Shorts-mation template JSON file"
+            >
+              <Upload className="size-4" /> {importTemplate.isPending ? "Importing…" : "Import template"}
+            </button>
+            <button
+              type="button"
+              onClick={downloadTemplateSample}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-border bg-panel text-sm font-semibold hover:bg-white/5"
+              title="Download an example portable template file"
+            >
+              <FileJson className="size-4" /> Download sample
+            </button>
             <button
               onClick={() => loadStarters.mutate()}
               disabled={loadStarters.isPending}
@@ -103,7 +176,7 @@ function TemplatesPage() {
       <h2 className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-3">Built-in templates</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-10">
         {defaults.map((t) => (
-          <TemplateCard key={t.id} t={t} onDuplicate={() => dupe.mutate(t)} />
+          <TemplateCard key={t.id} t={t} onDuplicate={() => dupe.mutate(t)} onExport={() => exportTemplate(t)} />
         ))}
       </div>
 
@@ -122,7 +195,7 @@ function TemplatesPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {mine.map((t) => (
-            <TemplateCard key={t.id} t={t} onDuplicate={() => dupe.mutate(t)} onDelete={() => del.mutate(t.id)} />
+            <TemplateCard key={t.id} t={t} onDuplicate={() => dupe.mutate(t)} onExport={() => exportTemplate(t)} onDelete={() => del.mutate(t.id)} />
           ))}
         </div>
       )}
@@ -130,7 +203,7 @@ function TemplatesPage() {
   );
 }
 
-function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean; template_json?: unknown }; onDuplicate: () => void; onDelete?: () => void }) {
+function TemplateCard({ t, onDuplicate, onExport, onDelete }: { t: { id: string; name: string; aspect_ratio: string; type: string; is_default: boolean; template_json?: unknown }; onDuplicate: () => void; onExport: () => void; onDelete?: () => void }) {
   const aspectClass = t.aspect_ratio === "9:16" ? "aspect-[9/16]" : t.aspect_ratio === "16:9" ? "aspect-video" : "aspect-square";
   const doc = (t.template_json ?? null) as EditorDocument | null;
   const downloadSample = () => {
@@ -164,6 +237,7 @@ function TemplateCard({ t, onDuplicate, onDelete }: { t: { id: string; name: str
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Link to="/editor/$templateId" params={{ templateId: t.id }} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Edit"><Pencil className="size-3.5" /></Link>
+          <button onClick={onExport} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Export template"><Download className="size-3.5" /></button>
           <button onClick={downloadSample} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Download sample CSV"><FileSpreadsheet className="size-3.5" /></button>
           <button onClick={onDuplicate} className="p-1.5 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white" title="Duplicate"><Copy className="size-3.5" /></button>
           {onDelete && (

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorDocumentV2, EditorElement, EditorScene, EditorTimelineClip, EditorAudioClip, AudioClipRole, EditorCaptionClip, CaptionPresetId, EditorEffectClip, EffectKind, MediaFilterPreset, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove, SceneTransition, EaseName, ElementKeyframe, KeyframeProperty, BrandKit, EditorReusableComponent, AutomationVariableDefinition, AutomationVariableType, VisibilityOperator, RetentionPresetId, SceneRole } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles } from "lucide-react";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles, Download } from "lucide-react";
 import { toast } from "sonner";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 import type { ElementFrame } from "@/lib/animate";
@@ -22,6 +22,7 @@ import { builtInBrandComponents, componentFromElements, instantiateComponent, no
 import { automationDefinitions, materializeAutomationDocument } from "@/lib/automation-variables";
 import { analyzeRetention, applyRetentionPreset, normalizeRetention } from "@/lib/retention";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
+import { downloadPortableTemplate } from "@/lib/template-io";
 
 import { PreviewModal, Canvas, LeftPanel, RightPanel, TimelineAudioPreview, AudioProperties, CaptionProperties, EffectProperties } from "@/components/editor/EditorSurface";
 
@@ -534,6 +535,21 @@ function EditorPage() {
           <button title={`Undo (${shortcutMod}+Z)`} onClick={undo} disabled={history.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Undo2 className="size-4" /></button>
           <button title={`Redo (${isWindows ? "Ctrl+Y" : "⌘⇧Z"})`} onClick={redo} disabled={future.length === 0} className="size-8 grid place-items-center rounded-md hover:bg-white/5 disabled:opacity-30"><Redo2 className="size-4" /></button>
           <div className="w-px h-6 bg-border mx-1" />
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                downloadPortableTemplate({ name: template?.name || "Untitled template", type: template?.type || "custom", document: doc });
+                toast.success("Template exported");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Template export failed");
+              }
+            }}
+            className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"
+            title="Export this editable template as JSON"
+          >
+            <Download className="size-3.5" /> Export
+          </button>
           <button onClick={() => setPreviewOpen(true)} className="px-3 py-1.5 rounded-md text-sm font-semibold border border-border hover:bg-white/5 inline-flex items-center gap-1.5"><Eye className="size-3.5" /> Preview</button>
           <button title={`Save (${shortcutMod}+S)`} onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 inline-flex items-center gap-1.5">
             <Save className="size-3.5" /> {save.isPending ? "Saving…" : "Save"}
