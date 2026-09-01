@@ -577,12 +577,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bulk_update_queue_items: {
+        Args: { p_campaign_id: string; p_updates: Json }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      retry_campaign_item: {
+        Args: { p_item_id: string }
+        Returns: {
+          item_id: string
+          retry_count: number
+          retry_stage: string
+        }[]
       }
     }
     Enums: {
