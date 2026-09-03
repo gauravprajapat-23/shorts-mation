@@ -1,0 +1,12 @@
+REVOKE EXECUTE ON FUNCTION public.asset_storage_usage(uuid) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.bulk_update_queue_items(uuid, jsonb) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.cancel_render_item(uuid) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.create_campaign_with_items(jsonb, jsonb) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.duplicate_campaign(uuid, text) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.mark_data_studio_generated(uuid, uuid) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.recover_dead_letter_render(uuid) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.remix_template(uuid, text) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.restore_template_version(uuid, integer) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.retry_campaign_item(uuid) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.retry_selected_campaign_items(uuid, uuid[]) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.set_campaign_item_paused(uuid, boolean) FROM authenticated;
