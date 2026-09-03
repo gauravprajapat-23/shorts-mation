@@ -16,35 +16,47 @@ export type Database = {
     Tables: {
       assets: {
         Row: {
+          content_hash: string | null
           created_at: string
           file_name: string
           file_url: string
           id: string
+          lifecycle_status: string
           mime_type: string | null
           size: number | null
           storage_path: string | null
+          usage_count: number
+          last_used_at: string | null
           type: Database["public"]["Enums"]["asset_type"]
           user_id: string
         }
         Insert: {
+          content_hash?: string | null
           created_at?: string
           file_name: string
           file_url: string
           id?: string
+          lifecycle_status?: string
           mime_type?: string | null
           size?: number | null
           storage_path?: string | null
+          usage_count?: number
+          last_used_at?: string | null
           type: Database["public"]["Enums"]["asset_type"]
           user_id: string
         }
         Update: {
+          content_hash?: string | null
           created_at?: string
           file_name?: string
           file_url?: string
           id?: string
+          lifecycle_status?: string
           mime_type?: string | null
           size?: number | null
           storage_path?: string | null
+          usage_count?: number
+          last_used_at?: string | null
           type?: Database["public"]["Enums"]["asset_type"]
           user_id?: string
         }
@@ -181,6 +193,15 @@ export type Database = {
           render_submitted_at: string | null
           rendered_video_url: string | null
           retry_count: number
+          render_priority: number
+          render_retry_count: number
+          render_next_attempt_at: string | null
+          render_dead_lettered_at: string | null
+          render_cancel_requested_at: string | null
+          render_estimated_cost_usd: number
+          is_paused: boolean
+          paused_at: string | null
+          paused_reason: string | null
           schedule_at: string | null
           seo_json: Json
           status: Database["public"]["Enums"]["item_status"]
@@ -210,6 +231,15 @@ export type Database = {
           render_submitted_at?: string | null
           rendered_video_url?: string | null
           retry_count?: number
+          render_priority?: number
+          render_retry_count?: number
+          render_next_attempt_at?: string | null
+          render_dead_lettered_at?: string | null
+          render_cancel_requested_at?: string | null
+          render_estimated_cost_usd?: number
+          is_paused?: boolean
+          paused_at?: string | null
+          paused_reason?: string | null
           schedule_at?: string | null
           seo_json?: Json
           status?: Database["public"]["Enums"]["item_status"]
@@ -239,6 +269,15 @@ export type Database = {
           render_submitted_at?: string | null
           rendered_video_url?: string | null
           retry_count?: number
+          render_priority?: number
+          render_retry_count?: number
+          render_next_attempt_at?: string | null
+          render_dead_lettered_at?: string | null
+          render_cancel_requested_at?: string | null
+          render_estimated_cost_usd?: number
+          is_paused?: boolean
+          paused_at?: string | null
+          paused_reason?: string | null
           schedule_at?: string | null
           seo_json?: Json
           status?: Database["public"]["Enums"]["item_status"]

@@ -1,5 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -9,6 +10,8 @@ import type { EditorDocument } from "@/lib/types";
 import { Upload, Check, AlertTriangle, Download, ArrowRight, FileJson, FileSpreadsheet, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { campaignSourceValue, displayCampaignValue, hasCampaignValue } from "@/lib/campaign-mapping";
+import { generateCampaignSchedule } from "@/lib/schedule-generation";
+import { createCampaignWithItems } from "@/lib/campaign-create.functions";
 
 export const Route = createFileRoute("/_app/campaigns/new")({
   head: () => ({ meta: [{ title: "New campaign — ShortsForge" }] }),
@@ -20,6 +23,7 @@ const NONE = "__none__";
 
 function NewCampaignPage() {
   const navigate = useNavigate();
+  const createCampaign = useServerFn(createCampaignWithItems);
   const [step, setStep] = useState(0);
   const [ytId, setYtId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -35,23 +39,32 @@ function NewCampaignPage() {
 
   const yt = useQuery({
     queryKey: ["yt-list"],
-    queryFn: async () =>
-      (
-        await supabase
-          .from("youtube_connections")
-          .select("id,channel_id,channel_name,channel_avatar,is_connected")
-          .eq("is_connected", true)
-      ).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("youtube_connections")
+        .select("id,channel_id,channel_name,channel_avatar,is_connected")
+        .eq("is_connected", true);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const templates = useQuery({
     queryKey: ["templates-pick"],
-    queryFn: async () => (await supabase.from("templates").select("id,name,aspect_ratio,type,is_default").order("is_default", { ascending: false })).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("templates").select("id,name,aspect_ratio,type,is_default").order("is_default", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const selectedTemplate = useQuery({
     queryKey: ["template-doc", templateId],
     enabled: !!templateId,
-    queryFn: async () => (await supabase.from("templates").select("template_json,name").eq("id", templateId!).single()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("templates").select("template_json,name").eq("id", templateId!).single();
+      if (error) throw error;
+      return data;
+    },
   });
 
   const templateVars = useMemo<string[]>(() => {
@@ -127,46 +140,49 @@ function NewCampaignPage() {
     if (!parsed || !templateId) return;
     setBusy(true);
     try {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) throw new Error("Not signed in");
-      const { data: c, error } = await supabase.from("campaigns").insert({
-        user_id: u.user.id,
-        youtube_connection_id: ytId,
-        name: parsed.campaign_name,
-        template_id: templateId,
-        status: "draft",
-        timezone: parsed.timezone ?? "UTC",
-        total_videos: parsed.videos.length,
-        settings_json: {
-          schedule: { mode: scheduleMode, perDay, dailyTime, skipWeekends },
-          default_privacy: defaultPrivacy,
-          field_mapping: effectiveMapping,
-        } as never,
-      }).select("id").single();
-      if (error) throw error;
-      const items = parsed.videos.map((v) => {
+      const timezone = parsed.timezone ?? "UTC";
+      const generatedSchedule = generateCampaignSchedule({
+        mode: scheduleMode,
+        timezone,
+        perDay,
+        dailyTime,
+        skipWeekends,
+        count: parsed.videos.length,
+        fileSchedule: parsed.videos.map((v) => v.youtube?.schedule_at ?? null),
+      });
+      const items = parsed.videos.map((v, index) => {
         const mapped: Record<string, unknown> = {};
         for (const tv of templateVars) {
           const src = effectiveMapping[tv];
           if (src && src !== NONE) mapped[tv] = valueFor(v, src);
         }
         return {
-          campaign_id: c.id,
-          user_id: u.user.id,
           video_file_name: v.video_file_name || `video-${Math.random().toString(36).slice(2, 8)}.mp4`,
           content_json: { ...v.content, ...mapped, _raw: v.content, _mapping: effectiveMapping } as never,
           seo_json: (v.seo ?? {}) as never,
-          youtube_settings_json: (v.youtube ?? {}) as never,
+          youtube_settings_json: { ...(v.youtube ?? {}), privacy: v.youtube?.privacy ?? defaultPrivacy } as never,
           audio_json: (v.audio ?? {}) as never,
           asset_json: (v.asset ?? {}) as never,
-          status: "pending" as const,
-          schedule_at: v.youtube?.schedule_at && String(v.youtube.schedule_at).trim() !== "" ? v.youtube.schedule_at : null,
+          schedule_at: generatedSchedule[index] ?? null,
         };
       });
-      const { error: e2 } = await supabase.from("campaign_items").insert(items);
-      if (e2) throw e2;
+      const created = await createCampaign({ data: {
+        campaign: {
+          youtube_connection_id: ytId,
+          name: parsed.campaign_name,
+          template_id: templateId,
+          status: "draft",
+          timezone,
+          settings_json: {
+            schedule: { mode: scheduleMode, perDay, dailyTime, skipWeekends },
+            default_privacy: defaultPrivacy,
+            field_mapping: effectiveMapping,
+          },
+        },
+        items,
+      } });
       toast.success("Campaign created");
-      navigate({ to: "/campaigns/$campaignId", params: { campaignId: c.id } });
+      navigate({ to: "/campaigns/$campaignId", params: { campaignId: created.campaignId } });
     } catch (e) {
       const msg = e instanceof Error ? e.message : typeof e === "object" && e ? JSON.stringify(e) : "Failed";
       // eslint-disable-next-line no-console
@@ -178,7 +194,7 @@ function NewCampaignPage() {
   };
 
   const canNext = () =>
-    (step === 0) ||
+    (step === 0 && (!!ytId || !(yt.data?.length))) ||
     (step === 1 && !!templateId) ||
     (step === 2 && !!parsed && issues.filter((i) => i.severity === "error").length === 0) ||
     (step === 3 && mappingIssues.filter((i) => i.severity === "error").length === 0) ||
@@ -189,11 +205,11 @@ function NewCampaignPage() {
   const warnCount = issues.filter((i) => i.severity === "warning").length;
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <PageHeader title="New campaign" description="Five-step wizard. After this, everything runs automatically." />
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+      <PageHeader title="New campaign" description="Six-step wizard. After this, everything runs automatically." action={<Link to="/data-studio" className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-brand/40 bg-brand/10 text-brand text-xs font-bold"><FileSpreadsheet className="size-4"/> Open Data Studio</Link>} />
 
       {/* Stepper */}
-      <ol className="flex items-center gap-2 mb-8 text-xs">
+      <div className="overflow-x-auto -mx-1 px-1 mb-8"><ol className="flex items-center gap-2 text-xs min-w-max">
         {STEPS.map((s, i) => (
           <li key={s} className="flex items-center gap-2">
             <div className={`size-6 rounded-full grid place-items-center font-bold ${i<=step?"bg-brand text-white":"bg-zinc-800 text-zinc-500"}`}>{i+1}</div>
@@ -201,13 +217,17 @@ function NewCampaignPage() {
             {i < STEPS.length-1 && <div className="w-8 h-px bg-border" />}
           </li>
         ))}
-      </ol>
+      </ol></div>
 
-      <div className="bg-panel border border-border rounded-2xl p-6 min-h-[400px]">
+      <div className="bg-panel border border-border rounded-2xl p-4 sm:p-6 min-h-[400px]">
         {step === 0 && (
           <div>
             <h2 className="font-display font-bold text-lg mb-4">Select YouTube channel</h2>
-            {yt.data && yt.data.length > 0 ? (
+            {yt.isLoading ? (
+              <div className="text-sm text-zinc-500">Loading connected channels…</div>
+            ) : yt.isError ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Channels could not be loaded. <button onClick={() => yt.refetch()} className="underline">Retry</button></div>
+            ) : yt.data && yt.data.length > 0 ? (
               <div className="grid gap-2">
                 {yt.data.map((c) => (
                   <button key={c.id} onClick={() => setYtId(c.id)} className={`flex items-center gap-3 p-3 rounded-lg border ${ytId===c.id?"border-brand bg-brand/5":"border-border hover:border-brand/50"}`}>
@@ -222,7 +242,7 @@ function NewCampaignPage() {
               </div>
             ) : (
               <div className="text-sm text-zinc-400">
-                No channel connected yet. <a href="/youtube-connect" className="text-brand">Connect one</a> first, or continue without and add later.
+                No channel connected yet. <a href="/youtube-connect" className="text-brand">Connect one</a> first. You can create a draft without a channel, but it cannot be activated for upload until a channel is connected.
               </div>
             )}
           </div>
@@ -231,7 +251,12 @@ function NewCampaignPage() {
         {step === 1 && (
           <div>
             <h2 className="font-display font-bold text-lg mb-4">Select a template</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {templates.isLoading ? (
+              <div className="text-sm text-zinc-500">Loading templates…</div>
+            ) : templates.isError ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Templates could not be loaded. <button onClick={() => templates.refetch()} className="underline">Retry</button></div>
+            ) : (
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-3">
               {templates.data?.map((t) => (
                 <button key={t.id} onClick={() => setTemplateId(t.id)} className={`p-3 rounded-lg border text-left ${templateId===t.id?"border-brand bg-brand/5":"border-border hover:border-brand/50"}`}>
                   <div className={`${t.aspect_ratio==="9:16"?"aspect-[9/16]":t.aspect_ratio==="16:9"?"aspect-video":"aspect-square"} mb-2 rounded bg-zinc-950 grid place-items-center text-[10px] text-zinc-600`}>{t.aspect_ratio}</div>
@@ -240,6 +265,7 @@ function NewCampaignPage() {
                 </button>
               ))}
             </div>
+            )}
           </div>
         )}
 
@@ -401,7 +427,7 @@ function NewCampaignPage() {
               <dt className="text-zinc-500">Template</dt><dd className="font-semibold">{templates.data?.find((t) => t.id === templateId)?.name ?? "—"}</dd>
               <dt className="text-zinc-500">YouTube</dt><dd className="font-semibold">{yt.data?.find((c) => c.id === ytId)?.channel_name ?? "(none — add later)"}</dd>
               <dt className="text-zinc-500">Mapped fields</dt><dd className="font-semibold tabular-nums">{templateVars.filter((v) => effectiveMapping[v] !== NONE).length}/{templateVars.length}</dd>
-              <dt className="text-zinc-500">Schedule</dt><dd className="font-semibold">{scheduleMode}</dd>
+              <dt className="text-zinc-500">Schedule</dt><dd className="font-semibold">{scheduleMode}{scheduleMode !== "file" ? ` · ${dailyTime} ${parsed.timezone ?? "UTC"}` : ""}</dd>
               <dt className="text-zinc-500">Privacy</dt><dd className="font-semibold uppercase">{defaultPrivacy}</dd>
             </dl>
           </div>

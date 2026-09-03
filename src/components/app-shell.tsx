@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Sparkles, Rocket, Folder, Settings, Youtube, LogOut } from "lucide-react";
+import { LayoutDashboard, Sparkles, Rocket, Folder, Settings, Youtube, LogOut, Table2, BarChart3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode } from "react";
@@ -9,8 +9,10 @@ const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/templates", label: "Templates", icon: Sparkles },
   { to: "/campaigns", label: "Campaigns", icon: Rocket },
+  { to: "/data-studio", label: "Data Studio", icon: Table2 },
   { to: "/assets", label: "Assets", icon: Folder },
   { to: "/youtube-connect", label: "YouTube", icon: Youtube },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -26,7 +28,7 @@ export function AppShell({ children, title, action }: { children: ReactNode; tit
   return (
     <div className="flex h-screen w-full bg-canvas text-foreground">
       {/* Left icon rail */}
-      <nav className="w-16 shrink-0 border-r border-border bg-panel flex flex-col items-center py-5 gap-6">
+      <nav className="hidden sm:flex w-16 shrink-0 border-r border-border bg-panel flex-col items-center py-5 gap-6">
         <Link to="/dashboard" className="size-10 rounded-xl bg-brand grid place-items-center shadow-lg shadow-brand/30">
           <div className="size-4 bg-white rotate-45" />
         </Link>
@@ -71,7 +73,18 @@ export function AppShell({ children, title, action }: { children: ReactNode; tit
             <div className="flex items-center gap-3">{action}</div>
           </header>
         )}
-        <div className="flex-1 overflow-auto">{children}</div>
+        <div className="flex-1 overflow-auto pb-16 sm:pb-0">{children}</div>
+        <nav className="sm:hidden h-16 shrink-0 border-t border-border bg-panel/95 backdrop-blur-md flex items-center overflow-x-auto px-1">
+          {nav.map((n) => {
+            const active = pathname === n.to || (n.to !== "/dashboard" && pathname.startsWith(n.to));
+            const Icon = n.icon;
+            return (
+              <Link key={n.to} to={n.to} className={cn("min-w-[62px] flex-1 h-14 rounded-lg flex flex-col items-center justify-center gap-1 text-[9px] transition-colors", active ? "text-brand bg-brand/10" : "text-zinc-500")} aria-label={n.label}>
+                <Icon className="size-4" /><span className="truncate max-w-full px-1">{n.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
       </main>
     </div>
   );

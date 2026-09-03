@@ -4,12 +4,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink, Activity } from "lucide-react";
+import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink, Activity, Copy, Clock3, ListTodo, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
+import { deleteCampaignFully } from "@/lib/data-management.functions";
 import { publishItemNow } from "@/lib/youtube-upload.functions";
 import { kickCampaignAutomation } from "@/lib/automation.functions";
 import { useState } from "react";
+import { effectivePublishAt, formatDateTime } from "@/lib/date-display";
+import { duplicateCampaign } from "@/lib/campaign-operations.functions";
+import { campaignEta, campaignProgress, scheduleConflictIds } from "@/lib/campaign-operations";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId")({
   head: () => ({ meta: [{ title: "Campaign — ShortsForge" }] }),
@@ -24,6 +28,8 @@ function CampaignDetail() {
   const qc = useQueryClient();
   const publishFn = useServerFn(publishItemNow);
   const kickFn = useServerFn(kickCampaignAutomation);
+  const deleteCampaign = useServerFn(deleteCampaignFully);
+  const duplicateFn = useServerFn(duplicateCampaign);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const publish = async (itemId: string) => {
     setPublishingId(itemId);
@@ -44,11 +50,40 @@ function CampaignDetail() {
   };
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
-    queryFn: async () => (await supabase.from("campaigns").select("*").eq("id", campaignId).single()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("campaigns").select("*").eq("id", campaignId).single();
+      if (error) throw error;
+      return data;
+    },
   });
   const items = useQuery({
     queryKey: ["campaign-items", campaignId],
-    queryFn: async () => (await supabase.from("campaign_items").select("*").eq("campaign_id", campaignId).order("created_at", { ascending: true })).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("campaign_items")
+        .select("id,video_file_name,seo_json,status,schedule_at,youtube_publish_at,youtube_video_id,youtube_url,rendered_video_url")
+        .eq("campaign_id", campaignId).order("schedule_at", { ascending: true, nullsFirst: false }).range(0, 24);
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 15_000,
+  });
+  const operations = useQuery({
+    queryKey: ["campaign-operations", campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("campaign_items").select("id,status,schedule_at,youtube_publish_at,is_paused").eq("campaign_id", campaignId).limit(5000);
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 15_000,
+  });
+  const scheduledCount = useQuery({
+    queryKey: ["campaign-scheduled-count", campaignId],
+    queryFn: async () => {
+      const { count, error } = await supabase.from("campaign_items").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId).in("status", ["scheduled", "upload_pending"]);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    refetchInterval: 15_000,
   });
   const setStatus = useMutation({
     mutationFn: async (status: "active" | "paused" | "completed" | "failed" | "draft") => {
@@ -69,28 +104,40 @@ function CampaignDetail() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", campaignId] }),
     onError: (e) => toast.error(e.message),
   });
+  const duplicate = useMutation({
+    mutationFn: () => duplicateFn({ data: { campaignId } }),
+    onSuccess: (res) => { toast.success("Campaign duplicated as draft"); window.location.href = `/campaigns/${res.campaignId}`; },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const del = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("campaigns").delete().eq("id", campaignId);
-      if (error) throw error;
+      await deleteCampaign({ data: { campaignId } });
     },
     onSuccess: () => { toast.success("Deleted"); window.location.href = "/campaigns"; },
     onError: (e) => toast.error(e.message),
   });
   const c = campaign.data;
   const its = items.data ?? [];
-  const uploaded = its.filter((i) => i.status === "uploaded").length;
-  const scheduled = its.filter((i) => i.status === "scheduled" || i.status === "upload_pending").length;
-  const failed = its.filter((i) => i.status === "failed").length;
+  const operationalItems = operations.data ?? [];
+  const progress = campaignProgress(operationalItems as any);
+  const eta = campaignEta(operationalItems as any);
+  const conflictCount = scheduleConflictIds(operationalItems as any).size;
+  const uploaded = progress.completed;
+  const scheduled = scheduledCount.data ?? 0;
+  const failed = progress.failed;
   if (isChildRoute) return <Outlet />;
-  if (!c) return <div className="p-10 text-zinc-400">Loading…</div>;
+  if (campaign.isLoading) return <div className="p-4 sm:p-6 lg:p-8 text-zinc-400">Loading campaign…</div>;
+  if (campaign.isError) return <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto"><div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-red-200"><div className="font-semibold">Campaign could not be loaded</div><div className="mt-1 text-sm text-red-200/70">{campaign.error instanceof Error ? campaign.error.message : "Unknown error"}</div></div></div>;
+  if (!c) return <div className="p-4 sm:p-6 lg:p-8 text-zinc-400">Campaign not found.</div>;
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <PageHeader
         title={c.name}
         description={`Created ${new Date(c.created_at).toLocaleString()} · ${c.total_videos} videos`}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link to="/campaigns/$campaignId/calendar" params={{ campaignId }} className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-semibold hover:bg-white/5"><CalendarClock className="size-3.5" /> Calendar</Link>
+            <button onClick={() => duplicate.mutate()} disabled={duplicate.isPending} className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-semibold hover:bg-white/5 disabled:opacity-50"><Copy className="size-3.5" /> Duplicate</button>
             <Link
               to="/campaigns/$campaignId/test-render"
               params={{ campaignId }}
@@ -118,18 +165,27 @@ function CampaignDetail() {
         <StatusBadge status={c.status} />
         <span className="text-xs text-zinc-500">{c.timezone}</span>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total" value={c.total_videos} icon={Video} accent />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4 mb-5">
+        <StatCard label="Progress" value={`${progress.percent}%`} icon={CheckCircle2} accent />
+        <StatCard label="Total" value={progress.total || c.total_videos} icon={Video} />
+        <StatCard label="Remaining" value={progress.remaining} icon={ListTodo} />
         <StatCard label="Uploaded" value={uploaded} icon={CheckCircle2} />
         <StatCard label="Scheduled" value={scheduled} icon={CalendarClock} />
-        <StatCard label="Failed" value={failed} icon={AlertTriangle} />
+        <StatCard label="Paused" value={progress.paused} icon={Pause} />
+        <StatCard label="Conflicts" value={conflictCount} icon={AlertTriangle} />
+        <StatCard label="Failed" value={failed || progress.failed} icon={AlertTriangle} />
+      </div>
+      <div className="mb-8 rounded-xl border border-border bg-panel p-4">
+        <div className="flex items-center justify-between gap-4 text-sm"><div><div className="font-semibold">Campaign completion</div><div className="text-xs text-zinc-500 mt-1">{progress.completed} of {progress.total || c.total_videos} published · {progress.remaining} remaining{eta ? ` · ETA ${formatDateTime(eta, c.timezone)}` : ""}</div></div><Clock3 className="size-5 text-zinc-500" /></div>
+        <div className="mt-3 h-2 rounded-full bg-zinc-900 overflow-hidden"><div className="h-full bg-brand transition-all" style={{ width: `${progress.percent}%` }} /></div>
       </div>
       <div className="rounded-2xl border border-border bg-panel overflow-hidden">
         <header className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h2 className="font-display font-bold">Upload queue</h2>
           <Link to="/campaigns/$campaignId/queue" params={{ campaignId }} className="text-xs text-zinc-400 hover:text-white">Full queue →</Link>
         </header>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[780px] text-sm">
           <thead className="text-[10px] uppercase tracking-widest text-zinc-500 bg-zinc-950/50">
             <tr>
               <th className="text-left px-4 py-3 font-semibold">File</th>
@@ -140,20 +196,28 @@ function CampaignDetail() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {its.slice(0, 25).map((i) => {
+            {its.map((i) => {
               const seo = (i.seo_json ?? {}) as { title?: string };
               return (
                 <tr key={i.id} className="hover:bg-white/[0.02]">
                   <td className="px-4 py-2.5 font-mono text-xs">{i.video_file_name}</td>
                   <td className="px-4 py-2.5 truncate max-w-xs">{seo.title ?? "—"}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={i.status} /></td>
-                  <td className="px-4 py-2.5 text-xs text-zinc-500">{i.schedule_at ? new Date(i.schedule_at).toLocaleString() : "—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-zinc-400 whitespace-nowrap">
+                    <div>{formatDateTime(effectivePublishAt(i), c.timezone)}</div>
+                    {i.youtube_publish_at && i.schedule_at && i.youtube_publish_at !== i.schedule_at && (
+                      <div className="mt-0.5 text-[10px] text-sky-400">Synced from YouTube</div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="inline-flex items-center gap-1">
                       {i.youtube_url && (
                         <a href={i.youtube_url} target="_blank" rel="noreferrer" className="p-1.5 rounded-md hover:bg-white/10 text-brand" title="Open on YouTube"><ExternalLink className="size-3.5" /></a>
                       )}
-                      {i.status !== "uploaded" && i.status !== "uploading" && (
+                      {i.status==="failed" && !i.youtube_video_id && (
+                        <button onClick={()=>repairUpload.mutate(i.id)} disabled={repairUpload.isPending} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/10" title="Repair failed upload state after duplicate-safety checks"><RefreshCw className="size-3"/> Repair</button>
+                      )}
+                      {!!i.rendered_video_url && !i.youtube_video_id && ["pending", "rendered", "upload_pending", "failed"].includes(i.status) && (
                         <button
                           onClick={() => publish(i.id)}
                           disabled={publishingId === i.id}
@@ -171,6 +235,8 @@ function CampaignDetail() {
             })}
           </tbody>
         </table>
+        </div>
+        {items.isError && <div className="p-5 border-t border-red-500/20 bg-red-500/5 text-sm text-red-300">Queue items could not be refreshed: {items.error instanceof Error ? items.error.message : "Unknown error"}</div>}
         {its.length === 0 && <div className="p-6 text-center text-sm text-zinc-500">No items yet.</div>}
       </div>
       <div className="mt-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-100 text-xs">

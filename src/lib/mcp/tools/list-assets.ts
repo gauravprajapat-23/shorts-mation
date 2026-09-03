@@ -22,7 +22,7 @@ export default defineTool({
     if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     let q = sb(ctx)
       .from("assets")
-      .select("id,file_name,file_url,type,size,mime_type,created_at")
+      .select("id,file_name,file_url,storage_path,type,size,mime_type,content_hash,lifecycle_status,usage_count,last_used_at,created_at")
       .order("created_at", { ascending: false })
       .limit(limit ?? 25);
     if (type) q = q.eq("type", type);

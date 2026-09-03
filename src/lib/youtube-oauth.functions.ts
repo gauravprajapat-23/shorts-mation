@@ -6,6 +6,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
   "https://www.googleapis.com/auth/youtube",
+  "https://www.googleapis.com/auth/yt-analytics.readonly",
 ].join(" ");
 
 async function signState(payload: string, secret: string): Promise<string> {
@@ -23,13 +24,14 @@ async function signState(payload: string, secret: string): Promise<string> {
 
 export const getYouTubeAuthUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { origin: string }) => d)
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) throw new Error("GOOGLE_CLIENT_ID is not configured");
     const stateSecret = process.env.OAUTH_STATE_SECRET;
     if (!stateSecret) throw new Error("OAUTH_STATE_SECRET is not configured");
-    const redirectUri = `${data.origin}/api/public/youtube/callback`;
+    const appUrl = process.env.PUBLIC_APP_URL?.replace(/\/+$/, "");
+    if (!appUrl) throw new Error("PUBLIC_APP_URL is not configured");
+    const redirectUri = `${appUrl}/api/public/youtube/callback`;
     const nonce = crypto.randomUUID().replace(/-/g, "");
     const issuedAt = Date.now().toString(36);
     const payload = `${context.userId}.${nonce}.${issuedAt}`;

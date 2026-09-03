@@ -375,6 +375,20 @@ export async function getShotstackRender(id: string, cred?: RenderCredentials | 
   };
 }
 
+export async function cancelShotstackRender(id: string, cred?: RenderCredentials | null): Promise<boolean> {
+  const c = creds(cred);
+  const res = await fetch(`${apiBase(c.env)}/render/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "x-api-key": c.key },
+  });
+  if (res.status === 404) return true;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Render cancellation failed [${res.status}]: ${body}`);
+  }
+  return true;
+}
+
 export function isServerRenderConfigured(): boolean {
   return Boolean(process.env["SHOTSTACK_API_KEY"]);
 }

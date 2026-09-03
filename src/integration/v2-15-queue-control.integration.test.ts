@@ -17,7 +17,7 @@ suite("V2.15 queue control state integrity", () => {
     email = `v215-${Date.now()}@example.test`;
     const created = await admin.auth.admin.createUser({ email, password, email_confirm: true });
     userId = created.data.user!.id;
-    const campaign = await admin.from("campaigns").insert({ user_id: userId, name: "Queue test", status: "active" }).select("id").single();
+    const campaign = await admin.from("campaigns").insert({ user_id: userId, name: "Queue test", status: "draft" }).select("id").single();
     campaignId = campaign.data!.id;
     const items = await admin.from("campaign_items").insert([
       { user_id: userId, campaign_id: campaignId, content_json: {}, status: "failed", error_message: "render failed" },

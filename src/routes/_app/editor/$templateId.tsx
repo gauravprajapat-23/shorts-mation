@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CANVAS_DIMS, blankDocument, renderText, uid } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorDocumentV2, EditorElement, EditorScene, EditorTimelineClip, EditorAudioClip, AudioClipRole, EditorCaptionClip, CaptionPresetId, EditorEffectClip, EffectKind, MediaFilterPreset, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove, SceneTransition, EaseName, ElementKeyframe, KeyframeProperty, BrandKit, EditorReusableComponent, AutomationVariableDefinition, AutomationVariableType, VisibilityOperator, RetentionPresetId, SceneRole } from "@/lib/types";
-import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles, Download } from "lucide-react";
+import { ArrowLeft, Type, Image as ImageIcon, Square, Layers, Variable, Save, Undo2, Redo2, Plus, Trash2, Eye, EyeOff, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles, Download, Group, Ungroup, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Search, History as HistoryIcon, CopyPlus } from "lucide-react";
 import { toast } from "sonner";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 import type { ElementFrame } from "@/lib/animate";
@@ -23,8 +23,14 @@ import { automationDefinitions, materializeAutomationDocument } from "@/lib/auto
 import { analyzeRetention, applyRetentionPreset, normalizeRetention } from "@/lib/retention";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
 import { downloadPortableTemplate } from "@/lib/template-io";
+import { hydrateDocumentAssetRefsClient, uploadDurableAsset, type UploadedAssetHandle } from "@/lib/asset-client";
+import { assetUri, normalizeDocumentAssetRefs } from "@/lib/asset-refs";
+import { alignElements, distributeElements, duplicateElements, groupElements, moveSelection, parseElementClipboard, selectionWithGroup, serializeElementClipboard, ungroupElements } from "@/lib/editor-professional";
+import { validateTemplateProduct } from "@/lib/template-marketplace";
 
 import { PreviewModal, Canvas, LeftPanel, RightPanel, TimelineAudioPreview, AudioProperties, CaptionProperties, EffectProperties } from "@/components/editor/EditorSurface";
+import { AudioAutomationPanel } from "@/components/editor/AudioAutomationPanel";
+import { applyAudioPreset, fitSceneToNarration, snapTimeToBeat } from "@/lib/audio-automation";
 
 export const Route = createFileRoute("/_app/editor/$templateId")({
   ssr: false,
@@ -56,18 +62,8 @@ async function probeVideoDurationMs(src: string): Promise<number | undefined> {
   });
 }
 
-async function uploadToAssets(file: File): Promise<string> {
-  const { data: u } = await supabase.auth.getUser();
-  if (!u.user) throw new Error("Not signed in");
-  const ext = file.name.split(".").pop() || "bin";
-  const path = `${u.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error } = await supabase.storage.from("assets").upload(path, file, { upsert: false, contentType: file.type });
-  if (error) throw error;
-  const { data, error: signErr } = await supabase.storage.from("assets").createSignedUrl(path, 60 * 60 * 24 * 365);
-  if (signErr || !data?.signedUrl) throw signErr ?? new Error("Failed to sign URL");
-  const kind: "image" | "video" | "audio" = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image";
-  await supabase.from("assets").insert({ user_id: u.user.id, file_name: file.name, file_url: data.signedUrl, type: kind, storage_path: path, mime_type: file.type, size: file.size });
-  return data.signedUrl;
+async function uploadToAssets(file: File): Promise<UploadedAssetHandle> {
+  return uploadDurableAsset(file);
 }
 
 function EditorPage() {
@@ -90,6 +86,10 @@ function EditorPage() {
   const [future, setFuture] = useState<EditorDocumentV2[]>([]);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showHistoryPanel,setShowHistoryPanel]=useState(false);
+  const [showSafeZones,setShowSafeZones]=useState(true);
+  const [showRulers,setShowRulers]=useState(true);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedEffectId, setSelectedEffectId] = useState<string | null>(null);
@@ -99,6 +99,7 @@ function EditorPage() {
   const [previewVars, setPreviewVars] = useState<Record<string, string>>({});
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [mobilePanelOpen,setMobilePanelOpen]=useState(false);
   const playheadMs = useEditorPlaybackStore((s) => s.playheadMs);
   const playing = useEditorPlaybackStore((s) => s.playing);
   const timelineZoom = useEditorPlaybackStore((s) => s.timelineZoom);
@@ -109,11 +110,27 @@ function EditorPage() {
   const resetPlayback = useEditorPlaybackStore((s) => s.resetPlayback);
 
   useEffect(() => {
+    if (selectedId && !selectedIds.includes(selectedId)) setSelectedIds([selectedId]);
+    if (!selectedId && selectedIds.length === 1) setSelectedId(selectedIds[0] ?? null);
+  }, [selectedId]);
+
+  useEffect(() => {
     if (!template) return;
-    const stored = template.template_json ? parseEditorDocument(template.template_json) : blankDocument(template.aspect_ratio as never);
-    const initial = migrateDocumentV1ToV2(stored);
-    setDoc(initial);
-    resetPlayback();
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const stored = template.template_json ? parseEditorDocument(template.template_json) : blankDocument(template.aspect_ratio as never);
+        const initial = migrateDocumentV1ToV2(stored);
+        const hydrated = await hydrateDocumentAssetRefsClient(initial);
+        if (!cancelled) setDoc(hydrated);
+      } catch (error) {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not resolve template assets");
+      } finally {
+        if (!cancelled) resetPlayback();
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
   }, [template, resetPlayback]);
 
 
@@ -279,13 +296,14 @@ function EditorPage() {
     const name = prompt("Component name", mode === "selected" ? "Reusable element" : `${scene.name} group`);
     if (!name) return;
     const component = componentFromElements(name, source, uid);
-    commit({ ...doc, components: [...(doc.components ?? []), component] });
-    const nextLibrary = [...componentLibrary.filter((item) => item.id !== component.id), component];
+    const storedComponent = normalizeDocumentAssetRefs({ ...doc, components: [component] }).components?.[0] ?? component;
+    commit({ ...doc, components: [...(doc.components ?? []), storedComponent] });
+    const nextLibrary = [...componentLibrary.filter((item) => item.id !== storedComponent.id), storedComponent];
     setComponentLibraryState(nextLibrary); saveComponentLibrary(nextLibrary);
-    toast.success(`Saved ${component.name} to component library`);
+    toast.success(`Saved ${storedComponent.name} to component library`);
   };
 
-  const insertReusableComponent = (component: EditorReusableComponent) => {
+  const insertReusableComponent = async (component: EditorReusableComponent) => {
     if (!doc) return;
     const originX = Math.max(0, Math.round((dims.w - component.width) / 2));
     const originY = Math.max(0, Math.round((dims.h - component.height) / 2));
@@ -294,9 +312,14 @@ function EditorPage() {
       startMs: Math.max(0, Math.min(el.startMs ?? 0, scene.durationMs - 100)),
       durationMs: Math.max(100, Math.min(el.durationMs ?? scene.durationMs, scene.durationMs - Math.max(0, el.startMs ?? 0))),
     } as EditorElement));
-    commit({ ...doc, scenes: doc.scenes.map((s, i) => i === sceneIndex ? { ...s, elements: [...s.elements, ...elements] } : s) });
-    setSelectedId(elements[elements.length - 1]?.id ?? null);
-    setSelectedAudioId(null); setSelectedCaptionId(null); setSelectedEffectId(null);
+    try {
+      const next = await hydrateDocumentAssetRefsClient({ ...doc, scenes: doc.scenes.map((s, i) => i === sceneIndex ? { ...s, elements: [...s.elements, ...elements] } : s) });
+      commit(next);
+      setSelectedId(elements[elements.length - 1]?.id ?? null);
+      setSelectedAudioId(null); setSelectedCaptionId(null); setSelectedEffectId(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not resolve component assets");
+    }
   };
 
   const deleteReusableComponent = (id: string) => {
@@ -308,18 +331,31 @@ function EditorPage() {
   const saveCurrentBrandKit = () => {
     if (!doc) return;
     const brand = normalizeBrandKit(doc.brand);
-    const next = [...brandLibrary.filter((item) => item.id !== brand.id), brand];
+    const durableBrand = {
+      ...brand,
+      ...(brand.logoAssetId ? { logoSrc: assetUri(brand.logoAssetId) } : {}),
+      ...(brand.watermarkAssetId ? { watermarkSrc: assetUri(brand.watermarkAssetId) } : {}),
+    };
+    const next = [...brandLibrary.filter((item) => item.id !== durableBrand.id), durableBrand];
     setBrandLibraryState(next); saveBrandLibrary(next); toast.success(`Saved ${brand.name} brand kit`);
   };
-  const applySavedBrandKit = (brand: BrandKit) => { if (doc) commit({ ...doc, brand: normalizeBrandKit(brand) }); };
+  const applySavedBrandKit = async (brand: BrandKit) => {
+    if (!doc) return;
+    try {
+      const next = await hydrateDocumentAssetRefsClient({ ...doc, brand: normalizeBrandKit(brand) });
+      commit(next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not resolve brand assets");
+    }
+  };
   const deleteSavedBrandKit = (id: string) => { const next=brandLibrary.filter((item)=>item.id!==id); setBrandLibraryState(next); saveBrandLibrary(next); };
-  const addAudioClip = async (src: string, name: string, role: AudioClipRole, sourceBlob?: Blob) => {
+  const addAudioClip = async (src: string, name: string, role: AudioClipRole, sourceBlob?: Blob, asset?: UploadedAssetHandle) => {
     if (!doc) return;
     const decoded = await decodeWaveform(sourceBlob ?? src);
     const mediaDurationMs = decoded?.durationMs;
     const durationMs = Math.max(500, Math.min(mediaDurationMs ?? doc.durationMs, doc.durationMs));
     const clip: EditorAudioClip = {
-      id: uid("aud"), name, src, role, startMs: Math.round(playheadMs), durationMs, sourceStartMs: 0,
+      id: uid("aud"), name, src, ...(asset ? { assetId: asset.id, storagePath: asset.storagePath } : {}), role, startMs: Math.round(playheadMs), durationMs, sourceStartMs: 0,
       sourceEndMs: mediaDurationMs ? Math.min(mediaDurationMs, durationMs) : durationMs, mediaDurationMs,
       playbackRate: 1, volume: role === "music" ? 0.65 : 1, muted: false, solo: false, loop: role === "music",
       fadeInMs: role === "music" ? 250 : 0, fadeOutMs: role === "music" ? 400 : 0, waveform: decoded?.waveform, ducking: role === "music",
@@ -330,6 +366,54 @@ function EditorPage() {
     setSelectedId(null);
     setPanel("audio");
   };
+  const addGeneratedNarration = async (result:any,input:{text:string;preset:any;autoDuration:boolean;paddingMs:number}) => {
+    if(!doc||!scene)return;
+    const decoded=await decodeWaveform(result.signedUrl);
+    const durationMs=Math.max(500,decoded?.durationMs??Math.round(scene.durationMs*.9));
+    const startMs=sceneStartMs(doc,sceneIndex);
+    const clip:EditorAudioClip={
+      id:uid("aud"),name:`Narration · ${scene.name}`,src:result.signedUrl,assetId:result.assetId,storagePath:result.storagePath,
+      role:"voiceover",sceneId:scene.id,startMs,durationMs,sourceStartMs:0,sourceEndMs:durationMs,mediaDurationMs:durationMs,
+      playbackRate:1,volume:1,muted:false,solo:false,loop:false,fadeInMs:0,fadeOutMs:80,waveform:decoded?.waveform,ducking:false,
+      generatedByTts:true,ttsProvider:result.provider,voicePresetId:input.preset.id,narrationText:input.text,
+    };
+    const withoutPrevious=doc.audioClips.filter(c=>!(c.sceneId===scene.id&&c.generatedByTts));
+    let next=syncV2Timeline({...doc,audioClips:[...withoutPrevious,clip]});
+    if(input.autoDuration)next=fitSceneToNarration(next,scene.id,durationMs,input.paddingMs);
+    commit(next);
+    setSelectedAudioId(clip.id);setPanel("audio");
+  };
+
+  const addLibraryAudio = async (item:any) => {
+    if(!doc)return;
+    const {data,error}=await supabase.storage.from("assets").createSignedUrl(String(item.storage_path).replace(/^assets\//,""),60*60);
+    if(error||!data?.signedUrl)throw error??new Error("Could not open audio asset");
+    const decoded=await decodeWaveform(data.signedUrl);
+    const durationMs=Math.max(500,Math.min(decoded?.durationMs??doc.durationMs,doc.durationMs));
+    const clip:EditorAudioClip={
+      id:uid("aud"),name:item.name||item.file_name,src:data.signedUrl,assetId:item.asset_id,storagePath:item.storage_path,
+      role:item.role,startMs:Math.round(playheadMs),durationMs,sourceStartMs:0,sourceEndMs:decoded?.durationMs??durationMs,
+      mediaDurationMs:decoded?.durationMs,playbackRate:1,volume:item.role==="music"?.65:1,muted:false,solo:false,
+      loop:item.role==="music",fadeInMs:item.role==="music"?250:0,fadeOutMs:item.role==="music"?400:0,waveform:decoded?.waveform,
+      ducking:item.role==="music",bpm:item.bpm??undefined,beatOffsetMs:item.beat_offset_ms??0,libraryItemId:item.id,
+    };
+    commit({...doc,audioClips:[...doc.audioClips,clip]});
+    setSelectedAudioId(clip.id);setPanel("audio");
+  };
+
+  const applySelectedAudioPreset=(preset:any)=>{
+    if(!selectedAudio)return toast.error("Select an audio clip first");
+    if(preset.id==="beat"&&selectedAudio.bpm){
+      updateAudioClip(selectedAudio.id,{startMs:snapTimeToBeat(selectedAudio.startMs,selectedAudio.bpm,selectedAudio.beatOffsetMs??0)});
+      return;
+    }
+    const next=applyAudioPreset(selectedAudio,{
+      volume:Number(preset.volume),fadeInMs:Number(preset.fade_in_ms??0),fadeOutMs:Number(preset.fade_out_ms??0),
+      ducking:Boolean(preset.ducking),loop:Boolean(preset.loop),bpm:preset.bpm==null?undefined:Number(preset.bpm),beatOffsetMs:Number(preset.beat_offset_ms??0),
+    });
+    updateAudioClip(selectedAudio.id,next);
+  };
+
   const updateAudioClip = (id: string, patch: Partial<EditorAudioClip>) => {
     if (!doc) return;
     commit({ ...doc, audioClips: doc.audioClips.map((clip) => clip.id === id ? { ...clip, ...patch } : clip) });
@@ -421,6 +505,82 @@ function EditorPage() {
   const toggleLock = (id: string) => {
     updateElement(id, (e) => ({ ...e, locked: !e.locked }));
   };
+  const toggleHidden = (id: string) => updateElement(id, (e) => ({ ...e, hidden: !e.hidden }));
+
+  const applySelectedIds = (ids:string[], primary?:string|null) => {
+    setSelectedIds(ids);
+    setSelectedId(primary === undefined ? (ids[ids.length-1] ?? null) : primary);
+    if(ids.length){setSelectedAudioId(null);setSelectedCaptionId(null);setSelectedEffectId(null);}
+  };
+
+  const selectElementProfessional = (id:string, additive=false) => {
+    if(!scene)return;
+    const ids=selectionWithGroup(scene,id,additive,selectedIds);
+    applySelectedIds(ids,ids.includes(id)?id:(ids[ids.length-1]??null));
+  };
+
+  const deleteSelectedElements = () => {
+    if(!selectedIds.length)return;
+    updateScene((s)=>({...s,elements:s.elements.filter((e)=>!selectedIds.includes(e.id))}));
+    applySelectedIds([]);
+  };
+
+  const duplicateSelectedElements = () => {
+    if(!scene||!selectedIds.length)return;
+    const result=duplicateElements(scene,selectedIds,uid);
+    updateScene(()=>result.scene);
+    applySelectedIds(result.ids);
+  };
+
+  const groupSelectedElements = () => {
+    if(selectedIds.length<2)return;
+    const gid=uid("group");
+    updateScene((s)=>({...s,elements:groupElements(s.elements,selectedIds,gid)}));
+  };
+  const ungroupSelectedElements = () => {
+    if(!selectedIds.length)return;
+    updateScene((s)=>({...s,elements:ungroupElements(s.elements,selectedIds)}));
+  };
+
+  const alignMulti = (mode:"left"|"hcenter"|"right"|"top"|"vcenter"|"bottom",toCanvas=false) => {
+    if(!doc||!selectedIds.length)return;
+    const d=CANVAS_DIMS[doc.aspect];
+    updateScene((s)=>{
+      const selected=s.elements.filter(e=>selectedIds.includes(e.id));
+      const aligned=alignElements(selected,mode,d,toCanvas);
+      const map=new Map(aligned.map(e=>[e.id,e]));
+      return {...s,elements:s.elements.map(e=>map.get(e.id)??e)};
+    });
+  };
+  const distributeMulti=(mode:"horizontal"|"vertical")=>{
+    if(selectedIds.length<3)return;
+    updateScene((s)=>{
+      const selected=s.elements.filter(e=>selectedIds.includes(e.id));
+      const distributed=distributeElements(selected,mode);
+      const map=new Map(distributed.map(e=>[e.id,e]));
+      return {...s,elements:s.elements.map(e=>map.get(e.id)??e)};
+    });
+  };
+
+  const copySelection=async()=>{
+    if(!scene||!selectedIds.length)return;
+    const text=serializeElementClipboard(scene.elements.filter(e=>selectedIds.includes(e.id)));
+    try{await navigator.clipboard.writeText(text);toast.success(`${selectedIds.length} layer${selectedIds.length===1?"":"s"} copied`);}
+    catch{sessionStorage.setItem("shortsforge.elementClipboard",text);toast.success("Copied inside editor");}
+  };
+  const pasteSelection=async()=>{
+    if(!doc)return;
+    let text="";
+    try{text=await navigator.clipboard.readText();}catch{text=sessionStorage.getItem("shortsforge.elementClipboard")||"";}
+    let els=parseElementClipboard(text);
+    if(!els.length){text=sessionStorage.getItem("shortsforge.elementClipboard")||"";els=parseElementClipboard(text);}
+    if(!els.length){toast.error("Clipboard does not contain ShortsForge layers");return;}
+    const groupMap=new Map<string,string>();
+    const copies=els.map((e)=>({...e,id:uid(e.type),x:e.x+24,y:e.y+24,groupId:e.groupId?(groupMap.get(e.groupId)??(()=>{const id=uid("group");groupMap.set(e.groupId!,id);return id;})()):undefined} as EditorElement));
+    updateScene((s)=>({...s,elements:[...s.elements,...copies]}));
+    applySelectedIds(copies.map(e=>e.id));
+  };
+
   const addScene = () => {
     if (!doc) return;
     commit({ ...doc, scenes: [...doc.scenes, { id: uid("scene"), name: `Scene ${doc.scenes.length + 1}`, durationMs: 5000, background: "#0A0A0A", elements: [] }] });
@@ -478,7 +638,21 @@ function EditorPage() {
     mutationFn: async () => {
       if (!doc || !template) return;
       parseEditorDocument(doc);
-      const { error } = await supabase.from("templates").update({ template_json: doc as never }).eq("id", template.id);
+      const durable = normalizeDocumentAssetRefs(doc);
+      const product = template as any;
+      const validation = validateTemplateProduct(durable, {
+        name: template.name,
+        description: product.description,
+        documentation: product.documentation,
+        thumbnailUrl: product.thumbnail_url,
+        previewVideoUrl: product.preview_video_url,
+        tags: product.tags ?? [],
+      });
+      const { error } = await (supabase as any).from("templates").update({
+        template_json: durable,
+        validation_score: validation.score,
+        required_variables: validation.requiredVariables,
+      }).eq("id", template.id);
       if (error) throw error;
     },
     onSuccess: () => { toast.success("Template saved"); qc.invalidateQueries({ queryKey: ["template", templateId] }); },
@@ -494,31 +668,35 @@ function EditorPage() {
       if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
       if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) { e.preventDefault(); redo(); return; }
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save.mutate(); return; }
-      if (mod && e.key.toLowerCase() === "d" && selectedId) { e.preventDefault(); duplicateElement(selectedId); return; }
-      if (!selectedId) return;
-      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteElement(selectedId); return; }
+      if (mod && e.key.toLowerCase() === "a" && scene) { e.preventDefault(); applySelectedIds(scene.elements.filter(el=>!el.hidden).map(el=>el.id)); return; }
+      if (mod && e.key.toLowerCase() === "c" && selectedIds.length) { e.preventDefault(); void copySelection(); return; }
+      if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); void pasteSelection(); return; }
+      if (mod && e.key.toLowerCase() === "d" && selectedIds.length) { e.preventDefault(); duplicateSelectedElements(); return; }
+      if (mod && e.key.toLowerCase() === "g" && !e.shiftKey && selectedIds.length > 1) { e.preventDefault(); groupSelectedElements(); return; }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "g" && selectedIds.length) { e.preventDefault(); ungroupSelectedElements(); return; }
+      if (e.key === "Escape") { applySelectedIds([]); return; }
+      if (!selectedIds.length) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelectedElements(); return; }
       const step = e.shiftKey ? 20 : 2;
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
         e.preventDefault();
-        updateElement(selectedId, (el) => ({
-          ...el,
-          x: el.x + (e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0),
-          y: el.y + (e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0),
-        }));
+        const dx=e.key==="ArrowLeft"?-step:e.key==="ArrowRight"?step:0;
+        const dy=e.key==="ArrowUp"?-step:e.key==="ArrowDown"?step:0;
+        updateScene((s)=>({...s,elements:moveSelection(s.elements,selectedIds,dx,dy)}));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, selectedId, history, future, sceneIndex]);
+  }, [doc, selectedId, selectedIds, history, future, sceneIndex]);
 
-  if (!doc || !scene) return <div className="p-10 text-zinc-400">Loading editor…</div>;
+  if (!doc || !scene) return <div className="p-4 sm:p-6 lg:p-8 text-zinc-400">Loading editor…</div>;
   const dims = CANVAS_DIMS[doc.aspect];
 
   return (
     <div className="h-screen w-full flex flex-col bg-canvas text-foreground">
       {/* Top bar */}
-      <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center justify-between px-4">
+      <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center justify-between px-2 sm:px-4 gap-2 overflow-hidden">
         <div className="flex items-center gap-3">
           <Link to="/templates" className="size-8 grid place-items-center rounded-md hover:bg-white/5"><ArrowLeft className="size-4" /></Link>
           <input
@@ -527,7 +705,7 @@ function EditorPage() {
               if (!template) return;
               supabase.from("templates").update({ name: e.target.value }).eq("id", template.id);
             }}
-            className="bg-transparent text-sm font-semibold focus:outline-none focus:bg-white/5 px-2 py-1 rounded"
+            className="hidden sm:block bg-transparent text-sm font-semibold focus:outline-none focus:bg-white/5 px-2 py-1 rounded min-w-0 max-w-56 lg:max-w-none"
           />
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">{doc.aspect}</span>
         </div>
@@ -557,9 +735,26 @@ function EditorPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="h-10 shrink-0 border-b border-border bg-panel/95 flex items-center gap-1 px-2 overflow-x-auto">
+        <span className="text-[10px] text-zinc-500 mr-1 whitespace-nowrap">{selectedIds.length ? `${selectedIds.length} selected` : "No selection"}</span>
+        <button disabled={!selectedIds.length} onClick={duplicateSelectedElements} className="editor-tool" title="Duplicate (Ctrl/⌘+D)"><CopyPlus className="size-3.5"/></button>
+        <button disabled={!selectedIds.length} onClick={()=>void copySelection()} className="editor-tool" title="Copy"><Copy className="size-3.5"/></button>
+        <button onClick={()=>void pasteSelection()} className="editor-tool" title="Paste">Paste</button>
+        <span className="h-5 w-px bg-border mx-1"/>
+        {(["left","hcenter","right","top","vcenter","bottom"] as const).map(mode=><button key={mode} disabled={!selectedIds.length} onClick={()=>alignMulti(mode,selectedIds.length===1)} className="editor-tool text-[10px] capitalize">{mode.replace("hcenter","H center").replace("vcenter","V center")}</button>)}
+        <button disabled={selectedIds.length<3} onClick={()=>distributeMulti("horizontal")} className="editor-tool" title="Distribute horizontally"><AlignHorizontalDistributeCenter className="size-3.5"/></button>
+        <button disabled={selectedIds.length<3} onClick={()=>distributeMulti("vertical")} className="editor-tool" title="Distribute vertically"><AlignVerticalDistributeCenter className="size-3.5"/></button>
+        <span className="h-5 w-px bg-border mx-1"/>
+        <button disabled={selectedIds.length<2} onClick={groupSelectedElements} className="editor-tool" title="Group (Ctrl/⌘+G)"><Group className="size-3.5"/></button>
+        <button disabled={!selectedIds.length} onClick={ungroupSelectedElements} className="editor-tool" title="Ungroup (Ctrl/⌘+Shift+G)"><Ungroup className="size-3.5"/></button>
+        <button onClick={()=>setShowSafeZones(v=>!v)} className={`editor-tool ${showSafeZones?"text-brand":""}`}>Safe</button>
+        <button onClick={()=>setShowRulers(v=>!v)} className={`editor-tool ${showRulers?"text-brand":""}`}>Rulers</button>
+        <button onClick={()=>setShowHistoryPanel(v=>!v)} className={`editor-tool ${showHistoryPanel?"text-brand":""}`}><HistoryIcon className="size-3.5"/> History</button>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Left rail */}
-        <nav className="w-14 shrink-0 border-r border-border bg-panel flex flex-col items-center py-3 gap-1">
+        <nav className="hidden md:flex w-14 shrink-0 border-r border-border bg-panel flex-col items-center py-3 gap-1">
           {[
             { id: "elements" as Panel, icon: Plus, label: "Elements" },
             { id: "text" as Panel, icon: Type, label: "Text" },
@@ -580,17 +775,18 @@ function EditorPage() {
         </nav>
 
         {/* Left panel */}
-        <aside className="w-64 shrink-0 border-r border-border bg-panel overflow-y-auto">
+        <aside className="hidden md:block w-56 lg:w-64 shrink-0 border-r border-border bg-panel overflow-y-auto">
           <LeftPanel
             panel={panel}
             doc={doc}
+            audioAutomationSlot={<AudioAutomationPanel templateId={templateId} scene={scene} selectedAudio={selectedAudio} onNarration={addGeneratedNarration} onAddLibrary={addLibraryAudio} onApplyPreset={applySelectedAudioPreset} onUpdateSceneNarration={(narration)=>updateScene((s)=>({...s,narration}))}/>}
             onUpdateBrand={updateBrand}
             brandLibrary={brandLibrary}
             componentLibrary={componentLibrary}
             onSaveBrandKit={saveCurrentBrandKit}
             onApplyBrandKit={applySavedBrandKit}
             onDeleteBrandKit={deleteSavedBrandKit}
-            onUploadBrandAsset={async (kind, file) => { const url = await uploadToAssets(file); updateBrand(kind === "logo" ? { logoSrc: url } : { watermarkSrc: url }); }}
+            onUploadBrandAsset={async (kind, file) => { const asset = await uploadToAssets(file); updateBrand(kind === "logo" ? { logoSrc: asset.url, logoAssetId: asset.id } : { watermarkSrc: asset.url, watermarkAssetId: asset.id }); }}
             onInsertComponent={insertReusableComponent}
             onSaveSelectedComponent={() => saveReusableComponent("selected")}
             onSaveSceneComponent={() => saveReusableComponent("scene")}
@@ -607,7 +803,7 @@ function EditorPage() {
             onDeleteCaption={deleteCaptionClip}
             onDeleteAudio={deleteAudioClip}
             onAddAudioFromUrl={(url, role) => addAudioClip(url, url.split("/").pop() || role, role)}
-            onUploadAudio={async (file, role) => { const url = await uploadToAssets(file); await addAudioClip(url, file.name, role, file); }}
+            onUploadAudio={async (file, role) => { const asset = await uploadToAssets(file); await addAudioClip(asset.url, file.name, role, file, asset); }}
             onAddText={() =>
               addElement({
                 id: uid("text"), type: "text", text: "New text", x: dims.w/2 - 200, y: dims.h/2 - 40, w: 400, h: 80,
@@ -656,14 +852,15 @@ function EditorPage() {
             }}
             onUploadFile={async (file) => {
               try {
-                const url = await uploadToAssets(file);
+                const asset = await uploadToAssets(file);
+                const url = asset.url;
                 const isVideo = file.type.startsWith("video");
-                if (file.type.startsWith("audio")) { await addAudioClip(url, file.name, "music", file); } else if (isVideo) {
+                if (file.type.startsWith("audio")) { await addAudioClip(url, file.name, "music", file, asset); } else if (isVideo) {
                   const mediaDurationMs = await probeVideoDurationMs(url);
                   const durationMs = Math.min(scene.durationMs, mediaDurationMs ?? scene.durationMs);
-                  addElement({ id: uid("vid"), type: "video", src: url, x: 0, y: 0, w: dims.w, h: dims.h, rotation: 0, opacity: 1, fit: "cover", muted: true, loop: false, autoplay: true, sourceStartMs: 0, sourceEndMs: mediaDurationMs ? Math.min(mediaDurationMs, durationMs) : durationMs, mediaDurationMs, playbackRate: 1, volume: 1, durationMs } as VideoElement);
+                  addElement({ id: uid("vid"), type: "video", src: url, assetId: asset.id, storagePath: asset.storagePath, x: 0, y: 0, w: dims.w, h: dims.h, rotation: 0, opacity: 1, fit: "cover", muted: true, loop: false, autoplay: true, sourceStartMs: 0, sourceEndMs: mediaDurationMs ? Math.min(mediaDurationMs, durationMs) : durationMs, mediaDurationMs, playbackRate: 1, volume: 1, durationMs } as VideoElement);
                 } else {
-                  addElement({ id: uid("img"), type: "image", src: url, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600, rotation: 0, opacity: 1, fit: "cover" } as ImageElement);
+                  addElement({ id: uid("img"), type: "image", src: url, assetId: asset.id, storagePath: asset.storagePath, x: dims.w/2 - 300, y: dims.h/2 - 300, w: 600, h: 600, rotation: 0, opacity: 1, fit: "cover" } as ImageElement);
                 }
                 toast.success("Uploaded");
               } catch (e) {
@@ -672,7 +869,10 @@ function EditorPage() {
             }}
             scene={scene}
             selectedId={selectedId}
-            setSelectedId={setSelectedId}
+            selectedIds={selectedIds}
+            onSelectLayer={selectElementProfessional}
+            onToggleLayerLock={toggleLock}
+            onToggleLayerHidden={toggleHidden}
             deleteElement={deleteElement}
           />
         </aside>
@@ -681,15 +881,18 @@ function EditorPage() {
         <div className="flex-1 relative overflow-hidden bg-[radial-gradient(circle_at_center,#1a1a1a,#0a0a0a)]">
           <Canvas
             doc={doc} sceneIndex={sceneIndex} previewVars={previewVars}
-            selectedId={selectedId} setSelectedId={setSelectedId}
-            updateElement={updateElement} zoom={zoom} setZoom={setZoom}
+            selectedId={selectedId} selectedIds={selectedIds}
+            onSelectElement={selectElementProfessional} onClearSelection={()=>applySelectedIds([])}
+            updateElement={updateElement}
+            updateElements={(ids,dx,dy)=>updateScene((s)=>({...s,elements:moveSelection(s.elements,ids,dx,dy)}))}
+            zoom={zoom} setZoom={setZoom} showSafeZones={showSafeZones} showRulers={showRulers}
             playheadMs={playheadMs}
             playing={playing}
           />
         </div>
 
         {/* Right panel */}
-        <aside className="w-72 shrink-0 border-l border-border bg-panel overflow-y-auto">
+        <aside className="hidden lg:block w-72 shrink-0 border-l border-border bg-panel overflow-y-auto">
           {selectedEffect ? <EffectProperties clip={selectedEffect} doc={doc} update={(patch) => updateEffectClip(selectedEffect.id, patch)} onDelete={() => deleteEffectClip(selectedEffect.id)} /> : selectedCaption ? <CaptionProperties clip={selectedCaption} doc={doc} update={(patch) => updateCaptionClip(selectedCaption.id, patch)} onDelete={() => deleteCaptionClip(selectedCaption.id)} /> : selectedAudio ? <AudioProperties clip={selectedAudio} doc={doc} update={(patch) => updateAudioClip(selectedAudio.id, patch)} updateMix={(patch) => commit({ ...doc, audioMix: { ...doc.audioMix, ...patch } })} onDelete={() => deleteAudioClip(selectedAudio.id)} onSplit={splitSelectedAudioAtPlayhead} /> : <RightPanel
             selected={selected}
             update={(p) => selected && updateElement(selected.id, (e) => ({ ...e, ...p } as EditorElement))}
@@ -710,6 +913,51 @@ function EditorPage() {
         </aside>
       </div>
 
+      <button onClick={()=>setMobilePanelOpen(true)} className="md:hidden fixed right-3 bottom-[190px] z-40 px-3 py-2 rounded-full bg-brand text-white text-xs font-bold shadow-xl"><Layers className="size-4 inline mr-1"/> Tools</button>
+      {mobilePanelOpen&&<div className="md:hidden fixed inset-0 z-50 bg-black/70" onClick={()=>setMobilePanelOpen(false)}>
+        <div className="absolute left-0 right-0 bottom-0 max-h-[72vh] overflow-auto rounded-t-2xl border-t border-border bg-panel" onClick={(e)=>e.stopPropagation()}>
+          <div className="sticky top-0 bg-panel border-b border-border p-2 flex gap-1 overflow-x-auto z-10">
+            {(["elements","text","shapes","layers","variables","audio","captions","effects"] as Panel[]).map(id=><button key={id} onClick={()=>setPanel(id)} className={`px-2.5 py-1.5 rounded text-[10px] capitalize whitespace-nowrap ${panel===id?"bg-brand text-white":"border border-border text-zinc-400"}`}>{id}</button>)}
+            <button onClick={()=>setMobilePanelOpen(false)} className="ml-auto px-3 text-zinc-400">Close</button>
+          </div>
+          <LeftPanel
+            panel={panel} doc={doc} audioAutomationSlot={<AudioAutomationPanel templateId={templateId} scene={scene} selectedAudio={selectedAudio} onNarration={addGeneratedNarration} onAddLibrary={addLibraryAudio} onApplyPreset={applySelectedAudioPreset} onUpdateSceneNarration={(narration)=>updateScene((s)=>({...s,narration}))}/>} onUpdateBrand={updateBrand} brandLibrary={brandLibrary} componentLibrary={componentLibrary}
+            onSaveBrandKit={saveCurrentBrandKit} onApplyBrandKit={applySavedBrandKit} onDeleteBrandKit={deleteSavedBrandKit}
+            onUploadBrandAsset={async (kind,file)=>{const asset=await uploadToAssets(file);updateBrand(kind==="logo"?{logoSrc:asset.url,logoAssetId:asset.id}:{watermarkSrc:asset.url,watermarkAssetId:asset.id});}}
+            onInsertComponent={insertReusableComponent} onSaveSelectedComponent={()=>saveReusableComponent("selected")} onSaveSceneComponent={()=>saveReusableComponent("scene")} onDeleteComponent={deleteReusableComponent}
+            selectedAudioId={selectedAudioId} selectedCaptionId={selectedCaptionId} selectedEffectId={selectedEffectId}
+            onSelectAudio={(id)=>{setSelectedAudioId(id);setSelectedCaptionId(null);applySelectedIds([]);}}
+            onSelectCaption={(id)=>{setSelectedCaptionId(id);setSelectedEffectId(null);setSelectedAudioId(null);applySelectedIds([]);}}
+            onSelectEffect={(id)=>{setSelectedEffectId(id);setSelectedCaptionId(null);setSelectedAudioId(null);applySelectedIds([]);}}
+            onAddEffect={addEffectClip} onDeleteEffect={deleteEffectClip} onAddCaption={(text,preset)=>addCaptionClip(text,preset)} onDeleteCaption={deleteCaptionClip}
+            onDeleteAudio={deleteAudioClip} onAddAudioFromUrl={(url,role)=>addAudioClip(url,url.split("/").pop()||role,role)}
+            onUploadAudio={async(file,role)=>{const asset=await uploadToAssets(file);await addAudioClip(asset.url,file.name,role,file,asset);}}
+            onAddText={()=>addElement({id:uid("text"),type:"text",text:"New text",x:dims.w/2-200,y:dims.h/2-40,w:400,h:80,rotation:0,opacity:1,fontFamily:"Plus Jakarta Sans",fontSize:64,fontWeight:800,color:"#FFFFFF",align:"center"} as TextElement)}
+            onAddTextPreset={(patch)=>addElement({id:uid("text"),type:"text",text:"New text",x:80,y:dims.h/2-120,w:dims.w-160,h:240,rotation:0,opacity:1,fontFamily:"Plus Jakarta Sans",fontSize:64,fontWeight:800,color:"#FFFFFF",align:"center",...patch} as TextElement)}
+            onUpdateAutomationVariable={updateAutomationVariable} onAddAutomationVariable={addAutomationVariable} onDeleteAutomationVariable={deleteAutomationVariable}
+            onUpdateSceneAutomation={(patch)=>updateScene((s)=>({...s,...patch}))} onApplyRetentionPreset={(preset)=>commit(syncV2Timeline(applyRetentionPreset(doc,preset,uid)))}
+            onUpdateRetention={(patch)=>commit(syncV2Timeline({...doc,retention:{...normalizeRetention(doc.retention),...patch}}))}
+            onAddVariable={(name)=>addElement({id:uid("text"),type:"text",text:`{{${name}}}`,x:dims.w/2-200,y:dims.h/2-40,w:400,h:80,rotation:0,opacity:1,fontFamily:"Plus Jakarta Sans",fontSize:64,fontWeight:800,color:"#FFFFFF",align:"center"} as TextElement)}
+            onAddShape={(shape)=>addElement({id:uid("shape"),type:"shape",shape,x:dims.w/2-150,y:dims.h/2-150,w:300,h:300,rotation:0,opacity:1,fill:"#FF0033",radius:shape==="rect"?24:0,...(shape==="line"?{w:600,h:40,strokeWidth:8}:{})} as ShapeElement)}
+            onAddImagePlaceholder={()=>addElement({id:uid("img"),type:"image",src:"{{background}}",x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover"} as ImageElement)}
+            onAddImageFromUrl={(url)=>addElement({id:uid("img"),type:"image",src:url,x:dims.w/2-300,y:dims.h/2-300,w:600,h:600,rotation:0,opacity:1,fit:"cover"} as ImageElement)}
+            onAddVideoFromUrl={async(url)=>{const mediaDurationMs=await probeVideoDurationMs(url);const durationMs=Math.min(scene.durationMs,mediaDurationMs??scene.durationMs);addElement({id:uid("vid"),type:"video",src:url,x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover",muted:true,loop:false,autoplay:true,sourceStartMs:0,sourceEndMs:mediaDurationMs?Math.min(mediaDurationMs,durationMs):durationMs,mediaDurationMs,playbackRate:1,volume:1,durationMs} as VideoElement);}}
+            onUploadFile={async(file)=>{const asset=await uploadToAssets(file);if(file.type.startsWith("audio/")){await addAudioClip(asset.url,file.name,"music",file,asset);}else if(file.type.startsWith("video/")){addElement({id:uid("vid"),type:"video",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover",muted:true,loop:false,autoplay:true,playbackRate:1,volume:1,durationMs:scene.durationMs} as VideoElement);}else{addElement({id:uid("img"),type:"image",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:dims.w/2-300,y:dims.h/2-300,w:600,h:600,rotation:0,opacity:1,fit:"cover"} as ImageElement);}}}
+            scene={scene} selectedId={selectedId} selectedIds={selectedIds} onSelectLayer={selectElementProfessional} onToggleLayerLock={toggleLock} onToggleLayerHidden={toggleHidden} deleteElement={deleteElement}
+          />
+        </div>
+      </div>}
+
+      {showHistoryPanel && <div className="absolute right-3 top-3 z-40 w-72 max-h-[55vh] overflow-auto rounded-xl border border-border bg-panel shadow-2xl">
+        <div className="sticky top-0 bg-panel border-b border-border p-3 flex items-center justify-between"><div className="text-xs font-bold uppercase tracking-widest text-zinc-400">Undo history</div><button onClick={()=>setShowHistoryPanel(false)} className="text-zinc-500">×</button></div>
+        <button onClick={()=>{ if(!doc)return; setFuture([]); setHistory([]); }} className="w-full text-left px-3 py-2 border-b border-border text-xs text-zinc-300 hover:bg-white/5">Current state</button>
+        {[...history].reverse().map((snapshot,revIndex)=>{
+          const historyIndex=history.length-1-revIndex;
+          return <button key={historyIndex} onClick={()=>{if(!doc)return; const target=history[historyIndex]; if(!target)return; setFuture([doc,...history.slice(historyIndex+1).reverse()]); setHistory(history.slice(0,historyIndex)); setDoc(target); applySelectedIds([]);}} className="w-full text-left px-3 py-2 border-b border-border/60 hover:bg-white/5"><div className="text-xs">Edit {historyIndex+1}</div><div className="text-[10px] text-zinc-600">{snapshot.scenes.length} scenes · {(snapshot.durationMs/1000).toFixed(1)}s</div></button>;
+        })}
+        {!history.length&&<div className="p-4 text-xs text-zinc-500">No edits to undo yet.</div>}
+      </div>}
+
       <EditorTimeline
         doc={doc}
         sceneIndex={sceneIndex}
@@ -727,7 +975,7 @@ function EditorPage() {
         onSelectElement={(elementId, sceneId) => {
           const index = doc.scenes.findIndex((s) => s.id === sceneId);
           if (index >= 0) setSceneIndex(index);
-          setSelectedId(elementId); setSelectedAudioId(null); setSelectedCaptionId(null);
+          applySelectedIds([elementId], elementId); setSelectedAudioId(null); setSelectedCaptionId(null);
         }}
         onSelectAudio={(audioId) => { setSelectedAudioId(audioId); setSelectedCaptionId(null); setSelectedId(null); }}
         onSelectCaption={(captionId) => { setSelectedCaptionId(captionId); setSelectedEffectId(null); setSelectedAudioId(null); setSelectedId(null); }}
@@ -746,6 +994,7 @@ function EditorPage() {
 
       <TimelineAudioPreview doc={doc} tMs={playheadMs} playing={playing} />
 
+      <style>{`.editor-tool{height:28px;display:inline-flex;align-items:center;gap:4px;padding:0 7px;border:1px solid var(--border);border-radius:5px;color:#a1a1aa;white-space:nowrap}.editor-tool:hover{color:white;background:rgba(255,255,255,.05)}.editor-tool:disabled{opacity:.3}`}</style>
       {previewOpen && (
         <PreviewModal doc={doc} vars={previewVars} setVars={setPreviewVars} onClose={() => setPreviewOpen(false)} />
       )}

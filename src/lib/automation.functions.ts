@@ -33,7 +33,7 @@ export type AutomationStatus = {
     failed: number;
   };
   items: AutomationItem[];
-  logs: Array<{ id: string; level: string; message: string; created_at: string }>;
+  logs: Array<{ id: string; level: string; message: string; created_at: string; campaign_item_id: string | null; metadata_json: Record<string, unknown> }>;
 };
 
 /** Everything the automation view needs. All state lives in the database, so it
@@ -56,7 +56,7 @@ export const getAutomationStatus = createServerFn({ method: "POST" })
       .limit(500);
     const { data: logs } = await supabase
       .from("automation_logs")
-      .select("id, level, message, created_at")
+      .select("id, level, message, created_at, campaign_item_id, metadata_json")
       .eq("campaign_id", data.campaignId)
       .order("created_at", { ascending: false })
       .limit(30);

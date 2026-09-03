@@ -86,6 +86,9 @@ export type EditorElementBase = {
   rotation: number;
   opacity: number;
   locked?: boolean;
+  hidden?: boolean;
+  /** Optional editor-only grouping identity. Group members still render independently. */
+  groupId?: string;
   animations?: AnimationSpec;
   /** V2.8 clip-local property keyframes. */
   keyframes?: ElementKeyframe[];
@@ -163,7 +166,10 @@ export type MediaFilterPreset = "none" | "cinematic" | "warm" | "cold" | "high-c
 
 export type ImageElement = EditorElementBase & {
   type: "image";
+  /** Runtime URL. Persisted owned media is normalized to asset://<uuid>. */
   src: string;
+  assetId?: string;
+  storagePath?: string;
   fit: "cover" | "contain";
   filterPreset?: MediaFilterPreset;
   colorAdjustments?: MediaColorAdjustments;
@@ -171,7 +177,10 @@ export type ImageElement = EditorElementBase & {
 
 export type VideoElement = EditorElementBase & {
   type: "video";
+  /** Runtime URL. Persisted owned media is normalized to asset://<uuid>. */
   src: string;
+  assetId?: string;
+  storagePath?: string;
   fit: "cover" | "contain";
   /** Source-media trim window. Values are in source-media milliseconds. */
   sourceStartMs?: number;
@@ -209,6 +218,14 @@ export type EditorScene = {
   repeat?: DynamicSceneRepeat;
   /** Optional deterministic scene generator resolved from automation input before rendering. */
   dynamicLayout?: DynamicSceneLayout;
+  /** V2.24 narration source. Generated audio remains a normal project voiceover clip. */
+  narration?: {
+    text: string;
+    voicePresetId?: string;
+    autoDuration?: boolean;
+    endPaddingMs?: number;
+    pronunciation?: Array<{ find: string; sayAs: string }>;
+  };
 };
 
 export type EditorDocumentV1 = {
@@ -227,6 +244,8 @@ export type EditorAudioClip = {
   id: string;
   name: string;
   src: string;
+  assetId?: string;
+  storagePath?: string;
   role: AudioClipRole;
   /** Absolute project timeline position. */
   startMs: number;
@@ -246,6 +265,15 @@ export type EditorAudioClip = {
   waveform?: number[];
   /** Music clips can opt out of automatic voiceover ducking. */
   ducking?: boolean;
+  /** Optional V2.24 metadata for generated narration/library automation. */
+  sceneId?: string;
+  generatedByTts?: boolean;
+  ttsProvider?: "openai" | "elevenlabs";
+  voicePresetId?: string;
+  narrationText?: string;
+  bpm?: number;
+  beatOffsetMs?: number;
+  libraryItemId?: string;
 };
 
 
@@ -341,7 +369,9 @@ export type BrandKit = {
   colors: { primary: string; secondary: string; accent: string; background: string; text: string };
   typography: { headingFont: string; bodyFont: string };
   logoSrc?: string;
+  logoAssetId?: string;
   watermarkSrc?: string;
+  watermarkAssetId?: string;
   socialHandle?: string;
   ctaText?: string;
   variables?: Record<string, string>;

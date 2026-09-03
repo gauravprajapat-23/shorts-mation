@@ -7,25 +7,19 @@
 //      Storage (`renders` bucket) and marks the item `rendered`.
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
-import { buildShotstackEdit, submitShotstackRender, getShotstackRender } from "@/lib/shotstack.server";
+import { buildShotstackEdit, submitShotstackRender, getShotstackRender, cancelShotstackRender } from "@/lib/shotstack.server";
+import { DEFAULT_RENDER_BUDGET, estimateRenderCostUsd, renderTimeoutMs, retryBackoffMs, shouldDeadLetter, type RenderBudget } from "@/lib/render-reliability";
 import { getRenderCredentials, renderCallbackBaseUrl } from "@/lib/render-settings.server";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
+import { campaignAutomationInput, campaignStringVariables, materializeCampaignRenderDocument } from "@/lib/render-materialization";
 import { createHash, randomUUID } from "node:crypto";
 import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders, RENDER_STALE_MINUTES } from "@/lib/automation-limits.server";
+import { hydrateDocumentAssetRefsServer } from "@/lib/asset-refs.server";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
 const COLLECT_PER_TICK = 6;
 const SIGN_TTL_SECONDS = 60 * 60 * 6;
-
-function varsFromContent(content: unknown): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries((content ?? {}) as Record<string, unknown>)) {
-    if (k.startsWith("_")) continue;
-    out[k] = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
-  }
-  return out;
-}
 
 function fallbackDocument(vars: Record<string, string>): EditorDocument {
   const dims = CANVAS_DIMS["9:16"];
@@ -68,6 +62,7 @@ async function signAsset(userId: string, fileName?: string | null): Promise<stri
       .select("storage_path")
       .eq("user_id", userId)
       .eq("file_name", fileName)
+      .eq("lifecycle_status", "active")
       .limit(1)
       .maybeSingle();
     path = data?.storage_path ?? null;
@@ -92,16 +87,31 @@ function backgroundFromDoc(doc: EditorDocument, vars: Record<string, string>): s
   return null;
 }
 
-async function log(row: { user_id: string; campaign_id: string; id: string }, level: "info" | "warn" | "error", message: string) {
+async function log(row: { user_id: string; campaign_id: string; id: string }, level: "info" | "warn" | "error", message: string, event = "render", attemptId?: string | null, metadata: Record<string, unknown> = {}) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  await supabaseAdmin.from("automation_logs").insert({
-    user_id: row.user_id,
-    campaign_id: row.campaign_id,
-    campaign_item_id: row.id,
-    level,
-    message,
-    metadata_json: {} as never,
-  });
+  await Promise.all([
+    supabaseAdmin.from("automation_logs").insert({ user_id: row.user_id, campaign_id: row.campaign_id, campaign_item_id: row.id, level, message, metadata_json: metadata as never }),
+    (supabaseAdmin as any).from("render_logs").insert({ user_id: row.user_id, campaign_id: row.campaign_id, campaign_item_id: row.id, render_attempt_id: attemptId ?? null, level, event, message, metadata_json: metadata as never }),
+  ]);
+}
+
+async function budgetFor(userId: string): Promise<RenderBudget> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await (supabaseAdmin as any).from("render_budgets").select("*").eq("user_id", userId).maybeSingle();
+  return data ? {
+    monthlyBudgetUsd: Number(data.monthly_budget_usd),
+    maxCostPerRenderUsd: Number(data.max_cost_per_render_usd),
+    maxRenderSeconds: Number(data.max_render_seconds),
+    maxRetries: Number(data.max_retries),
+    baseBackoffSeconds: Number(data.base_backoff_seconds),
+  } : DEFAULT_RENDER_BUDGET;
+}
+
+async function monthSpend(userId: string): Promise<number> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const start = new Date(); start.setUTCDate(1); start.setUTCHours(0,0,0,0);
+  const { data } = await (supabaseAdmin as any).from("render_attempts").select("estimated_cost_usd").eq("user_id", userId).gte("claimed_at", start.toISOString()).in("status", ["submitted","completed"]);
+  return (data ?? []).reduce((sum: number, r: any) => sum + Number(r.estimated_cost_usd ?? 0), 0);
 }
 
 export async function submitDueRenders(opts?: {
@@ -133,15 +143,38 @@ export async function reclaimStaleRenders(): Promise<{ reclaimed: number }> {
   for (const row of rows) {
     const { data: current } = await supabaseAdmin.from("campaign_items").select("active_render_attempt_id").eq("id", row.id).maybeSingle();
     const attemptId = (current as any)?.active_render_attempt_id as string | null;
+    // Before starting a second paid render, ask the provider whether the first
+    // stale-looking job is actually still alive or already finished.
+    if (row.render_job_ref) {
+      try {
+        const cred = await getRenderCredentials(row.user_id);
+        if (cred) {
+          const provider = await getShotstackRender(row.render_job_ref, cred);
+          if (provider.status === "done" && provider.url) {
+            await storeFinishedRender(row, provider.url, attemptId);
+            continue;
+          }
+          if (provider.status !== "failed") {
+            await log(row, "warn", `Render exceeded local stale timeout but provider still reports ${provider.status}; keeping the active attempt`);
+            continue;
+          }
+        }
+      } catch {
+        // If provider reconciliation itself is unavailable, do not create a
+        // duplicate paid job. The next cron pass can try reconciliation again.
+        await log(row, "warn", "Could not reconcile stale render with provider; keeping the active attempt to avoid a duplicate render");
+        continue;
+      }
+    }
     if (attemptId) {
-      await (supabaseAdmin as any).from("render_attempts").update({ status: "abandoned", error_message: "stale render timeout", finished_at: new Date().toISOString() }).eq("id", attemptId);
+      await (supabaseAdmin as any).from("render_attempts").update({ status: "abandoned", error_message: "provider confirmed stale/failed render", finished_at: new Date().toISOString() }).eq("id", attemptId);
     }
     await supabaseAdmin
       .from("campaign_items")
       .update({ status: "pending", render_job_ref: null, render_submitted_at: null, active_render_attempt_id: null })
       .eq("id", row.id)
       .eq("status", "rendering");
-    await log(row, "warn", "Render attempt timed out — the active attempt was abandoned and the item requeued");
+    await log(row, "warn", "Provider confirmed the stale render was no longer processing; item requeued");
   }
   return { reclaimed: rows.length };
 }
@@ -161,15 +194,19 @@ async function submitDueRendersInner(opts?: {
   const nowIso = new Date().toISOString();
   let query = supabaseAdmin
     .from("campaign_items")
-    .select("id, user_id, campaign_id, content_json, asset_json, audio_json, schedule_at, campaigns!inner(status, template_id, settings_json)")
+    .select("id, user_id, campaign_id, content_json, asset_json, audio_json, schedule_at, render_priority, render_retry_count, render_next_attempt_at, render_dead_lettered_at, render_cancel_requested_at, campaigns!inner(status, template_id, settings_json)")
     .in("status", ["pending", "upload_pending"])
     .is("rendered_video_url", null)
-    .is("render_job_ref", null);
+    .is("render_job_ref", null)
+    .is("render_dead_lettered_at", null)
+    .is("render_cancel_requested_at", null)
+    .eq("is_paused", false);
   if (opts?.campaignId) query = query.eq("campaign_id", opts.campaignId);
   if (!opts?.ignoreLeadTime) {
     query = query.not("render_due_at", "is", null).lte("render_due_at", nowIso);
   }
   const { data: rows } = await query
+    .order("render_priority", { ascending: false })
     .order("schedule_at", { ascending: true, nullsFirst: false })
     .limit(perTick * 4);
 
@@ -181,6 +218,7 @@ async function submitDueRendersInner(opts?: {
   for (const row of (rows ?? []) as any[]) {
     if (submitted >= perTick) break;
     if (row.campaigns?.status !== "active") continue;
+    if (row.render_next_attempt_at && new Date(row.render_next_attempt_at).getTime() > Date.now()) continue;
     const cap = effectiveCap(overrides, row.user_id, "renders", limits.max_user_concurrent_renders);
     if ((perUser[row.user_id] ?? 0) >= cap) { throttled++; continue; }
     if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderCredentials(row.user_id));
@@ -201,13 +239,23 @@ async function submitDueRendersInner(opts?: {
       await (supabaseAdmin as any).from("render_attempts").update({ callback_token_hash: callbackTokenHash }).eq("id", attemptId);
       const callbackUrl = `${callbackBaseUrl}?attempt=${encodeURIComponent(attemptId)}&token=${encodeURIComponent(callbackToken)}`;
 
-      const vars = varsFromContent(row.content_json);
+      const rawVars = campaignAutomationInput(row.content_json);
       let doc: EditorDocument | null = null;
       if (row.campaigns?.template_id) {
         const { data: tpl } = await supabaseAdmin.from("templates").select("template_json").eq("id", row.campaigns.template_id).maybeSingle();
         if (tpl?.template_json) doc = parseEditorDocument(tpl.template_json);
       }
-      if (!doc?.scenes?.length) doc = fallbackDocument(vars);
+      if (!doc?.scenes?.length) doc = fallbackDocument(campaignStringVariables(row.content_json));
+      const concrete = materializeCampaignRenderDocument(doc, rawVars);
+      doc = await hydrateDocumentAssetRefsServer(concrete.document, row.user_id);
+      const vars = concrete.values;
+      const budget = await budgetFor(row.user_id);
+      const estimatedCost = estimateRenderCostUsd(concrete.durationMs);
+      const spent = await monthSpend(row.user_id);
+      if (estimatedCost > budget.maxCostPerRenderUsd) throw new Error(`Render budget blocked: estimated $${estimatedCost.toFixed(4)} exceeds per-render limit $${budget.maxCostPerRenderUsd.toFixed(4)}`);
+      if (spent + estimatedCost > budget.monthlyBudgetUsd) throw new Error(`Render budget blocked: monthly budget $${budget.monthlyBudgetUsd.toFixed(2)} would be exceeded`);
+      await (supabaseAdmin as any).from("render_attempts").update({ estimated_cost_usd: estimatedCost, retry_number: Number(row.render_retry_count ?? 0) }).eq("id", attemptId);
+      await supabaseAdmin.from("campaign_items").update({ render_estimated_cost_usd: estimatedCost }).eq("id", row.id);
 
       const asset = (row.asset_json ?? {}) as { background_file_name?: string };
       const audio = (row.audio_json ?? {}) as { audio_file_name?: string; volume?: number };
@@ -227,17 +275,24 @@ async function submitDueRendersInner(opts?: {
       const jobId = await submitShotstackRender(edit, cred);
       await (supabaseAdmin as any).from("render_attempts").update({ provider_job_ref: jobId, status: "submitted", submitted_at: new Date().toISOString() }).eq("id", attemptId);
       await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
-      await log(row, "info", `Server render submitted (attempt ${attemptId}, job ${jobId})`);
+      await log(row, "info", `Server render submitted (attempt ${attemptId}, job ${jobId})`, "submitted", attemptId, { job_id: jobId });
       perUser[row.user_id] = (perUser[row.user_id] ?? 0) + 1;
       submitted++;
     } catch (e) {
       errors++;
       const msg = e instanceof Error ? e.message : "Server render submit failed";
       if (attemptId) {
-        await (supabaseAdmin as any).from("render_attempts").update({ status: "failed", error_message: msg, finished_at: new Date().toISOString() }).eq("id", attemptId);
-        await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, error_message: msg }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
-      }
-      await log(row, "error", msg);
+        const budget = await budgetFor(row.user_id);
+        const nextRetry = Number(row.render_retry_count ?? 0) + 1;
+        const dead = shouldDeadLetter(nextRetry, budget.maxRetries);
+        const nextAt = new Date(Date.now() + retryBackoffMs(nextRetry, budget.baseBackoffSeconds)).toISOString();
+        await (supabaseAdmin as any).from("render_attempts").update({ status: dead ? "dead_letter" : "failed", error_message: msg, finished_at: new Date().toISOString(), next_retry_at: dead ? null : nextAt }).eq("id", attemptId);
+        await supabaseAdmin.from("campaign_items").update({
+          status: dead ? "failed" : "pending", render_job_ref: null, active_render_attempt_id: null, error_message: msg,
+          render_retry_count: nextRetry, render_next_attempt_at: dead ? null : nextAt, render_dead_lettered_at: dead ? new Date().toISOString() : null,
+        }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
+        await log(row, dead ? "error" : "warn", dead ? `Render moved to dead letter after ${nextRetry} attempts: ${msg}` : `Render retry ${nextRetry} scheduled with backoff: ${msg}`, dead ? "dead_letter" : "retry_scheduled", attemptId, { retry: nextRetry, next_at: dead ? null : nextAt });
+      } else await log(row, "error", msg, "submit_failed");
     }
   }
   return { submitted, errors, ...(throttled ? { skipped: `${throttled} item(s) throttled by per-user render limit` } : {}) };
@@ -247,7 +302,7 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows } = await supabaseAdmin
     .from("campaign_items")
-    .select("id, user_id, campaign_id, render_job_ref, active_render_attempt_id")
+    .select("id, user_id, campaign_id, render_job_ref, active_render_attempt_id, render_cancel_requested_at, render_submitted_at, render_retry_count")
     .not("render_job_ref", "is", null)
     .is("rendered_video_url", null)
     .limit(COLLECT_PER_TICK);
@@ -257,7 +312,21 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
     try {
       const cred = await getRenderCredentials(row.user_id);
       if (!cred) { pending++; continue; }
+      if (row.render_cancel_requested_at) {
+        await cancelShotstackRender(row.render_job_ref as string, cred);
+        if (row.active_render_attempt_id) await (supabaseAdmin as any).from("render_attempts").update({ status: "cancelled", cancelled_at: new Date().toISOString(), finished_at: new Date().toISOString() }).eq("id", row.active_render_attempt_id);
+        await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, render_cancel_requested_at: null, error_message: "Render cancelled" }).eq("id", row.id);
+        await log(row, "warn", "Render cancelled by user", "cancelled", row.active_render_attempt_id);
+        continue;
+      }
+      const budget = await budgetFor(row.user_id);
+      const submittedAt = row.render_submitted_at ? new Date(row.render_submitted_at).getTime() : Date.now();
+      if (Date.now() - submittedAt > renderTimeoutMs(budget.maxRenderSeconds)) {
+        try { await cancelShotstackRender(row.render_job_ref as string, cred); } catch {}
+        throw new Error(`Render timed out after ${budget.maxRenderSeconds}s`);
+      }
       const status = await getShotstackRender(row.render_job_ref as string, cred);
+      if (row.active_render_attempt_id) await (supabaseAdmin as any).from("render_attempts").update({ provider_status: status.status }).eq("id", row.active_render_attempt_id);
       if (status.status === "failed") throw new Error(status.error || "Render provider reported a failed render");
       if (status.status !== "done" || !status.url) { pending++; continue; }
       await storeFinishedRender(row, status.url, (row as any).active_render_attempt_id);
@@ -297,15 +366,20 @@ export async function storeFinishedRender(row: ItemRef, url: string, attemptId?:
   if (contentType && !contentType.startsWith("video/") && contentType !== "application/octet-stream") {
     throw new Error(`Render output was not a video (${contentType})`);
   }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (!bytes.byteLength) throw new Error("The finished MP4 was empty");
+  const contentLength = Number(res.headers.get("content-length") ?? 0);
+  if (contentLength === 0 && !res.body) throw new Error("The finished MP4 was empty");
   const path = `${row.user_id}/${row.id}-${Date.now()}.mp4`;
-  const up = await supabaseAdmin.storage.from("renders").upload(path, bytes, { contentType: "video/mp4", upsert: true });
+  // V2.18: pass the provider response body through to Storage instead of
+  // materializing the complete MP4 with arrayBuffer(). This keeps worker memory
+  // bounded for concurrent/long renders when the Storage client supports streams.
+  const uploadBody = res.body ?? new Uint8Array(await res.arrayBuffer());
+  const up = await supabaseAdmin.storage.from("renders").upload(path, uploadBody as any, { contentType: "video/mp4", upsert: true });
   if (up.error) throw up.error;
 
   let update = supabaseAdmin.from("campaign_items").update({
     rendered_video_url: path, status: "rendered", error_message: null,
-    active_render_attempt_id: null,
+    active_render_attempt_id: null, render_retry_count: 0, render_next_attempt_at: null,
+    render_dead_lettered_at: null, render_cancel_requested_at: null,
   }).eq("id", row.id);
   if (attemptId) update = update.eq("active_render_attempt_id", attemptId);
   const { data: changed } = await update.select("id");
@@ -314,20 +388,31 @@ export async function storeFinishedRender(row: ItemRef, url: string, attemptId?:
     throw new Error("Render attempt is no longer active; refusing stale completion");
   }
   if (attemptId) {
-    await (supabaseAdmin as any).from("render_attempts").update({ status: "completed", finished_at: new Date().toISOString() }).eq("id", attemptId);
+    await (supabaseAdmin as any).from("render_attempts").update({ status: "completed", finished_at: new Date().toISOString(), finalized_at: new Date().toISOString(), output_bytes: contentLength || null, provider_status: "done" }).eq("id", attemptId);
   }
-  await log(row, "info", "Server render finished and stored");
+  await log(row, "info", "Server render finished and stored", "finalized", attemptId, { output_bytes: contentLength || null, storage_path: path });
 }
 
 export async function failRender(row: ItemRef, message: string, attemptId?: string | null): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: current } = await supabaseAdmin.from("campaign_items").select("render_retry_count").eq("id", row.id).maybeSingle();
+  const budget = await budgetFor(row.user_id);
+  const retry = Number((current as any)?.render_retry_count ?? 0) + 1;
+  const dead = shouldDeadLetter(retry, budget.maxRetries);
+  const nextAt = dead ? null : new Date(Date.now() + retryBackoffMs(retry, budget.baseBackoffSeconds)).toISOString();
   if (attemptId) {
-    await (supabaseAdmin as any).from("render_attempts").update({ status: "failed", error_message: message, finished_at: new Date().toISOString() }).eq("id", attemptId);
-    await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, error_message: message }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
-  } else {
-    await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, error_message: message }).eq("id", row.id);
+    await (supabaseAdmin as any).from("render_attempts").update({
+      status: dead ? "dead_letter" : (message.toLowerCase().includes("timed out") ? "timed_out" : "failed"),
+      error_message: message, finished_at: new Date().toISOString(), next_retry_at: nextAt,
+    }).eq("id", attemptId);
   }
-  await log(row, "error", message);
+  let update = supabaseAdmin.from("campaign_items").update({
+    status: dead ? "failed" : "pending", render_job_ref: null, active_render_attempt_id: null, error_message: message,
+    render_retry_count: retry, render_next_attempt_at: nextAt, render_dead_lettered_at: dead ? new Date().toISOString() : null,
+  }).eq("id", row.id);
+  if (attemptId) update = update.eq("active_render_attempt_id", attemptId);
+  await update;
+  await log(row, dead ? "error" : "warn", dead ? `Render dead-lettered: ${message}` : `Render failed; retry ${retry} scheduled: ${message}`, dead ? "dead_letter" : "retry_scheduled", attemptId, { retry, next_at: nextAt });
 }
 
 /** Webhook entry point. The callback URL carries a one-attempt token. We ignore

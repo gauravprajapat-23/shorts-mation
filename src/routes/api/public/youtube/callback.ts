@@ -36,7 +36,8 @@ export const Route = createFileRoute("/api/public/youtube/callback")({
         const code = url.searchParams.get("code");
         const state = url.searchParams.get("state");
         const err = url.searchParams.get("error");
-        const origin = `${url.protocol}//${url.host}`;
+        const requestOrigin = `${url.protocol}//${url.host}`;
+        const origin = process.env.PUBLIC_APP_URL?.replace(/\/+$/, "") ?? requestOrigin;
         const back = `${origin}/youtube-connect`;
         // Always clear the state cookie before any redirect.
         const clearStateCookie = () => deleteCookie("yt_oauth_state", { path: "/" });
@@ -102,7 +103,14 @@ export const Route = createFileRoute("/api/public/youtube/callback")({
         const { encryptToken } = await import("@/lib/token-crypto.server");
         const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
         const encAccess = await encryptToken(tokens.access_token);
-        const encRefresh = tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null;
+        const { data: existingConnection } = await supabaseAdmin.from("youtube_connections")
+          .select("refresh_token_encrypted")
+          .eq("user_id", userId).eq("channel_id", ch.id).maybeSingle();
+        // Google commonly omits refresh_token on reconnect. Never erase a valid
+        // stored refresh token just because this authorization response omitted it.
+        const encRefresh = tokens.refresh_token
+          ? await encryptToken(tokens.refresh_token)
+          : existingConnection?.refresh_token_encrypted ?? null;
         const { error: upErr } = await supabaseAdmin.from("youtube_connections").upsert({
           user_id: userId,
           channel_id: ch.id,

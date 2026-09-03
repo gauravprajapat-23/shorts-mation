@@ -198,7 +198,7 @@ export function evaluateTimelineFrame(
     const clipLocalMs = localMs - clipStartMs;
     const inClip = clipLocalMs >= 0 && clipLocalMs <= clipDurationMs;
     const frame = computeElementFrame(element, Math.max(0, clipLocalMs), clipDurationMs);
-    const visible = inClip && frame.visible && frame.opacity > 0.001;
+    const visible = !element.hidden && inClip && frame.visible && frame.opacity > 0.001;
     return {
       element,
       frame,

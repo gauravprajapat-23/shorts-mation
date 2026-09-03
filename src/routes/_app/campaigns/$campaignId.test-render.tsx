@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
-import { startRenderJob, pollRenderJob } from "@/lib/render-jobs.functions";
+import { startRenderJob, pollRenderJob, attachBrowserRenderedOutput } from "@/lib/render-jobs.functions";
+import { hydrateDocumentAssetRefsClient } from "@/lib/asset-client";
 import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2, Film, Volume2, VolumeX, Repeat } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
 import { resolveDocVars } from "@/lib/animate";
@@ -26,6 +27,7 @@ type Settings = { field_mapping?: Record<string, string>; default_privacy?: stri
 function TestRenderPage() {
   const { campaignId } = useParams({ from: "/_app/campaigns/$campaignId/test-render" });
   const qc = useQueryClient();
+  const attachRenderedOutput = useServerFn(attachBrowserRenderedOutput);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [rowIndex, setRowIndex] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -52,7 +54,16 @@ function TestRenderPage() {
   const template = useQuery({
     queryKey: ["template-preview", campaign.data?.template_id],
     enabled: !!campaign.data?.template_id,
-    queryFn: async () => (await supabase.from("templates").select("*").eq("id", campaign.data!.template_id!).single()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("templates").select("*").eq("id", campaign.data!.template_id!).single();
+      if (error) throw error;
+      if (data?.template_json) {
+        const parsed = parseEditorDocument(data.template_json);
+        const hydrated = await hydrateDocumentAssetRefsClient(parsed);
+        return { ...data, template_json: hydrated as never };
+      }
+      return data;
+    },
   });
 
   const templateDoc = template.data?.template_json ? parseEditorDocument(template.data.template_json) : undefined;
@@ -79,27 +90,30 @@ function TestRenderPage() {
     queryFn: async () => pollFn({ data: { jobId: jobId! } }),
   });
 
-  const previewVars = useMemo<Record<string, string>>(() => {
+  const rawAutomationVars = useMemo<Record<string, unknown>>(() => {
     if (!item) return {};
     const content = (item.content_json ?? {}) as Record<string, unknown>;
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(content)) {
-      if (k.startsWith("_")) continue;
-      out[k] = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
-    }
-    // also expose seo fields
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(content)) if (!k.startsWith("_")) out[k] = v;
     const seo = (item.seo_json ?? {}) as { title?: string; description?: string };
     if (seo.title) out["seo.title"] = seo.title;
     if (seo.description) out["seo.description"] = seo.description;
     return out;
   }, [item]);
 
-  const doc = useMemo<EditorDocument>(() => {
-    const source = templateDoc ?? fallbackDocumentFromVars(previewVars);
-    return materializeAutomationDocument(source, previewVars).document;
-  }, [templateDoc, previewVars]);
+  const materialized = useMemo(() => {
+    const fallbackVars = Object.fromEntries(Object.entries(rawAutomationVars).map(([k,v]) => [k, v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)]));
+    const source = templateDoc ?? fallbackDocumentFromVars(fallbackVars);
+    return materializeAutomationDocument(source, rawAutomationVars);
+  }, [templateDoc, rawAutomationVars]);
+  const doc = materialized.document;
+  const previewVars = materialized.values;
 
-  const scene = doc.scenes[sceneIndex];
+  useEffect(() => {
+    if (!doc.scenes.length) return;
+    setSceneIndex((current) => Math.min(current, doc.scenes.length - 1));
+  }, [doc.scenes.length]);
+  const scene = doc.scenes[sceneIndex] ?? doc.scenes[0];
   const dims = CANVAS_DIMS[doc.aspect];
   const mappedKeys = Object.keys(mapping);
   const seo = (item?.seo_json ?? {}) as { title?: string; description?: string };
@@ -164,11 +178,12 @@ function TestRenderPage() {
           upsert: true,
         });
         if (uploadError) throw uploadError;
-        const { error: updateError } = await supabase
-          .from("campaign_items")
-          .update({ rendered_video_url: path, status: "rendered", error_message: null })
-          .eq("id", item.id);
-        if (updateError) throw updateError;
+        try {
+          await attachRenderedOutput({ data: { itemId: item.id, storagePath: path } });
+        } catch (attachError) {
+          await supabase.storage.from("renders").remove([path]);
+          throw attachError;
+        }
         qc.invalidateQueries({ queryKey: ["campaign-items-preview", campaignId] });
       }
       toast.success("MP4 ready for upload");
@@ -193,7 +208,7 @@ function TestRenderPage() {
   const rendering = j ? j.status !== "completed" && j.status !== "failed" : false;
 
   if (campaign.isLoading || template.isLoading) {
-    return <div className="p-10 text-zinc-400">Loading…</div>;
+    return <div className="p-4 sm:p-6 lg:p-8 text-zinc-400">Loading…</div>;
   }
 
   return (

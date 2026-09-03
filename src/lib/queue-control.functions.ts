@@ -11,10 +11,13 @@ export type QueueAttempt = {
   finished_at: string | null;
   provider_ref: string | null;
   error_message: string | null;
+  estimated_cost_usd?: number | null;
+  retry_number?: number | null;
 };
 
 export type QueueItemDetail = {
   attempts: QueueAttempt[];
+  renderLogs: Array<{ id: number; level: string; event: string; message: string; created_at: string; metadata_json: Record<string, unknown> }>;
 };
 
 export const retryQueueItem = createServerFn({ method: "POST" })
@@ -157,13 +160,14 @@ export const getQueueItemDetail = createServerFn({ method: "POST" })
   .inputValidator((d: { itemId: string }) => d)
   .handler(async ({ data, context }): Promise<QueueItemDetail> => {
     await ownedItem(context, data.itemId);
-    const [renders, uploads] = await Promise.all([
-      (context.supabase as any).from("render_attempts").select("id,status,claimed_at,submitted_at,finished_at,provider_job_ref,error_message").eq("campaign_item_id", data.itemId).order("claimed_at", { ascending: false }).limit(20),
+    const [renders, uploads, logs] = await Promise.all([
+      (context.supabase as any).from("render_attempts").select("id,status,claimed_at,submitted_at,finished_at,provider_job_ref,error_message,estimated_cost_usd,retry_number").eq("campaign_item_id", data.itemId).order("claimed_at", { ascending: false }).limit(20),
       (context.supabase as any).from("upload_attempts").select("id,status,claimed_at,started_at,finished_at,provider_upload_ref,youtube_video_id,error_message").eq("campaign_item_id", data.itemId).order("claimed_at", { ascending: false }).limit(20),
+      (context.supabase as any).from("render_logs").select("id,level,event,message,created_at,metadata_json").eq("campaign_item_id", data.itemId).order("created_at", { ascending: false }).limit(50),
     ]);
     const attempts: QueueAttempt[] = [
-      ...((renders.data ?? []) as any[]).map((a) => ({ id:a.id, kind:"render" as const, status:a.status, claimed_at:a.claimed_at, started_at:a.submitted_at ?? null, finished_at:a.finished_at ?? null, provider_ref:a.provider_job_ref ?? null, error_message:a.error_message ?? null })),
+      ...((renders.data ?? []) as any[]).map((a) => ({ id:a.id, kind:"render" as const, status:a.status, claimed_at:a.claimed_at, started_at:a.submitted_at ?? null, finished_at:a.finished_at ?? null, provider_ref:a.provider_job_ref ?? null, error_message:a.error_message ?? null, estimated_cost_usd:Number(a.estimated_cost_usd ?? 0), retry_number:Number(a.retry_number ?? 0) })),
       ...((uploads.data ?? []) as any[]).map((a) => ({ id:a.id, kind:"upload" as const, status:a.status, claimed_at:a.claimed_at, started_at:a.started_at ?? null, finished_at:a.finished_at ?? null, provider_ref:a.youtube_video_id ?? a.provider_upload_ref ?? null, error_message:a.error_message ?? null })),
     ].sort((a,b) => new Date(b.claimed_at).getTime() - new Date(a.claimed_at).getTime());
-    return { attempts };
+    return { attempts, renderLogs: (logs.data ?? []) as any };
   });

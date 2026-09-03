@@ -1,6 +1,7 @@
 import { migrateDocumentV1ToV2 } from "@/lib/editor-document-v2";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
 import type { EditorDocument, EditorDocumentV2 } from "@/lib/types";
+import { normalizeDocumentAssetRefs } from "@/lib/asset-refs";
 
 export const PORTABLE_TEMPLATE_FORMAT = "shorts-mation-template" as const;
 export const PORTABLE_TEMPLATE_VERSION = 1 as const;
@@ -14,12 +15,21 @@ export type PortableTemplateFileV1 = {
   aspect: "9:16" | "16:9" | "1:1";
   exportedAt: string;
   document: EditorDocumentV2;
+  marketplace?: {
+    category?: string;
+    tags?: string[];
+    description?: string;
+    documentation?: string;
+    thumbnailUrl?: string;
+    previewVideoUrl?: string;
+  };
 };
 
 export type ImportedTemplate = {
   name: string;
   type: string;
   document: EditorDocumentV2;
+  marketplace?: PortableTemplateFileV1["marketplace"];
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -45,8 +55,8 @@ function normalizeDocument(input: unknown): EditorDocumentV2 {
   return document;
 }
 
-export function createPortableTemplate(input: { name: string; type?: string; document: EditorDocument }): PortableTemplateFileV1 {
-  const document = normalizeDocument(input.document);
+export function createPortableTemplate(input: { name: string; type?: string; document: EditorDocument; marketplace?: PortableTemplateFileV1["marketplace"] }): PortableTemplateFileV1 {
+  const document = normalizeDocument(normalizeDocumentAssetRefs(input.document));
   return {
     format: PORTABLE_TEMPLATE_FORMAT,
     formatVersion: PORTABLE_TEMPLATE_VERSION,
@@ -55,6 +65,7 @@ export function createPortableTemplate(input: { name: string; type?: string; doc
     aspect: document.aspect,
     exportedAt: new Date().toISOString(),
     document,
+    ...(input.marketplace ? { marketplace: input.marketplace } : {}),
   };
 }
 
@@ -72,19 +83,41 @@ export function parseTemplateImport(input: unknown, fileName?: string): Imported
       throw new Error(`Unsupported template format version: ${String(obj.formatVersion ?? "unknown")}`);
     }
     const document = normalizeDocument(obj.document);
-    return { name: cleanName(obj.name, fallbackName), type: cleanType(obj.type), document };
+    const marketplace = asRecord(obj.marketplace);
+    return {
+      name: cleanName(obj.name, fallbackName), type: cleanType(obj.type), document,
+      ...(marketplace ? { marketplace: {
+        category: typeof marketplace.category === "string" ? marketplace.category.slice(0,80) : undefined,
+        tags: Array.isArray(marketplace.tags) ? marketplace.tags.filter((v): v is string => typeof v === "string").slice(0,12) : undefined,
+        description: typeof marketplace.description === "string" ? marketplace.description.slice(0,1000) : undefined,
+        documentation: typeof marketplace.documentation === "string" ? marketplace.documentation.slice(0,12000) : undefined,
+        thumbnailUrl: typeof marketplace.thumbnailUrl === "string" ? marketplace.thumbnailUrl.slice(0,2000) : undefined,
+        previewVideoUrl: typeof marketplace.previewVideoUrl === "string" ? marketplace.previewVideoUrl.slice(0,2000) : undefined,
+      }} : {}),
+    };
   }
 
   if (obj && "template_json" in obj) {
     const document = normalizeDocument(obj.template_json);
-    return { name: cleanName(obj.name, fallbackName), type: cleanType(obj.type), document };
+    const marketplace = asRecord(obj.marketplace);
+    return {
+      name: cleanName(obj.name, fallbackName), type: cleanType(obj.type), document,
+      ...(marketplace ? { marketplace: {
+        category: typeof marketplace.category === "string" ? marketplace.category.slice(0,80) : undefined,
+        tags: Array.isArray(marketplace.tags) ? marketplace.tags.filter((v): v is string => typeof v === "string").slice(0,12) : undefined,
+        description: typeof marketplace.description === "string" ? marketplace.description.slice(0,1000) : undefined,
+        documentation: typeof marketplace.documentation === "string" ? marketplace.documentation.slice(0,12000) : undefined,
+        thumbnailUrl: typeof marketplace.thumbnailUrl === "string" ? marketplace.thumbnailUrl.slice(0,2000) : undefined,
+        previewVideoUrl: typeof marketplace.previewVideoUrl === "string" ? marketplace.previewVideoUrl.slice(0,2000) : undefined,
+      }} : {}),
+    };
   }
 
   const document = normalizeDocument(input);
   return { name: fallbackName, type: "custom", document };
 }
 
-export function serializePortableTemplate(input: { name: string; type?: string; document: EditorDocument }): string {
+export function serializePortableTemplate(input: { name: string; type?: string; document: EditorDocument; marketplace?: PortableTemplateFileV1["marketplace"] }): string {
   return `${JSON.stringify(createPortableTemplate(input), null, 2)}\n`;
 }
 
@@ -93,7 +126,7 @@ export function templateFileName(name: string): string {
   return `${slug}.shorts-template.json`;
 }
 
-export function downloadPortableTemplate(input: { name: string; type?: string; document: EditorDocument }) {
+export function downloadPortableTemplate(input: { name: string; type?: string; document: EditorDocument; marketplace?: PortableTemplateFileV1["marketplace"] }) {
   const blob = new Blob([serializePortableTemplate(input)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

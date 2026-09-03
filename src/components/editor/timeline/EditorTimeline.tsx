@@ -67,6 +67,21 @@ export function EditorTimeline({
   const sceneBoundaries = useMemo(() => getTimelineSceneRanges(doc).map((range) => ({
     scene: range.scene, index: range.index, start: range.startMs, end: range.endMs,
   })), [doc]);
+  const snapTime=(value:number,excludeClipId?:string)=>{
+    const threshold=8/pxPerMs;
+    const targets:number[]=[0,doc.durationMs,playheadMs];
+    for(const range of sceneBoundaries)targets.push(range.start,range.end);
+    for(const track of doc.tracks)for(const clip of track.clips){
+      if(clip.id===excludeClipId)continue;
+      targets.push(clip.startMs,clip.startMs+clip.durationMs);
+    }
+    let best=value,bestDistance=threshold;
+    for(const target of targets){
+      const distance=Math.abs(value-target);
+      if(distance<bestDistance){best=target;bestDistance=distance;}
+    }
+    return Math.max(0,Math.min(doc.durationMs,best));
+  };
 
   const seekFromPointer = (clientX: number) => {
     const el = scrollerRef.current;
@@ -85,13 +100,16 @@ export function EditorTimeline({
     const onMove = (ev: PointerEvent) => {
       const deltaMs = (ev.clientX - startX) / pxPerMs;
       if (mode === "move") {
-        onClipTimingChange(clip, Math.max(0, originalStart + deltaMs), originalDuration, mode);
+        onClipTimingChange(clip, snapTime(Math.max(0, originalStart + deltaMs),clip.id), originalDuration, mode);
       } else if (mode === "trim-left") {
         const maxShift = originalDuration - MIN_CLIP_MS;
         const shift = Math.max(-originalStart, Math.min(maxShift, deltaMs));
-        onClipTimingChange(clip, originalStart + shift, originalDuration - shift, mode);
+        const snappedStart=snapTime(originalStart+shift,clip.id);
+        const actualShift=snappedStart-originalStart;
+        onClipTimingChange(clip, snappedStart, Math.max(MIN_CLIP_MS,originalDuration-actualShift), mode);
       } else {
-        onClipTimingChange(clip, originalStart, Math.max(MIN_CLIP_MS, originalDuration + deltaMs), mode);
+        const end=snapTime(originalStart+Math.max(MIN_CLIP_MS, originalDuration + deltaMs),clip.id);
+        onClipTimingChange(clip, originalStart, Math.max(MIN_CLIP_MS,end-originalStart), mode);
       }
     };
     const onUp = () => {
@@ -107,7 +125,9 @@ export function EditorTimeline({
     const startX = e.clientX;
     const onMove = (ev: PointerEvent) => {
       if (!clip.elementId) return;
-      const next = Math.max(0, Math.min(clip.durationMs, initialMs + (ev.clientX - startX) / pxPerMs));
+      const raw=Math.max(0, Math.min(clip.durationMs, initialMs + (ev.clientX - startX) / pxPerMs));
+      const frameMs=1000/doc.fps;
+      const next=Math.round(raw/frameMs)*frameMs;
       onKeyframeTimingChange(clip.elementId, clip.sceneId, keyframeId, next);
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
@@ -115,14 +135,14 @@ export function EditorTimeline({
   };
 
   return (
-    <div className="h-[260px] shrink-0 border-t border-border bg-panel flex flex-col select-none">
+    <div className="h-[170px] sm:h-[210px] lg:h-[260px] shrink-0 border-t border-border bg-panel flex flex-col select-none">
       <div className="h-11 shrink-0 flex items-center gap-2 border-b border-border px-3">
         <button onClick={() => onSeek(0)} className="size-7 grid place-items-center rounded hover:bg-white/5" title="Start"><SkipBack className="size-3.5" /></button>
         <button onClick={onTogglePlaying} className="size-8 grid place-items-center rounded-md bg-brand text-white" title={playing ? "Pause" : "Play"}>{playing ? <Pause className="size-4" /> : <Play className="size-4 ml-0.5" />}</button>
         <button onClick={() => onSeek(Math.min(doc.durationMs, playheadMs + 1000 / doc.fps))} className="size-7 grid place-items-center rounded hover:bg-white/5" title="Next frame"><SkipForward className="size-3.5" /></button>
         <span className="font-mono text-xs text-zinc-300 w-[118px]">{formatTime(playheadMs)} <span className="text-zinc-600">/ {formatTime(doc.durationMs)}</span></span>
         <div className="h-5 w-px bg-border mx-1" />
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500">Timeline</span>
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500">Timeline · snap on</span>
         <button onClick={onAddScene} className="h-7 px-2 rounded border border-border hover:border-brand/60 text-[10px] text-zinc-300 inline-flex items-center gap-1"><Plus className="size-3" /> Scene</button>
         <button disabled={!canSplitSelected} onClick={onSplitSelected} className="h-7 px-2 rounded border border-border disabled:opacity-30 disabled:cursor-not-allowed hover:border-brand/60 text-[10px] text-zinc-300 inline-flex items-center gap-1" title="Split selected video at playhead"><Scissors className="size-3" /> Split</button>
         <div className="ml-auto flex items-center gap-1.5">

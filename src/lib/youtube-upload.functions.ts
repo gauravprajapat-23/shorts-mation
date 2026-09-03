@@ -56,7 +56,7 @@ async function resolveStoredUrl(bucket: "assets" | "renders", fileUrl?: string |
   return signedStorageUrl(bucket, candidate.replace(new RegExp(`^${bucket}/`), ""));
 }
 
-export async function getFreshYouTubeAccessToken(conn: {
+export async function getFreshYouTubeAccessTokenForIntelligence(conn: {
   id: string;
   user_id: string;
   access_token_encrypted: string | null;
@@ -114,6 +114,42 @@ export async function getFreshYouTubeAccessToken(conn: {
   return j.access_token;
 }
 
+
+function youtubeCategoryId(value?: string | null): string {
+  const raw = String(value ?? "").trim();
+  if (/^\d+$/.test(raw)) return raw;
+  const map: Record<string, string> = {
+    "film & animation":"1", autos:"2", music:"10", "pets & animals":"15", sports:"17",
+    "short movies":"18", travel:"19", gaming:"20", videoblogging:"21", "people & blogs":"22",
+    comedy:"23", entertainment:"24", "news & politics":"25", "howto & style":"26", education:"27",
+    "science & technology":"28", "nonprofits & activism":"29",
+  };
+  return map[raw.toLowerCase()] ?? "22";
+}
+
+async function addVideoToPlaylist(accessToken: string, videoId: string, requested: string): Promise<string | null> {
+  const wanted = requested.trim();
+  if (!wanted) return null;
+  let playlistId = wanted;
+  if (!/^PL[\w-]+$/i.test(wanted)) {
+    const list = await fetch("https://www.googleapis.com/youtube/v3/playlists?part=snippet&mine=true&maxResults=50", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!list.ok) throw new Error(`Could not resolve YouTube playlist: ${list.status} ${await list.text()}`);
+    const body = await list.json() as { items?: Array<{ id: string; snippet?: { title?: string } }> };
+    const match = body.items?.find((p) => p.snippet?.title?.trim().toLowerCase() === wanted.toLowerCase());
+    if (!match) throw new Error(`YouTube playlist not found: ${wanted}`);
+    playlistId = match.id;
+  }
+  const add = await fetch("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } } }),
+  });
+  if (!add.ok) throw new Error(`Could not add video to YouTube playlist: ${add.status} ${await add.text()}`);
+  return playlistId;
+}
+
 class UploadAlreadyClaimedError extends Error {}
 
 async function claimUploadAttempt(itemId: string): Promise<string> {
@@ -145,6 +181,7 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
       .select("file_url, storage_path")
       .eq("user_id", userId)
       .eq("file_name", backgroundFileName)
+      .eq("lifecycle_status", "active")
       .limit(1)
       .maybeSingle();
     const background = await resolveStoredUrl("assets", data?.file_url, data?.storage_path);
@@ -157,6 +194,7 @@ async function pickVideoUrl(userId: string, backgroundFileName: string | undefin
     .select("file_url, storage_path")
     .eq("user_id", userId)
     .eq("type", "video")
+    .eq("lifecycle_status", "active")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -173,7 +211,12 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
   const { data: campaign } = await supabaseAdmin.from("campaigns").select("*").eq("id", item.campaign_id).single();
   if (!campaign) throw new Error("Campaign not found");
 
-  await (supabaseAdmin as any).from("upload_attempts").update({ status: "uploading", started_at: new Date().toISOString() }).eq("id", attemptId);
+  await (supabaseAdmin as any).from("upload_attempts").update({
+    status: "uploading",
+    started_at: new Date().toISOString(),
+    intended_publish_at: opts?.publishAt ?? null,
+    intended_final_status: opts?.publishAt ? "scheduled" : "uploaded",
+  }).eq("id", attemptId);
 
   try {
     let conn: any = null;
@@ -196,11 +239,18 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
       }
     }
     if (!conn) throw new Error("No YouTube channel connected. Open YouTube page and connect your channel, then retry.");
-    const accessToken = await getFreshYouTubeAccessToken(conn);
+    const accessToken = await getFreshYouTubeAccessTokenForIntelligence(conn);
     const seo = (item.seo_json ?? {}) as { title?: string; description?: string; tags?: string[]; hashtags?: string[] };
-    const yt = (item.youtube_settings_json ?? {}) as { privacy?: "private" | "unlisted" | "public"; category?: string };
+    const yt = (item.youtube_settings_json ?? {}) as { privacy?: "private" | "unlisted" | "public"; category?: string; categoryId?: string; playlist?: string; playlistId?: string; language?: string; madeForKids?: boolean; thumbnailAssetId?: string };
     const asset = (item.asset_json ?? {}) as { background_file_name?: string };
     const settings = (campaign.settings_json ?? {}) as { default_privacy?: "private" | "unlisted" | "public" };
+    const defaults = (conn.upload_defaults_json ?? {}) as { privacy?: "private"|"unlisted"|"public"; categoryId?:string; playlistId?:string; language?:string; madeForKids?:boolean; titleTemplate?:string; descriptionTemplate?:string; hashtagMax?:number; appendHashtags?:boolean };
+    const { renderPublishTemplate, normalizeHashtags, uploadThumbnail } = await import("@/lib/youtube-intelligence.server");
+    const vars = { title: seo.title ?? item.video_file_name ?? "Untitled", description: seo.description ?? "", fileName: item.video_file_name ?? "" };
+    const title = renderPublishTemplate(defaults.titleTemplate || "{{title}}", vars).slice(0,100);
+    const hashtags = normalizeHashtags(seo.hashtags ?? [], defaults.hashtagMax ?? 5);
+    const descriptionBase = renderPublishTemplate(defaults.descriptionTemplate || "{{description}}", vars);
+    const description = [descriptionBase, defaults.appendHashtags === false ? "" : hashtags.join(" ")].filter(Boolean).join("\n\n").slice(0,5000);
 
     const videoUrl = await pickVideoUrl(item.user_id, asset.background_file_name, item.rendered_video_url);
     if (!isAllowedSignedStorageUrl(videoUrl)) {
@@ -208,24 +258,25 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
     }
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Fetch video failed: ${videoRes.status}`);
-    const videoBlob = await videoRes.blob();
-    if (!videoBlob.size) {
-      throw new Error("The rendered video file is empty. Re-render MP4 for this row, then publish again.");
-    }
-    if (videoBlob.type && !videoBlob.type.startsWith("video/")) {
+    const videoType = videoRes.headers.get("content-type") || "video/mp4";
+    const videoSize = Number(videoRes.headers.get("content-length") ?? 0);
+    if (videoType && !videoType.startsWith("video/") && videoType !== "application/octet-stream") {
       throw new Error("The selected upload source is not a video file. Render MP4 for this row or choose an uploaded video asset.");
     }
+    if (!videoRes.body) throw new Error("The rendered video response had no body");
+    if (Number.isFinite(videoSize) && videoSize === 0) throw new Error("The rendered video file is empty. Re-render MP4 for this row, then publish again.");
 
     const metadata = {
       snippet: {
-        title: (seo.title ?? item.video_file_name ?? "Untitled").slice(0, 100),
-        description: [seo.description ?? "", (seo.hashtags ?? []).join(" ")].filter(Boolean).join("\n\n").slice(0, 5000),
+        title,
+        description,
         tags: (seo.tags ?? []).slice(0, 30),
-        categoryId: "22",
+        categoryId: yt.categoryId || defaults.categoryId || youtubeCategoryId(yt.category),
+        ...(yt.language || defaults.language ? { defaultLanguage: yt.language || defaults.language, defaultAudioLanguage: yt.language || defaults.language } : {}),
       },
       status: opts?.publishAt
-        ? { privacyStatus: "private", publishAt: opts.publishAt, selfDeclaredMadeForKids: false }
-        : { privacyStatus: yt.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: false },
+        ? { privacyStatus: "private", publishAt: opts.publishAt, selfDeclaredMadeForKids: yt.madeForKids ?? defaults.madeForKids ?? false }
+        : { privacyStatus: yt.privacy ?? defaults.privacy ?? settings.default_privacy ?? "private", selfDeclaredMadeForKids: yt.madeForKids ?? defaults.madeForKids ?? false },
     };
 
     // Resumable upload — start
@@ -234,8 +285,8 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json; charset=UTF-8",
-        "X-Upload-Content-Type": videoBlob.type || "video/mp4",
-        "X-Upload-Content-Length": String(videoBlob.size),
+        "X-Upload-Content-Type": videoType,
+        ...(videoSize > 0 ? { "X-Upload-Content-Length": String(videoSize) } : {}),
       },
       body: JSON.stringify(metadata),
     });
@@ -244,17 +295,40 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
     if (!uploadUrl) throw new Error("YouTube did not return an upload URL");
 
     // Single-shot PUT (fine for Shorts < 100MB; resumable protocol allows it)
-    const putRes = await fetch(uploadUrl, {
+    const putInit: RequestInit & { duplex?: "half" } = {
       method: "PUT",
-      headers: { "Content-Type": videoBlob.type || "video/mp4", "Content-Length": String(videoBlob.size) },
-      body: videoBlob,
-    });
+      headers: { "Content-Type": videoType, ...(videoSize > 0 ? { "Content-Length": String(videoSize) } : {}) },
+      body: videoRes.body,
+      duplex: "half",
+    };
+    const putRes = await fetch(uploadUrl, putInit);
     if (!putRes.ok) throw new Error(`YouTube upload failed: ${putRes.status} ${await putRes.text()}`);
     const uploaded = (await putRes.json()) as { id?: string };
     if (!uploaded.id) throw new Error("YouTube did not return a video id");
     // Persist the external side effect first. If the process crashes before the
     // campaign row update, the next claim reconciles this ID instead of uploading twice.
     await (supabaseAdmin as any).from("upload_attempts").update({ youtube_video_id: uploaded.id, provider_upload_ref: uploadUrl }).eq("id", attemptId);
+    let playlistId: string | null = null;
+    let playlistWarning: string | null = null;
+    const requestedPlaylist = yt.playlistId || yt.playlist || defaults.playlistId || "";
+    if (requestedPlaylist.trim()) {
+      try { playlistId = await addVideoToPlaylist(accessToken, uploaded.id, requestedPlaylist); }
+      catch (playlistError) { playlistWarning = playlistError instanceof Error ? playlistError.message : "Could not add video to playlist"; }
+    }
+
+    let thumbnailWarning:string|null=null;
+    const thumbnailAssetId=yt.thumbnailAssetId || item.youtube_thumbnail_asset_id;
+    if(thumbnailAssetId){
+      try{
+        const thumb=await (supabaseAdmin as any).from("assets").select("storage_path,mime_type,size").eq("id",thumbnailAssetId).eq("user_id",item.user_id).eq("lifecycle_status","active").maybeSingle();
+        if(!thumb.data?.storage_path)throw new Error("Thumbnail asset is missing");
+        const signed=await supabaseAdmin.storage.from("assets").createSignedUrl(thumb.data.storage_path,300);
+        if(signed.error||!signed.data?.signedUrl)throw signed.error??new Error("Could not sign thumbnail");
+        const res=await fetch(signed.data.signedUrl);if(!res.ok)throw new Error(`Thumbnail fetch failed (${res.status})`);
+        const bytes=new Uint8Array(await res.arrayBuffer());
+        await uploadThumbnail(accessToken,uploaded.id,bytes,thumb.data.mime_type||res.headers.get("content-type")||"image/jpeg");
+      }catch(e){thumbnailWarning=e instanceof Error?e.message:"Thumbnail upload failed";}
+    }
 
     const { data: changed } = await supabaseAdmin.from("campaign_items").update({
       status: opts?.publishAt ? "scheduled" : "uploaded",
@@ -277,8 +351,14 @@ async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: string |
       message: opts?.publishAt
         ? `Uploaded to YouTube as private, auto-publishing at ${opts.publishAt} (${uploaded.id})`
         : `Uploaded to YouTube: ${uploaded.id}`,
-      metadata_json: { video_id: uploaded.id } as never,
+      metadata_json: { video_id: uploaded.id, category_id: yt.categoryId || defaults.categoryId || youtubeCategoryId(yt.category), playlist_id: playlistId, playlist_warning: playlistWarning, thumbnail_warning: thumbnailWarning, language: yt.language || defaults.language || null, made_for_kids: yt.madeForKids ?? defaults.madeForKids ?? false } as never,
     });
+    if (playlistWarning) {
+      await supabaseAdmin.from("automation_logs").insert({
+        user_id: item.user_id, campaign_id: item.campaign_id, campaign_item_id: itemId,
+        level: "warn", message: playlistWarning, metadata_json: { video_id: uploaded.id, requested_playlist: requestedPlaylist } as never,
+      });
+    }
     return { videoId: uploaded.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Upload failed";
@@ -329,6 +409,7 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
     .select("id, user_id, campaign_id, schedule_at, upload_due_at, campaigns!inner(status)")
     .in("status", ["pending", "rendered", "upload_pending"])
     .not("rendered_video_url", "is", null)
+    .eq("is_paused", false)
     .or(`upload_due_at.lte.${nowIso},and(upload_due_at.is.null,schedule_at.lte.${nowIso})`)
     .order("schedule_at", { ascending: true })
     .limit(Math.max(perTick, 1) * 4);
@@ -363,7 +444,7 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
       if (!connectionId) continue;
       const { data: conn } = await supabaseAdmin.from("youtube_connections").select("*").eq("id", connectionId).eq("user_id", row.user_id).single();
       if (!conn) continue;
-      const token = await getFreshYouTubeAccessToken(conn as any);
+      const token = await getFreshYouTubeAccessTokenForIntelligence(conn as any);
       const check = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(row.youtube_video_id)}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!check.ok) continue;
       const body = await check.json() as { items?: Array<{ status?: { privacyStatus?: string } }> };
@@ -375,5 +456,6 @@ export const processDueCampaignItems = async (): Promise<{ processed: number; er
     }
   }
 
+  try { await (supabaseAdmin as any).rpc("complete_finished_campaigns"); } catch { /* completion reconciliation retries next tick */ }
   return { processed, errors, throttled };
 };

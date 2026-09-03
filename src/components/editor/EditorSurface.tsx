@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import type React from "react";
 import type { EditorDocument, EditorDocumentV2, EditorElement, EditorScene, EditorAudioClip, AudioClipRole, EditorCaptionClip, CaptionPresetId, EditorEffectClip, EffectKind, MediaFilterPreset, TextElement, ShapeElement, ImageElement, VideoElement, AnimationSpec, InAnim, OutAnim, LoopAnim, TextReveal, CameraMove, SceneTransition, EaseName, ElementKeyframe, KeyframeProperty, BrandKit, EditorReusableComponent, AutomationVariableDefinition, AutomationVariableType, VisibilityOperator, RetentionPresetId, SceneRole } from "@/lib/types";
-import { Type, Image as ImageIcon, Square, Variable, Plus, Trash2, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles, Scissors } from "lucide-react";
+import { Type, Image as ImageIcon, Square, Variable, Plus, Trash2, Copy, Lock, Unlock, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize, Film, Upload, Circle, RotateCw, Music, Mic2, Volume2, Captions, Sparkles, Scissors, Eye, EyeOff, Search } from "lucide-react";
 import { CANVAS_DIMS, renderText, uid } from "@/lib/editor-defaults";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 import type { ElementFrame } from "@/lib/animate";
@@ -14,6 +14,7 @@ import { MOTION_PRESETS, applyMotionPreset, defaultKeyframeValues, type MotionPr
 import { builtInBrandComponents, normalizeBrandKit } from "@/lib/brand-components";
 import { automationDefinitions, materializeAutomationDocument } from "@/lib/automation-variables";
 import { analyzeRetention, normalizeRetention } from "@/lib/retention";
+import { selectionBounds } from "@/lib/editor-professional";
 
 type Panel = "elements" | "text" | "shapes" | "captions" | "audio" | "effects" | "retention" | "brand" | "components" | "variables" | "layers";
 type ResizeHandle = "nw" | "ne" | "sw" | "se" | "n" | "s" | "e" | "w";
@@ -117,11 +118,15 @@ export function PreviewModal({ doc, vars, setVars, onClose }: { doc: EditorDocum
   );
 }
 
-export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId, updateElement, zoom, setZoom, playheadMs, playing }: {
+export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, onSelectElement, onClearSelection, updateElement, updateElements, zoom, setZoom, showSafeZones, showRulers, playheadMs, playing }: {
   doc: EditorDocumentV2; sceneIndex: number; previewVars: Record<string, string>;
-  selectedId: string | null; setSelectedId: (id: string | null) => void;
+  selectedId: string | null; selectedIds: string[];
+  onSelectElement: (id: string, additive?: boolean) => void;
+  onClearSelection: () => void;
   updateElement: (id: string, mut: (e: EditorElement) => EditorElement) => void;
+  updateElements: (ids:string[],dx:number,dy:number)=>void;
   zoom: number | "fit"; setZoom: (z: number | "fit") => void;
+  showSafeZones:boolean; showRulers:boolean;
   playheadMs: number;
   playing: boolean;
 }) {
@@ -193,6 +198,17 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const zoomToSelection=()=>{
+    const selected=scene.elements.filter(e=>selectedIds.includes(e.id));
+    const b=selectionBounds(selected);
+    const wrap=wrapRef.current;
+    if(!b||!wrap)return;
+    const pad=96;
+    const next=Math.min(4,Math.max(.05,Math.min((wrap.clientWidth-pad)/Math.max(1,b.w),(wrap.clientHeight-pad)/Math.max(1,b.h))));
+    setZoom(next);
+    setOffset({x:wrap.clientWidth/2-(b.x+b.w/2)*next,y:wrap.clientHeight/2-(b.y+b.h/2)*next});
+  };
+
   const zoomBy = (factor: number) => {
     const wrap = wrapRef.current;
     const cur = scale;
@@ -233,11 +249,14 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
   };
 
   const startDrag = (e: React.PointerEvent, el: EditorElement) => {
-    if (el.locked) { setSelectedId(el.id); return; }
+    if (el.locked) { onSelectElement(el.id, e.shiftKey || e.metaKey || e.ctrlKey); return; }
     e.stopPropagation();
-    setSelectedId(el.id);
+    const additive=e.shiftKey || e.metaKey || e.ctrlKey;
+    onSelectElement(el.id, additive);
+    const movingIds = selectedIds.includes(el.id) && selectedIds.length > 1 ? selectedIds : (el.groupId ? scene.elements.filter(o=>o.groupId===el.groupId).map(o=>o.id) : [el.id]);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y };
     const targets = snapTargets(el.id);
+    let appliedDx=0, appliedDy=0;
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - start.x) / scale;
       const dy = (ev.clientY - start.y) / scale;
@@ -269,7 +288,9 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
       }
       if (bestY != null) { ny = bestY; if (matchedH != null) hLines.push(matchedH); }
       setGuides({ v: vLines, h: hLines });
-      updateElement(el.id, (cur) => ({ ...cur, x: nx, y: ny }));
+      const moveDx=nx-start.ex, moveDy=ny-start.ey;
+      updateElements(movingIds,moveDx-appliedDx,moveDy-appliedDy);
+      appliedDx=moveDx; appliedDy=moveDy;
     };
     const up = () => {
       setGuides({ v: [], h: [] });
@@ -283,7 +304,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
   const startResize = (e: React.PointerEvent, el: EditorElement, handle: ResizeHandle) => {
     e.stopPropagation();
     e.preventDefault();
-    setSelectedId(el.id);
+    onSelectElement(el.id);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y, ew: el.w, eh: el.h };
     const aspect = el.w / Math.max(1, el.h);
     const isCorner = handle.length === 2;
@@ -316,7 +337,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
   const startRotate = (e: React.PointerEvent, el: EditorElement) => {
     e.stopPropagation();
     e.preventDefault();
-    setSelectedId(el.id);
+    onSelectElement(el.id);
     const rect = wrapRef.current?.getBoundingClientRect();
     const canvas = (e.currentTarget as HTMLElement).closest("[data-canvas-root]") as HTMLElement | null;
     const cRect = canvas?.getBoundingClientRect() ?? rect!;
@@ -349,7 +370,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
       style={{ cursor: panning ? "grabbing" : undefined }}
       onPointerDown={(e) => {
         if (e.button === 1 || e.altKey) { e.preventDefault(); startPan(e); return; }
-        setSelectedId(null);
+        onClearSelection();
         setEditingId(null);
       }}
     >
@@ -372,7 +393,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
             const el = elementState.element;
             return (
             <ElementView
-              key={el.id} el={el} frame={elementState.frame} videoState={elementState.video} selected={el.id === selectedId}
+              key={el.id} el={el} frame={elementState.frame} videoState={elementState.video} selected={selectedIds.includes(el.id)} primarySelected={el.id===selectedId}
               editing={editingId === el.id}
               onPointerDown={(e) => startDrag(e, el)}
               onDoubleClick={() => { if (el.type === "text" && !el.locked) setEditingId(el.id); }}
@@ -393,6 +414,19 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
             <div key={`h-${i}-${y}`} className="absolute left-0 right-0 pointer-events-none" style={{ top: y, height: 1, background: "#FF0033" }} />
           ))}
         </div>
+        {showSafeZones && <>
+          <div className="absolute pointer-events-none border border-dashed border-amber-300/60" style={{left:dims.w*.05,top:dims.h*.05,width:dims.w*.9,height:dims.h*.9}}/>
+          <div className="absolute pointer-events-none border border-dashed border-sky-300/50" style={{left:dims.w*.1,top:dims.h*.1,width:dims.w*.8,height:dims.h*.8}}/>
+          {doc.aspect==="9:16"&&<div className="absolute pointer-events-none border-t border-dashed border-fuchsia-300/50" style={{left:0,right:0,top:dims.h*.82}}/>}
+        </>}
+        {showRulers && <>
+          <div className="absolute pointer-events-none left-0 right-0 top-0 h-5 bg-black/45 border-b border-white/10">
+            {Array.from({length:11},(_,i)=><span key={i} className="absolute top-0 h-2 border-l border-white/30 text-[8px] text-white/50 pl-1" style={{left:`${i*10}%`}}>{Math.round(dims.w*i/10)}</span>)}
+          </div>
+          <div className="absolute pointer-events-none left-0 top-0 bottom-0 w-5 bg-black/45 border-r border-white/10">
+            {Array.from({length:11},(_,i)=><span key={i} className="absolute left-0 w-2 border-t border-white/30 text-[8px] text-white/50" style={{top:`${i*10}%`}}>{Math.round(dims.h*i/10)}</span>)}
+          </div>
+        </>}
         {/* Captions are project/screen-space overlays. Keep them outside the
             scene camera transform to match SVG, FFmpeg and full Preview. */}
         {timelineFrame.visibleCaptions.map((captionState) => (
@@ -411,6 +445,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
         <button title="Zoom out" onClick={(e) => { e.stopPropagation(); zoomBy(1 / 1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomOut className="size-3.5" /></button>
         <button onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="px-2 h-7 hover:bg-white/5 rounded font-mono tabular-nums text-zinc-400">{Math.round(scale * 100)}%</button>
         <button title="Zoom in" onClick={(e) => { e.stopPropagation(); zoomBy(1.2); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><ZoomIn className="size-3.5" /></button>
+        <button title="Zoom to selection" disabled={!selectedIds.length} onClick={(e)=>{e.stopPropagation();zoomToSelection();}} className="px-2 h-7 hover:bg-white/5 rounded disabled:opacity-30">Sel</button>
         <button title="Fit to screen" onClick={(e) => { e.stopPropagation(); setZoom("fit"); }} className="size-7 grid place-items-center hover:bg-white/5 rounded"><Maximize className="size-3.5" /></button>
       </div>
       <div className="absolute bottom-3 left-3 text-[10px] text-zinc-500 pointer-events-none">
@@ -420,8 +455,8 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, setSelectedId
   );
 }
 
-function ElementView({ el, frame, videoState, selected, editing, onPointerDown, onDoubleClick, onTextChange, onEndEdit, onResizeStart, onRotateStart, previewVars, localPlayheadMs, playing }: {
-  el: EditorElement; frame: ElementFrame; videoState?: TimelineVideoState; selected: boolean; editing: boolean;
+function ElementView({ el, frame, videoState, selected, primarySelected, editing, onPointerDown, onDoubleClick, onTextChange, onEndEdit, onResizeStart, onRotateStart, previewVars, localPlayheadMs, playing }: {
+  el: EditorElement; frame: ElementFrame; videoState?: TimelineVideoState; selected: boolean; primarySelected:boolean; editing: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onDoubleClick: () => void;
   onTextChange: (text: string) => void;
@@ -444,7 +479,7 @@ function ElementView({ el, frame, videoState, selected, editing, onPointerDown, 
     h === "nw" || h === "se" ? "nwse-resize" :
     h === "ne" || h === "sw" ? "nesw-resize" :
     h === "n" || h === "s" ? "ns-resize" : "ew-resize";
-  const handles = selected && !el.locked ? (
+  const handles = primarySelected && !el.locked ? (
     <>
       {/* Corners */}
       {(["nw","ne","sw","se"] as const).map((c) => (
@@ -715,13 +750,20 @@ export function AudioProperties({ clip, doc, update, updateMix, onDelete, onSpli
       </div>
       <Row label="Name"><input value={clip.name} onChange={(e) => update({ name: e.target.value })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row>
       <Row label="Role"><select value={clip.role} onChange={(e) => update({ role: e.target.value as AudioClipRole })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"><option value="music">Music</option><option value="voiceover">Voiceover</option><option value="sfx">SFX</option><option value="original">Original</option></select></Row>
-      {clip.waveform?.length ? <div className="h-14 rounded-md border border-border bg-black/20 px-1 flex items-center gap-px">{clip.waveform.map((peak, i) => <span key={i} className="flex-1 bg-zinc-400 rounded-full" style={{ height: `${Math.max(6, peak * 100)}%` }} />)}</div> : <div className="h-10 grid place-items-center rounded-md border border-dashed border-border text-[10px] text-zinc-600">Waveform unavailable for this URL/source</div>}
+      {clip.waveform?.length ? <div className="space-y-2">
+        <div className="relative h-16 rounded-md border border-border bg-black/20 px-1 flex items-center gap-px overflow-hidden">
+          {clip.waveform.map((peak, i) => <span key={i} className="flex-1 bg-zinc-400 rounded-full" style={{ height: `${Math.max(6, peak * 100)}%` }} />)}
+          {clip.mediaDurationMs&&<><div className="absolute top-0 bottom-0 bg-black/55 pointer-events-none" style={{left:0,width:`${Math.max(0,Math.min(100,(clip.sourceStartMs??0)/clip.mediaDurationMs*100))}%`}}/><div className="absolute top-0 bottom-0 bg-black/55 pointer-events-none" style={{right:0,width:`${Math.max(0,100-Math.min(100,(clip.sourceEndMs??clip.mediaDurationMs)/clip.mediaDurationMs*100))}%`}}/></>}
+        </div>
+        {clip.mediaDurationMs&&<div className="space-y-1"><div className="text-[9px] text-zinc-500">Waveform trim</div><input type="range" min={0} max={Math.max(1,clip.mediaDurationMs-100)} step={10} value={clip.sourceStartMs??0} onChange={(e)=>{const start=Number(e.target.value);const end=Math.max(start+100,clip.sourceEndMs??clip.mediaDurationMs!);update({sourceStartMs:start,sourceEndMs:end,durationMs:Math.max(100,(end-start)/(clip.playbackRate??1))});}} className="w-full"/><input type="range" min={100} max={clip.mediaDurationMs} step={10} value={clip.sourceEndMs??clip.mediaDurationMs} onChange={(e)=>{const end=Number(e.target.value);const start=Math.min(end-100,clip.sourceStartMs??0);update({sourceStartMs:start,sourceEndMs:end,durationMs:Math.max(100,(end-start)/(clip.playbackRate??1))});}} className="w-full"/></div>}
+      </div> : <div className="h-10 grid place-items-center rounded-md border border-dashed border-border text-[10px] text-zinc-600">Waveform unavailable for this URL/source</div>}
       <div className="grid grid-cols-2 gap-2"><Row label="Start (ms)"><input type="number" min={0} step={50} value={Math.round(clip.startMs)} onChange={(e) => update({ startMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row><Row label="Duration (ms)"><input type="number" min={100} step={50} value={Math.round(clip.durationMs)} onChange={(e) => update({ durationMs: Math.max(100, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row></div>
       <div className="grid grid-cols-2 gap-2"><Row label="Source in (ms)"><input type="number" min={0} step={50} value={Math.round(clip.sourceStartMs ?? 0)} onChange={(e) => update({ sourceStartMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row><Row label="Source out (ms)"><input type="number" min={0} step={50} value={Math.round(clip.sourceEndMs ?? ((clip.sourceStartMs ?? 0) + clip.durationMs))} onChange={(e) => update({ sourceEndMs: Math.max((clip.sourceStartMs ?? 0) + 1, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row></div>
       <Row label="Playback speed"><select value={clip.playbackRate ?? 1} onChange={(e) => { const rate = Number(e.target.value); const span = (clip.sourceEndMs ?? ((clip.sourceStartMs ?? 0) + clip.durationMs * (clip.playbackRate ?? 1))) - (clip.sourceStartMs ?? 0); update({ playbackRate: rate, durationMs: Math.max(100, span / rate) }); }} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm">{[0.5,0.75,1,1.25,1.5,2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}</select></Row>
       <Row label={`Volume ${Math.round(clip.volume * 100)}%`}><input type="range" min={0} max={1} step={0.01} value={clip.volume} disabled={clip.muted} onChange={(e) => update({ volume: Number(e.target.value) })} className="w-full" /></Row>
       <div className="grid grid-cols-2 gap-2"><Row label="Fade in (ms)"><input type="number" min={0} step={50} value={clip.fadeInMs ?? 0} onChange={(e) => update({ fadeInMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row><Row label="Fade out (ms)"><input type="number" min={0} step={50} value={clip.fadeOutMs ?? 0} onChange={(e) => update({ fadeOutMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm" /></Row></div>
       <div className="grid grid-cols-3 gap-2 text-xs"><label className="flex items-center gap-1.5"><input type="checkbox" checked={clip.muted ?? false} onChange={(e) => update({ muted: e.target.checked })} /> Mute</label><label className="flex items-center gap-1.5"><input type="checkbox" checked={clip.solo ?? false} onChange={(e) => update({ solo: e.target.checked })} /> Solo</label><label className="flex items-center gap-1.5"><input type="checkbox" checked={clip.loop ?? false} onChange={(e) => update({ loop: e.target.checked })} /> Loop</label></div>
+      {(clip.role==="music"||clip.role==="sfx")&&<div className="grid grid-cols-2 gap-2"><Row label="BPM"><input type="number" min={1} max={400} value={clip.bpm??""} onChange={(e)=>update({bpm:e.target.value?Math.max(1,Number(e.target.value)):undefined})} placeholder="120" className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"/></Row><Row label="Beat offset (ms)"><input type="number" step={10} value={clip.beatOffsetMs??0} onChange={(e)=>update({beatOffsetMs:Number(e.target.value)||0})} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-sm"/></Row></div>}
       {canDuck ? <div className="space-y-2 rounded-md border border-border p-2"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={clip.ducking !== false} onChange={(e) => update({ ducking: e.target.checked })} /><span>Duck under voiceover</span></label><label className="flex items-center gap-2 text-[10px]"><input type="checkbox" checked={mix?.duckingEnabled ?? true} onChange={(e) => updateMix({ duckingEnabled: e.target.checked })} /> Auto ducking enabled</label><Row label={`Duck level ${Math.round((mix?.duckLevel ?? 0.22) * 100)}%`}><input type="range" min={0.05} max={0.8} step={0.01} value={mix?.duckLevel ?? 0.22} onChange={(e) => updateMix({ duckLevel: Number(e.target.value) })} className="w-full" /></Row><div className="grid grid-cols-2 gap-2"><Row label="Attack (ms)"><input type="number" min={0} step={20} value={mix?.attackMs ?? 180} onChange={(e) => updateMix({ attackMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-xs" /></Row><Row label="Release (ms)"><input type="number" min={0} step={20} value={mix?.releaseMs ?? 320} onChange={(e) => updateMix({ releaseMs: Math.max(0, Number(e.target.value)) })} className="w-full h-8 px-2 rounded-md bg-zinc-950 border border-border text-xs" /></Row></div></div> : null}
       <button onClick={onSplit} className="w-full h-8 rounded-md border border-border hover:border-brand/50 text-xs inline-flex items-center justify-center gap-2"><Scissors className="size-3.5" /> Split at playhead</button>
       <p className="text-[10px] text-zinc-600">Music ducking is calculated from voiceover clip ranges using the project attack/release settings.</p>
@@ -757,8 +799,8 @@ function TimelineVideo({ element, state, frame, localPlayheadMs, playing }: { el
   return <video ref={ref} draggable={false} style={{ width: "100%", height: "100%", objectFit: element.fit, pointerEvents: "none", background: "#000", filter: cssFilterForLook(resolveMediaLook(element.filterPreset, element.colorAdjustments)), transform: `translate(${frame.cropX}%, ${frame.cropY}%) scale(${frame.cropScale})`, transformOrigin: "center center" }} src={element.src} muted={element.muted ?? true} playsInline preload="auto" />;
 }
 
-export function LeftPanel({ panel, doc, brandLibrary, componentLibrary, onSaveBrandKit, onApplyBrandKit, onDeleteBrandKit, onUpdateBrand, onUploadBrandAsset, onInsertComponent, onSaveSelectedComponent, onSaveSceneComponent, onDeleteComponent, selectedAudioId, selectedCaptionId, selectedEffectId, onSelectAudio, onSelectCaption, onSelectEffect, onAddEffect, onDeleteEffect, onAddCaption, onDeleteCaption, onDeleteAudio, onAddAudioFromUrl, onUploadAudio, onAddText, onAddTextPreset, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, onUpdateAutomationVariable, onAddAutomationVariable, onDeleteAutomationVariable, onUpdateSceneAutomation, onApplyRetentionPreset, onUpdateRetention, scene, selectedId, setSelectedId, deleteElement }: {
-  panel: Panel; doc: EditorDocumentV2; brandLibrary: BrandKit[]; componentLibrary: EditorReusableComponent[]; onSaveBrandKit: () => void; onApplyBrandKit: (brand: BrandKit) => void; onDeleteBrandKit: (id: string) => void;
+export function LeftPanel({ panel, doc, brandLibrary, componentLibrary, audioAutomationSlot, onSaveBrandKit, onApplyBrandKit, onDeleteBrandKit, onUpdateBrand, onUploadBrandAsset, onInsertComponent, onSaveSelectedComponent, onSaveSceneComponent, onDeleteComponent, selectedAudioId, selectedCaptionId, selectedEffectId, onSelectAudio, onSelectCaption, onSelectEffect, onAddEffect, onDeleteEffect, onAddCaption, onDeleteCaption, onDeleteAudio, onAddAudioFromUrl, onUploadAudio, onAddText, onAddTextPreset, onAddShape, onAddImagePlaceholder, onAddImageFromUrl, onAddVideoFromUrl, onUploadFile, onAddVariable, onUpdateAutomationVariable, onAddAutomationVariable, onDeleteAutomationVariable, onUpdateSceneAutomation, onApplyRetentionPreset, onUpdateRetention, scene, selectedId, selectedIds, onSelectLayer, onToggleLayerLock, onToggleLayerHidden, deleteElement }: {
+  panel: Panel; doc: EditorDocumentV2; brandLibrary: BrandKit[]; componentLibrary: EditorReusableComponent[]; audioAutomationSlot?: React.ReactNode; onSaveBrandKit: () => void; onApplyBrandKit: (brand: BrandKit) => void; onDeleteBrandKit: (id: string) => void;
   onUpdateBrand: (patch: Partial<BrandKit>) => void; onUploadBrandAsset: (kind: "logo" | "watermark", file: File) => void;
   onInsertComponent: (component: EditorReusableComponent) => void; onSaveSelectedComponent: () => void; onSaveSceneComponent: () => void; onDeleteComponent: (id: string) => void;
   selectedAudioId: string | null; selectedCaptionId: string | null; selectedEffectId: string | null; onSelectAudio: (id: string) => void;
@@ -778,8 +820,11 @@ export function LeftPanel({ panel, doc, brandLibrary, componentLibrary, onSaveBr
   onUpdateSceneAutomation: (patch: Partial<EditorScene>) => void;
   onApplyRetentionPreset: (preset: RetentionPresetId) => void;
   onUpdateRetention: (patch: Partial<ReturnType<typeof normalizeRetention>>) => void;
-  scene: EditorScene; selectedId: string | null; setSelectedId: (id: string) => void; deleteElement: (id: string) => void;
+  scene: EditorScene; selectedId: string | null; selectedIds:string[];
+  onSelectLayer:(id:string,additive?:boolean)=>void; onToggleLayerLock:(id:string)=>void; onToggleLayerHidden:(id:string)=>void;
+  deleteElement: (id: string) => void;
 }) {
+  const [layerSearch,setLayerSearch]=useState("");
   if (panel === "brand") {
     const brand = normalizeBrandKit(doc.brand);
     const updateColor = (key: keyof BrandKit["colors"], value: string) => onUpdateBrand({ colors: { ...brand.colors, [key]: value } });
@@ -843,6 +888,7 @@ export function LeftPanel({ panel, doc, brandLibrary, componentLibrary, onSaveBr
     ];
     return (
       <div className="p-3 space-y-3">
+        {audioAutomationSlot}
         <div>
           <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">Audio</div>
           <p className="text-[10px] text-zinc-500 mt-1">Add music, voiceover, SFX or original audio to the project timeline.</p>
@@ -902,17 +948,26 @@ export function LeftPanel({ panel, doc, brandLibrary, componentLibrary, onSaveBr
     );
   }
   if (panel === "layers") {
+    const q=layerSearch.trim().toLowerCase();
+    const layers=[...scene.elements].reverse().filter((el)=>{
+      const name=el.type==="text"?el.text:el.type;
+      return !q||name.toLowerCase().includes(q)||el.id.toLowerCase().includes(q)||(el.groupId??"").toLowerCase().includes(q);
+    });
     return (
       <div className="p-3">
         <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-3">Layers</div>
+        <label className="relative block mb-3"><Search className="absolute left-2 top-2 size-3.5 text-zinc-600"/><input value={layerSearch} onChange={(e)=>setLayerSearch(e.target.value)} placeholder="Search layers…" className="w-full h-8 pl-7 pr-2 bg-zinc-950 border border-border rounded text-xs"/></label>
         {scene.elements.length === 0 && <div className="text-xs text-zinc-500">No layers yet.</div>}
         <ul className="space-y-1">
-          {[...scene.elements].reverse().map((el) => (
-            <li key={el.id} className={`flex items-center justify-between p-2 rounded-md text-sm ${selectedId===el.id?"bg-brand/10 text-brand":"hover:bg-white/5"}`}>
-              <button onClick={() => setSelectedId(el.id)} className="flex items-center gap-2 flex-1 text-left truncate">
+          {layers.map((el) => (
+            <li key={el.id} className={`flex items-center gap-1 p-1.5 rounded-md text-sm ${selectedIds.includes(el.id)?"bg-brand/10 text-brand":"hover:bg-white/5"} ${el.hidden?"opacity-50":""}`}>
+              <button onClick={(e) => onSelectLayer(el.id,e.shiftKey||e.metaKey||e.ctrlKey)} className="flex items-center gap-2 flex-1 min-w-0 text-left truncate">
                 {el.type === "text" ? <Type className="size-3.5" /> : el.type === "shape" ? <Square className="size-3.5" /> : el.type === "video" ? <Film className="size-3.5" /> : <ImageIcon className="size-3.5" />}
                 <span className="truncate">{el.type === "text" ? el.text : el.type}</span>
+                {el.groupId&&<span className="ml-auto text-[8px] text-zinc-600">group</span>}
               </button>
+              <button onClick={()=>onToggleLayerHidden(el.id)} className="p-1 text-zinc-500 hover:text-white" title={el.hidden?"Show layer":"Hide layer"}>{el.hidden?<EyeOff className="size-3"/>:<Eye className="size-3"/>}</button>
+              <button onClick={()=>onToggleLayerLock(el.id)} className="p-1 text-zinc-500 hover:text-white" title={el.locked?"Unlock":"Lock"}>{el.locked?<Lock className="size-3"/>:<Unlock className="size-3"/>}</button>
               <button onClick={() => deleteElement(el.id)} className="p-1 text-zinc-500 hover:text-brand"><Trash2 className="size-3" /></button>
             </li>
           ))}

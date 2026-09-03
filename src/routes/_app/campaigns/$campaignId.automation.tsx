@@ -43,7 +43,7 @@ function AutomationView() {
   const d = q.data;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <Link to="/campaigns/$campaignId" params={{ campaignId }} className="inline-flex items-center gap-2 text-xs text-zinc-400 hover:text-white mb-4">
         <ArrowLeft className="size-3.5" /> Back to campaign
       </Link>
@@ -58,6 +58,7 @@ function AutomationView() {
 
       <div className="mb-5 flex gap-2 border-b border-border">
         <Link to="/campaigns/$campaignId/queue" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Queue & schedule</Link>
+        <Link to="/campaigns/$campaignId/calendar" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Calendar</Link>
         <span className="px-3 py-2 text-xs font-semibold text-white border-b-2 border-brand">Activity</span>
       </div>
 
@@ -69,7 +70,10 @@ function AutomationView() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
+      {q.isError && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300"><div className="font-semibold">Automation status could not be loaded</div><button onClick={() => q.refetch()} className="mt-2 text-xs underline">Retry</button></div>}
+      {q.isLoading && <div className="mb-6 rounded-xl border border-border bg-panel p-6 text-center text-sm text-zinc-500">Loading automation activity…</div>}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-8">
         <StatCard label="Total" value={d?.counts.total ?? 0} icon={Film} accent />
         <StatCard label="Waiting" value={d?.counts.waiting ?? 0} icon={Clock} />
         <StatCard label="Rendering" value={d?.counts.rendering ?? 0} icon={Film} />
@@ -79,7 +83,7 @@ function AutomationView() {
       </div>
 
       <div className="rounded-2xl border border-border bg-panel overflow-hidden mb-8">
-        <header className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <header className="px-4 sm:px-5 py-4 border-b border-border flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display font-bold">Per-video progress</h2>
           <span className="text-xs text-zinc-500">Auto-refreshes every 15s</span>
         </header>
@@ -133,19 +137,20 @@ function AutomationView() {
       </div>
 
       <div className="rounded-2xl border border-border bg-panel overflow-hidden">
-        <header className="px-5 py-4 border-b border-border"><h2 className="font-display font-bold">Backend activity log</h2></header>
-        <ul className="divide-y divide-border/70">
-          {(d?.logs ?? []).map((l) => (
-            <li key={l.id} className="px-5 py-3 text-sm flex items-start gap-3">
-              <span className={`mt-1 size-2 rounded-full shrink-0 ${l.level === "error" ? "bg-red-500" : l.level === "warn" ? "bg-amber-400" : "bg-emerald-500"}`} />
-              <div>
-                <div className="text-zinc-300">{l.message}</div>
-                <div className="text-[11px] text-zinc-500">{new Date(l.created_at).toLocaleString()}</div>
+        <header className="px-5 py-4 border-b border-border flex items-center justify-between"><div><h2 className="font-display font-bold">Campaign activity timeline</h2><p className="text-xs text-zinc-500 mt-1">Newest events first · render, retry, upload, schedule and recovery operations.</p></div><Clock className="size-4 text-zinc-500" /></header>
+        <ol className="px-5 py-4">
+          {(d?.logs ?? []).map((l, index) => (
+            <li key={l.id} className="relative pl-7 pb-5 last:pb-0">
+              {index < (d?.logs.length ?? 0)-1 && <span className="absolute left-[5px] top-4 bottom-0 w-px bg-border" />}
+              <span className={`absolute left-0 top-1 size-2.5 rounded-full ring-4 ring-panel ${l.level === "error" ? "bg-red-500" : l.level === "warn" ? "bg-amber-400" : "bg-emerald-500"}`} />
+              <div className="rounded-xl border border-border bg-canvas/40 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-2"><div className="text-sm text-zinc-300">{l.message}</div><time className="text-[10px] text-zinc-500 whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</time></div>
+                {l.campaign_item_id && <div className="mt-1 text-[10px] font-mono text-zinc-600">Video {l.campaign_item_id.slice(0,8)}</div>}
               </div>
             </li>
           ))}
-          {d && d.logs.length === 0 && <li className="px-5 py-8 text-center text-zinc-500 text-sm">No backend activity yet.</li>}
-        </ul>
+          {d && d.logs.length === 0 && <li className="py-8 text-center text-zinc-500 text-sm">No campaign activity yet.</li>}
+        </ol>
       </div>
     </div>
   );

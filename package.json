@@ -106,5 +106,10 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16",
     "vitest": "^4.1.10"
+  },
+  "packageManager": "npm@10",
+  "engines": {
+    "node": ">=20.19.1 <23",
+    "npm": ">=10"
   }
 }

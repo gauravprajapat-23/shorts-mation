@@ -17,22 +17,29 @@ function DashboardPage() {
   const stats = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
-      const [campaigns, items, yt] = await Promise.all([
-        supabase.from("campaigns").select("id,status,name,created_at,total_videos,uploaded_count,failed_count").order("created_at", { ascending: false }),
-        supabase.from("campaign_items").select("status"),
+      const [campaigns, campaignCount, totalVideos, scheduled, uploaded, failed, yt, templates, userTemplates] = await Promise.all([
+        supabase.from("campaigns").select("id,status,name,created_at,total_videos,uploaded_count,failed_count").order("created_at", { ascending: false }).limit(20),
+        supabase.from("campaigns").select("id", { count: "exact", head: true }),
+        supabase.from("campaign_items").select("id", { count: "exact", head: true }),
+        supabase.from("campaign_items").select("id", { count: "exact", head: true }).in("status", ["scheduled", "upload_pending"]),
+        supabase.from("campaign_items").select("id", { count: "exact", head: true }).eq("status", "uploaded"),
+        supabase.from("campaign_items").select("id", { count: "exact", head: true }).eq("status", "failed"),
         supabase.from("youtube_connections").select("channel_name,channel_avatar,is_connected").eq("is_connected", true).maybeSingle(),
+        supabase.from("templates").select("id", { count: "exact", head: true }),
+        supabase.from("templates").select("id", { count: "exact", head: true }).not("user_id", "is", null),
       ]);
-      const tpl = await supabase.from("templates").select("id,user_id").limit(50);
-      const itemsArr = items.data ?? [];
+      const failure = campaigns.error ?? campaignCount.error ?? totalVideos.error ?? scheduled.error ?? uploaded.error ?? failed.error ?? yt.error ?? templates.error ?? userTemplates.error;
+      if (failure) throw failure;
       return {
         campaigns: campaigns.data ?? [],
-        totalVideos: itemsArr.length,
-        scheduled: itemsArr.filter((i) => i.status === "scheduled" || i.status === "upload_pending").length,
-        uploaded: itemsArr.filter((i) => i.status === "uploaded").length,
-        failed: itemsArr.filter((i) => i.status === "failed").length,
+        campaignCount: campaignCount.count ?? 0,
+        totalVideos: totalVideos.count ?? 0,
+        scheduled: scheduled.count ?? 0,
+        uploaded: uploaded.count ?? 0,
+        failed: failed.count ?? 0,
         yt: yt.data,
-        userTemplates: (tpl.data ?? []).filter((t) => t.user_id).length,
-        totalTemplates: (tpl.data ?? []).length,
+        userTemplates: userTemplates.count ?? 0,
+        totalTemplates: templates.count ?? 0,
       };
     },
   });
@@ -48,7 +55,7 @@ function DashboardPage() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <PageHeader
         title="Dashboard"
         description="Your automation control room. Connect once, upload once, ship forever."
@@ -59,10 +66,16 @@ function DashboardPage() {
         }
       />
 
+      {stats.isError && (
+        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+          <div className="font-semibold">Dashboard data could not be loaded</div>
+          <button onClick={() => stats.refetch()} className="mt-2 text-xs underline">Retry</button>
+        </div>
+      )}
       {d && <OnboardingChecklist status={onboarding} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <StatCard label="Campaigns" value={d?.campaigns.length ?? 0} icon={Rocket} accent />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
+        <StatCard label="Campaigns" value={d?.campaignCount ?? 0} icon={Rocket} accent />
         <StatCard label="Videos generated" value={d?.totalVideos ?? 0} icon={Video} />
         <StatCard label="Scheduled" value={d?.scheduled ?? 0} icon={CalendarClock} />
         <StatCard label="Uploaded" value={d?.uploaded ?? 0} icon={Upload} />
@@ -79,9 +92,9 @@ function DashboardPage() {
             <ul className="divide-y divide-border">
               {d.campaigns.slice(0, 6).map((c) => (
                 <li key={c.id}>
-                  <Link to="/campaigns/$campaignId" params={{ campaignId: c.id }} className="flex items-center justify-between px-5 py-4 hover:bg-white/[0.02]">
-                    <div>
-                      <div className="font-semibold">{c.name}</div>
+                  <Link to="/campaigns/$campaignId" params={{ campaignId: c.id }} className="flex items-center justify-between gap-3 px-4 sm:px-5 py-4 hover:bg-white/[0.02]">
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{c.name}</div>
                       <div className="text-xs text-zinc-500 mt-0.5">
                         {c.uploaded_count}/{c.total_videos} uploaded · {c.failed_count} failed
                       </div>

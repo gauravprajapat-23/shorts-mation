@@ -1,0 +1,790 @@
+{
+  "format": "shorts-mation-template",
+  "formatVersion": 1,
+  "name": "Half-Cut Word Match Pro \u2014 Sky & Grass",
+  "type": "half_cut_word_match_pro",
+  "aspect": "9:16",
+  "exportedAt": "2026-09-02T00:53:00.000Z",
+  "document": {
+    "version": 2,
+    "aspect": "9:16",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationMs": 7100,
+    "scenes": [
+      {
+        "id": "pro-halfcut-game",
+        "name": "Half-Cut Match Game",
+        "durationMs": 5000,
+        "background": "#29DFF2",
+        "transitionIn": "fade",
+        "cameraMove": "none",
+        "dynamicLayout": {
+          "type": "halfLetterWord",
+          "wordVariable": "word",
+          "maxCharacters": 10,
+          "correctSfx": "/sounds/letter-match-correct.wav",
+          "wrongSfx": "/sounds/letter-match-wrong.wav"
+        },
+        "elements": [
+          {
+            "id": "pro-sky",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1275,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#29DFF2",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-sky-glow",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 760,
+            "y": 80,
+            "w": 520,
+            "h": 520,
+            "rotation": 0,
+            "opacity": 0.28,
+            "fill": "#B9F8FF",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-sun",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 835,
+            "y": 160,
+            "w": 150,
+            "h": 150,
+            "rotation": 0,
+            "opacity": 0.95,
+            "fill": "#FFF4A8",
+            "stroke": "#FFFFFF",
+            "strokeWidth": 7,
+            "animations": {
+              "in": {
+                "type": "scale",
+                "durationMs": 520,
+                "easing": "spring"
+              },
+              "loop": {
+                "type": "pulse",
+                "amplitude": 1,
+                "speedMs": 1800
+              }
+            },
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-cloud-1a",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 80,
+            "y": 255,
+            "w": 210,
+            "h": 95,
+            "rotation": 0,
+            "opacity": 0.72,
+            "fill": "#FFFFFF",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-cloud-1b",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 205,
+            "y": 225,
+            "w": 250,
+            "h": 115,
+            "rotation": 0,
+            "opacity": 0.72,
+            "fill": "#FFFFFF",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-cloud-2a",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 715,
+            "y": 430,
+            "w": 190,
+            "h": 85,
+            "rotation": 0,
+            "opacity": 0.55,
+            "fill": "#FFFFFF",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-cloud-2b",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 825,
+            "y": 395,
+            "w": 220,
+            "h": 105,
+            "rotation": 0,
+            "opacity": 0.55,
+            "fill": "#FFFFFF",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-horizon",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 1220,
+            "w": 1080,
+            "h": 150,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#67E89A",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-grass",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 1300,
+            "w": 1080,
+            "h": 620,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#32E51E",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-grass-deep",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 1690,
+            "w": 1080,
+            "h": 230,
+            "rotation": 0,
+            "opacity": 0.45,
+            "fill": "#20C914",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "pro-custom-bg",
+            "type": "image",
+            "src": "{{backgroundImage}}",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1920,
+            "rotation": 0,
+            "opacity": 1,
+            "fit": "cover",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "notEmpty"
+            }
+          },
+          {
+            "id": "pro-custom-overlay",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1920,
+            "rotation": 0,
+            "opacity": 0.18,
+            "fill": "#061425",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "notEmpty"
+            }
+          },
+          {
+            "id": "pro-lane-shadow",
+            "type": "shape",
+            "shape": "rect",
+            "x": 300,
+            "y": 245,
+            "w": 480,
+            "h": 1450,
+            "rotation": 0,
+            "opacity": 0.16,
+            "fill": "#0B3B46",
+            "radius": 64
+          },
+          {
+            "id": "pro-lane",
+            "type": "shape",
+            "shape": "rect",
+            "x": 315,
+            "y": 230,
+            "w": 450,
+            "h": 1450,
+            "rotation": 0,
+            "opacity": 0.12,
+            "fill": "#FFFFFF",
+            "radius": 60,
+            "stroke": "#FFFFFF",
+            "strokeWidth": 3
+          },
+          {
+            "id": "pro-header-shadow",
+            "type": "shape",
+            "shape": "rect",
+            "x": 95,
+            "y": 66,
+            "w": 890,
+            "h": 126,
+            "rotation": 0,
+            "opacity": 0.22,
+            "fill": "#062C38",
+            "radius": 32
+          },
+          {
+            "id": "pro-header-card",
+            "type": "shape",
+            "shape": "rect",
+            "x": 90,
+            "y": 54,
+            "w": 900,
+            "h": 126,
+            "rotation": 0,
+            "opacity": 0.9,
+            "fill": "#0F172A",
+            "radius": 32,
+            "stroke": "#FFFFFF",
+            "strokeWidth": 2
+          },
+          {
+            "id": "pro-kicker",
+            "type": "text",
+            "text": "HALF-CUT WORD CHALLENGE",
+            "x": 128,
+            "y": 67,
+            "w": 824,
+            "h": 42,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 27,
+            "fontWeight": 800,
+            "color": "#7DD3FC",
+            "align": "center",
+            "letterSpacing": 3,
+            "animations": {
+              "in": {
+                "type": "slideDown",
+                "durationMs": 360,
+                "easing": "spring"
+              }
+            }
+          },
+          {
+            "id": "pro-title",
+            "type": "text",
+            "text": "MATCH THE OTHER HALF",
+            "x": 120,
+            "y": 103,
+            "w": 840,
+            "h": 66,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 43,
+            "fontWeight": 900,
+            "color": "#FFFFFF",
+            "align": "center",
+            "letterSpacing": 1,
+            "animations": {
+              "in": {
+                "type": "pop",
+                "delayMs": 120,
+                "durationMs": 420,
+                "easing": "spring"
+              }
+            }
+          },
+          {
+            "id": "pro-word-pill",
+            "type": "shape",
+            "shape": "rect",
+            "x": 250,
+            "y": 193,
+            "w": 580,
+            "h": 74,
+            "rotation": 0,
+            "opacity": 0.9,
+            "fill": "#FFFFFF",
+            "radius": 28,
+            "stroke": "#0F172A",
+            "strokeWidth": 3
+          },
+          {
+            "id": "pro-word",
+            "type": "text",
+            "text": "{{word}}",
+            "x": 278,
+            "y": 198,
+            "w": 524,
+            "h": 62,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 40,
+            "fontWeight": 900,
+            "color": "#0F172A",
+            "align": "center",
+            "textTransform": "uppercase",
+            "letterSpacing": 6,
+            "autoFit": true,
+            "maxLines": 1
+          },
+          {
+            "id": "pro-tip-card",
+            "type": "shape",
+            "shape": "rect",
+            "x": 130,
+            "y": 1748,
+            "w": 820,
+            "h": 105,
+            "rotation": 0,
+            "opacity": 0.78,
+            "fill": "#0F172A",
+            "radius": 30,
+            "stroke": "#FFFFFF",
+            "strokeWidth": 2
+          },
+          {
+            "id": "pro-tip",
+            "type": "text",
+            "text": "WATCH \u2022 TRY \u2022 MATCH \u2022 COMPLETE",
+            "x": 150,
+            "y": 1767,
+            "w": 780,
+            "h": 64,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 31,
+            "fontWeight": 800,
+            "color": "#FFFFFF",
+            "align": "center",
+            "letterSpacing": 2,
+            "animations": {
+              "in": {
+                "type": "fade",
+                "delayMs": 500,
+                "durationMs": 500
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "pro-halfcut-finish",
+        "name": "Professional Finish",
+        "durationMs": 2100,
+        "background": "#29DFF2",
+        "transitionIn": "flash",
+        "cameraMove": "zoomIn",
+        "elements": [
+          {
+            "id": "cta-sky",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1275,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#29DFF2",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "cta-sun",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 815,
+            "y": 165,
+            "w": 170,
+            "h": 170,
+            "rotation": 0,
+            "opacity": 0.95,
+            "fill": "#FFF4A8",
+            "stroke": "#FFFFFF",
+            "strokeWidth": 7,
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "cta-horizon",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 1220,
+            "w": 1080,
+            "h": 150,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#67E89A",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "cta-grass",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 1300,
+            "w": 1080,
+            "h": 620,
+            "rotation": 0,
+            "opacity": 1,
+            "fill": "#32E51E",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "falsy"
+            }
+          },
+          {
+            "id": "cta-custom-bg",
+            "type": "image",
+            "src": "{{backgroundImage}}",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1920,
+            "rotation": 0,
+            "opacity": 1,
+            "fit": "cover",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "notEmpty"
+            }
+          },
+          {
+            "id": "cta-custom-overlay",
+            "type": "shape",
+            "shape": "rect",
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 1920,
+            "rotation": 0,
+            "opacity": 0.24,
+            "fill": "#061425",
+            "visibleWhen": {
+              "variable": "backgroundImage",
+              "operator": "notEmpty"
+            }
+          },
+          {
+            "id": "cta-burst",
+            "type": "shape",
+            "shape": "ellipse",
+            "x": 160,
+            "y": 350,
+            "w": 760,
+            "h": 760,
+            "rotation": 0,
+            "opacity": 0.22,
+            "fill": "#FFFFFF",
+            "animations": {
+              "in": {
+                "type": "scale",
+                "durationMs": 500,
+                "easing": "spring"
+              },
+              "loop": {
+                "type": "pulse",
+                "amplitude": 1,
+                "speedMs": 1100
+              }
+            }
+          },
+          {
+            "id": "cta-card-shadow",
+            "type": "shape",
+            "shape": "rect",
+            "x": 105,
+            "y": 410,
+            "w": 870,
+            "h": 650,
+            "rotation": 0,
+            "opacity": 0.25,
+            "fill": "#062C38",
+            "radius": 54
+          },
+          {
+            "id": "cta-card",
+            "type": "shape",
+            "shape": "rect",
+            "x": 95,
+            "y": 395,
+            "w": 890,
+            "h": 650,
+            "rotation": 0,
+            "opacity": 0.91,
+            "fill": "#0F172A",
+            "radius": 54,
+            "stroke": "#FFFFFF",
+            "strokeWidth": 4
+          },
+          {
+            "id": "cta-correct",
+            "type": "text",
+            "text": "\u2713  WORD COMPLETE",
+            "x": 150,
+            "y": 455,
+            "w": 780,
+            "h": 82,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 46,
+            "fontWeight": 900,
+            "color": "#86EFAC",
+            "align": "center",
+            "letterSpacing": 2,
+            "animations": {
+              "in": {
+                "type": "pop",
+                "durationMs": 420,
+                "easing": "spring"
+              }
+            }
+          },
+          {
+            "id": "cta-word",
+            "type": "text",
+            "text": "{{word}}",
+            "x": 135,
+            "y": 590,
+            "w": 810,
+            "h": 245,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 150,
+            "fontWeight": 900,
+            "color": "#FFFFFF",
+            "align": "center",
+            "textTransform": "uppercase",
+            "autoFit": true,
+            "maxLines": 1,
+            "letterSpacing": 10,
+            "textGradient": {
+              "from": "#FF3D9A",
+              "to": "#FACC15",
+              "angle": 90
+            },
+            "stroke": "#020617",
+            "strokeWidth": 5,
+            "animations": {
+              "in": {
+                "type": "scale",
+                "delayMs": 180,
+                "durationMs": 560,
+                "easing": "spring"
+              },
+              "loop": {
+                "type": "pulse",
+                "amplitude": 1,
+                "speedMs": 1200
+              }
+            }
+          },
+          {
+            "id": "cta-divider",
+            "type": "shape",
+            "shape": "rect",
+            "x": 235,
+            "y": 865,
+            "w": 610,
+            "h": 5,
+            "rotation": 0,
+            "opacity": 0.9,
+            "fill": "#38BDF8",
+            "radius": 3
+          },
+          {
+            "id": "cta-message",
+            "type": "text",
+            "text": "{{cta}}",
+            "x": 145,
+            "y": 895,
+            "w": 790,
+            "h": 130,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 52,
+            "fontWeight": 900,
+            "color": "#FFFFFF",
+            "align": "center",
+            "autoFit": true,
+            "maxLines": 2,
+            "animations": {
+              "in": {
+                "type": "slideUp",
+                "delayMs": 400,
+                "durationMs": 450,
+                "easing": "spring"
+              }
+            }
+          },
+          {
+            "id": "cta-follow-card",
+            "type": "shape",
+            "shape": "rect",
+            "x": 155,
+            "y": 1200,
+            "w": 770,
+            "h": 132,
+            "rotation": 0,
+            "opacity": 0.88,
+            "fill": "#FFFFFF",
+            "radius": 34,
+            "stroke": "#0F172A",
+            "strokeWidth": 3
+          },
+          {
+            "id": "cta-follow",
+            "type": "text",
+            "text": "FOLLOW FOR THE NEXT WORD",
+            "x": 180,
+            "y": 1231,
+            "w": 720,
+            "h": 70,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 36,
+            "fontWeight": 900,
+            "color": "#0F172A",
+            "align": "center",
+            "letterSpacing": 1,
+            "animations": {
+              "in": {
+                "type": "pop",
+                "delayMs": 650,
+                "durationMs": 420,
+                "easing": "spring"
+              }
+            }
+          },
+          {
+            "id": "cta-footer",
+            "type": "text",
+            "text": "LEARN \u2022 PLAY \u2022 REPEAT",
+            "x": 180,
+            "y": 1525,
+            "w": 720,
+            "h": 70,
+            "rotation": 0,
+            "opacity": 1,
+            "fontFamily": "Plus Jakarta Sans",
+            "fontSize": 31,
+            "fontWeight": 800,
+            "color": "#0F172A",
+            "align": "center",
+            "letterSpacing": 3
+          }
+        ]
+      }
+    ],
+    "tracks": [],
+    "audioClips": [],
+    "captionClips": [],
+    "effectClips": [],
+    "audioMix": {
+      "duckingEnabled": false,
+      "duckLevel": 1,
+      "attackMs": 0,
+      "releaseMs": 0
+    },
+    "variables": [
+      "word",
+      "backgroundImage",
+      "cta"
+    ],
+    "automationVariables": [
+      {
+        "id": "var_word",
+        "name": "word",
+        "label": "Word",
+        "type": "text",
+        "required": true,
+        "defaultValue": "HOUSE",
+        "description": "Enter one word. The template creates all half-letter matches automatically.",
+        "validation": {
+          "minLength": 2,
+          "maxLength": 10,
+          "pattern": "^[A-Za-z0-9]+$"
+        }
+      },
+      {
+        "id": "var_backgroundImage",
+        "name": "backgroundImage",
+        "label": "Custom background",
+        "type": "image",
+        "defaultValue": "",
+        "description": "Optional image URL/upload. Leave empty for the editable sky and grass background."
+      },
+      {
+        "id": "var_cta",
+        "name": "cta",
+        "label": "Ending message",
+        "type": "text",
+        "defaultValue": "How many did you match?",
+        "validation": {
+          "maxLength": 80
+        }
+      }
+    ],
+    "components": []
+  }
+}

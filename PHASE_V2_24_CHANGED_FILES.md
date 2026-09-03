@@ -1,0 +1,61 @@
+# V2.24 — Audio & Voice Automation
+
+## Added
+- `src/lib/tts.server.ts`
+  - OpenAI TTS + ElevenLabs provider support
+  - encrypted credential resolution
+  - provider verification
+  - pronunciation replacement rules
+  - provider timeout handling
+  - generated MP3 size/quota protection
+  - durable asset storage + signed runtime URL
+- `src/lib/tts.functions.ts`
+  - TTS settings read/save/remove
+  - authenticated per-scene narration generation
+  - template/scene authorization
+  - generation-run audit logging
+- `src/lib/audio-automation.ts`
+  - beat grid calculation
+  - BPM snapping
+  - reusable audio-preset application
+  - narration-driven scene duration adjustment
+  - downstream timeline offset repair
+  - narration duration estimation
+- `src/components/editor/AudioAutomationPanel.tsx`
+  - per-scene narration editor
+  - voice preset selection/creation
+  - pronunciation controls
+  - auto-duration + narration padding
+  - music/SFX library browser
+  - reusable audio presets
+  - beat-sync controls
+- `src/lib/audio-automation.test.ts`
+- `supabase/migrations/20260903183000_v2_24_audio_voice_automation.sql`
+  - TTS providers
+  - voice presets
+  - audio presets
+  - music/SFX library catalog
+  - TTS generation audit records
+
+## Updated
+- `src/lib/types.ts`
+  - narration metadata on scenes
+  - generated-TTS/BPM/library metadata on audio clips
+- `src/routes/_app/settings.tsx`
+  - OpenAI TTS / ElevenLabs BYOK setup
+- `src/routes/_app/editor/$templateId.tsx`
+  - durable generated narration insertion
+  - replace existing generated narration per scene
+  - auto-fit scene duration
+  - music/SFX library insertion
+  - reusable preset application
+  - beat snapping
+- `src/components/editor/EditorSurface.tsx`
+  - Audio Automation panel slot
+  - waveform trim range editing
+  - BPM + beat offset clip controls
+  - existing auto-ducking controls retained
+- `src/routes/_app/assets.tsx`
+  - catalog uploaded audio as background music or SFX
+- `scripts/check-migrations.mjs`
+  - V2.24 invariants

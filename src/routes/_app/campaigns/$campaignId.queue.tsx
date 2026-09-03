@@ -5,10 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { AlertTriangle, ArrowLeft, CalendarClock, Download, ExternalLink, History, Loader2, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarClock, Download, ExternalLink, Filter, History, Loader2, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { bulkUpdateQueue, getQueueItemDetail, retryQueueItem, updateQueueItemPrivacy, updateQueueItemSchedule, type QueueAttempt } from "@/lib/queue-control.functions";
+import { cancelRender, recoverDeadLetterRender, setRenderPriority } from "@/lib/render-control.functions";
 import { buildScheduleCsv, parseScheduleCsv, spreadSchedule, toLocalInput, type ScheduleRow, type ScheduleUpdate } from "@/lib/schedule-bulk";
+import { retrySelectedCampaignItems, setCampaignItemPaused } from "@/lib/campaign-operations.functions";
+import { scheduleConflictIds } from "@/lib/campaign-operations";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId/queue")({
   head: () => ({ meta: [
@@ -38,6 +41,8 @@ function isRemoteScheduled(row: QueueRow) {
   return row.status === "scheduled" && !!row.youtube_video_id;
 }
 function stageLabel(row: QueueRow) {
+  if ((row as any).is_paused) return "Paused by operator";
+  if ((row as any).render_dead_lettered_at) return "Dead letter · manual recovery";
   if (row.status === "failed") return row.rendered_video_url ? "Upload failed" : "Render failed";
   if (row.status === "rendering") return "Rendering";
   if (row.status === "rendered" || row.status === "upload_pending") return "Rendered · waiting upload";
@@ -56,15 +61,30 @@ function QueuePage() {
   const updateFn = useServerFn(updateQueueItemSchedule);
   const detailFn = useServerFn(getQueueItemDetail);
   const privacyFn = useServerFn(updateQueueItemPrivacy);
+  const cancelRenderFn = useServerFn(cancelRender);
+  const recoverDeadFn = useServerFn(recoverDeadLetterRender);
+  const priorityFn = useServerFn(setRenderPriority);
+  const pauseFn = useServerFn(setCampaignItemPaused);
+  const retrySelectedFn = useServerFn(retrySelectedCampaignItems);
   const [everyHours, setEveryHours] = useState(24);
   const [startAt, setStartAt] = useState(() => toLocalInput(new Date(Date.now() + 3600_000).toISOString()));
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [pendingPlan, setPendingPlan] = useState<PendingPlan>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all"|"failed"|"paused"|"processing"|"scheduled">("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const q = useQuery({ queryKey: ["queue", campaignId], queryFn: () => fetchQueue(campaignId), refetchInterval: 5000 });
   const items = q.data?.items ?? [];
+  const conflicts = useMemo(() => scheduleConflictIds(items as any), [items]);
+  const visibleItems = useMemo(() => items.filter((row) => {
+    if (filter === "failed") return row.status === "failed";
+    if (filter === "paused") return Boolean((row as any).is_paused);
+    if (filter === "processing") return row.status === "rendering" || row.status === "uploading";
+    if (filter === "scheduled") return row.status === "scheduled" || row.status === "upload_pending";
+    return true;
+  }), [items, filter]);
   const campaignTimezone = q.data?.campaign.timezone || "UTC";
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
@@ -104,6 +124,28 @@ function QueuePage() {
   const privacyMutation = useMutation({
     mutationFn: ({ row, privacy }: { row: QueueRow; privacy: "private" | "unlisted" | "public" }) => privacyFn({ data: { itemId: row.id, privacy } }),
     onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["queue", campaignId] }); toast.success(res.synchronized ? "YouTube privacy synchronized" : "Privacy updated"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const renderControl = useMutation({
+    mutationFn: async ({ action, row }: { action: "cancel" | "recover" | "priority"; row: QueueRow }) => {
+      if (action === "cancel") return cancelRenderFn({ data: { itemId: row.id } });
+      if (action === "recover") return recoverDeadFn({ data: { itemId: row.id } });
+      return priorityFn({ data: { itemId: row.id, priority: Number((row as any).render_priority ?? 50) >= 80 ? 50 : 90 } });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["queue", campaignId] }); toast.success("Render queue updated"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const itemPause = useMutation({
+    mutationFn: ({ row, paused }: { row: QueueRow; paused: boolean }) => pauseFn({ data: { itemId: row.id, paused } }),
+    onSuccess: (_, vars) => { qc.invalidateQueries({ queryKey: ["queue", campaignId] }); toast.success(vars.paused ? "Video paused" : "Video resumed"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const retrySelected = useMutation({
+    mutationFn: (ids: string[]) => retrySelectedFn({ data: { campaignId, itemIds: ids } }),
+    onSuccess: (res) => { setSelectedIds(new Set()); qc.invalidateQueries({ queryKey: ["queue", campaignId] }); toast.success(`Queued ${res.retried} failed video${res.retried === 1 ? "" : "s"} for retry`); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -156,13 +198,13 @@ function QueuePage() {
   function autoSpread() {
     const start = new Date(startAt.replace(" ", "T"));
     if (Number.isNaN(start.getTime())) { toast.error("Enter a valid start time"); return; }
-    const editable = items.filter((i) => !["uploading", "scheduled", "uploaded"].includes(i.status));
-    if (!editable.length) { toast.error("No editable queue items remain"); return; }
-    setPendingPlan({ title: `Auto-schedule ${editable.length} remaining video${editable.length === 1 ? "" : "s"}`, updates: spreadSchedule(editable.map((i) => i.id), start, Math.max(0.25, everyHours)) });
+    const editable = items.filter((i) => !["uploading", "scheduled", "uploaded"].includes(i.status) && (!selectedIds.size || selectedIds.has(i.id)));
+    if (!editable.length) { toast.error(selectedIds.size ? "No selected videos can be rescheduled" : "No editable queue items remain"); return; }
+    setPendingPlan({ title: `Reschedule ${editable.length} ${selectedIds.size ? "selected" : "remaining"} video${editable.length === 1 ? "" : "s"}`, updates: spreadSchedule(editable.map((i) => i.id), start, Math.max(0.25, everyHours)) });
   }
 
-  if (q.isLoading) return <div className="p-8 max-w-7xl mx-auto"><div className="rounded-2xl border border-border bg-panel p-10 text-center text-zinc-400"><Loader2 className="size-5 animate-spin mx-auto mb-3" />Loading queue…</div></div>;
-  if (q.isError) return <div className="p-8 max-w-7xl mx-auto"><div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6"><div className="font-semibold text-red-300">Queue could not be loaded</div><div className="text-sm text-red-200/70 mt-1">{q.error instanceof Error ? q.error.message : "Unknown error"}</div><button onClick={() => q.refetch()} className="mt-4 inline-flex items-center gap-2 rounded-md border border-red-500/40 px-3 py-2 text-xs"><RefreshCw className="size-3.5" /> Retry</button></div></div>;
+  if (q.isLoading) return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"><div className="rounded-2xl border border-border bg-panel p-10 text-center text-zinc-400"><Loader2 className="size-5 animate-spin mx-auto mb-3" />Loading queue…</div></div>;
+  if (q.isError) return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"><div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6"><div className="font-semibold text-red-300">Queue could not be loaded</div><div className="text-sm text-red-200/70 mt-1">{q.error instanceof Error ? q.error.message : "Unknown error"}</div><button onClick={() => q.refetch()} className="mt-4 inline-flex items-center gap-2 rounded-md border border-red-500/40 px-3 py-2 text-xs"><RefreshCw className="size-3.5" /> Retry</button></div></div>;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -171,11 +213,20 @@ function QueuePage() {
 
       <div className="mb-5 flex gap-2 border-b border-border">
         <span className="px-3 py-2 text-xs font-semibold text-white border-b-2 border-brand">Queue & schedule</span>
-        <Link to="/campaigns/$campaignId/automation" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Activity</Link>
+        <Link to="/campaigns/$campaignId/calendar" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Calendar</Link><Link to="/campaigns/$campaignId/automation" params={{ campaignId }} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Activity</Link>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <MiniStat label="Total" value={counts.total} /><MiniStat label="Processing" value={counts.processing} /><MiniStat label="Scheduled" value={counts.scheduled} /><MiniStat label="Needs attention" value={counts.failed} danger={counts.failed > 0} />
+      </div>
+
+      <div className="rounded-2xl border border-border bg-panel p-3 mb-3 flex flex-wrap items-center gap-2">
+        <Filter className="size-3.5 text-zinc-500" />
+        {(["all","failed","paused","processing","scheduled"] as const).map((value) => <button key={value} onClick={() => setFilter(value)} className={`px-3 py-1.5 rounded-full text-xs capitalize border ${filter===value ? "border-brand bg-brand/10 text-brand" : "border-border text-zinc-400"}`}>{value}</button>)}
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link to="/campaigns/$campaignId/calendar" params={{ campaignId }} className="px-3 py-1.5 rounded-md border border-border text-xs hover:border-brand/50"><CalendarClock className="size-3.5 inline mr-1" /> Calendar</Link>
+          <button disabled={!selectedIds.size || retrySelected.isPending} onClick={() => retrySelected.mutate([...selectedIds])} className="px-3 py-1.5 rounded-md border border-border text-xs disabled:opacity-40"><RotateCcw className="size-3.5 inline mr-1" /> Retry selected ({selectedIds.size})</button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border bg-panel p-4 mb-5 flex flex-wrap items-end gap-3">
@@ -193,13 +244,13 @@ function QueuePage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[980px]">
             <thead className="text-[10px] uppercase tracking-widest text-zinc-500 bg-zinc-950/50"><tr><th className="text-left px-4 py-3">Video</th><th className="text-left px-4 py-3">Pipeline</th><th className="text-left px-4 py-3">Schedule</th><th className="text-left px-4 py-3">Error</th><th className="text-right px-4 py-3">Actions</th></tr></thead>
-            <tbody className="divide-y divide-border">{items.map((row) => <QueueDesktopRow key={row.id} row={row} draft={drafts[row.id] ?? ""} setDraft={(v) => { setDirtyIds((set) => new Set(set).add(row.id)); setDrafts((d) => ({ ...d, [row.id]: v })); }} save={() => single.mutate({ row, value: drafts[row.id] ?? "" })} retry={() => retry.mutate(row.id)} details={() => setDetailId(row.id)} privacyChange={(privacy) => privacyMutation.mutate({ row, privacy })} busy={single.isPending || retry.isPending || privacyMutation.isPending} />)}</tbody>
+            <tbody className="divide-y divide-border">{visibleItems.map((row) => <QueueDesktopRow key={row.id} row={row} draft={drafts[row.id] ?? ""} setDraft={(v) => { setDirtyIds((set) => new Set(set).add(row.id)); setDrafts((d) => ({ ...d, [row.id]: v })); }} save={() => single.mutate({ row, value: drafts[row.id] ?? "" })} retry={() => retry.mutate(row.id)} details={() => setDetailId(row.id)} privacyChange={(privacy) => privacyMutation.mutate({ row, privacy })} busy={single.isPending || retry.isPending || privacyMutation.isPending || renderControl.isPending || itemPause.isPending} cancelRender={() => renderControl.mutate({ action:"cancel", row })} recoverDead={() => renderControl.mutate({ action:"recover", row })} togglePriority={() => renderControl.mutate({ action:"priority", row })} pauseToggle={() => itemPause.mutate({ row, paused: !(row as any).is_paused })} selected={selectedIds.has(row.id)} selectToggle={() => setSelectedIds((set) => { const next=new Set(set); next.has(row.id)?next.delete(row.id):next.add(row.id); return next; })} conflict={conflicts.has(row.id)} />)}</tbody>
           </table>
         </div>
-        {!items.length && <div className="p-8 text-center text-sm text-zinc-500">Queue is empty.</div>}
+        {!visibleItems.length && <div className="p-8 text-center text-sm text-zinc-500">No queue items match this filter.</div>}
       </div>
 
-      <div className="md:hidden space-y-3">{items.map((row) => <QueueMobileCard key={row.id} row={row} draft={drafts[row.id] ?? ""} setDraft={(v) => { setDirtyIds((set) => new Set(set).add(row.id)); setDrafts((d) => ({ ...d, [row.id]: v })); }} save={() => single.mutate({ row, value: drafts[row.id] ?? "" })} retry={() => retry.mutate(row.id)} details={() => setDetailId(row.id)} privacyChange={(privacy) => privacyMutation.mutate({ row, privacy })} />)}</div>
+      <div className="md:hidden space-y-3">{visibleItems.map((row) => <QueueMobileCard key={row.id} row={row} draft={drafts[row.id] ?? ""} setDraft={(v) => { setDirtyIds((set) => new Set(set).add(row.id)); setDrafts((d) => ({ ...d, [row.id]: v })); }} save={() => single.mutate({ row, value: drafts[row.id] ?? "" })} retry={() => retry.mutate(row.id)} details={() => setDetailId(row.id)} privacyChange={(privacy) => privacyMutation.mutate({ row, privacy })} cancelRender={() => renderControl.mutate({ action:"cancel", row })} recoverDead={() => renderControl.mutate({ action:"recover", row })} togglePriority={() => renderControl.mutate({ action:"priority", row })} pauseToggle={() => itemPause.mutate({ row, paused: !(row as any).is_paused })} selected={selectedIds.has(row.id)} selectToggle={() => setSelectedIds((set) => { const next=new Set(set); next.has(row.id)?next.delete(row.id):next.add(row.id); return next; })} conflict={conflicts.has(row.id)} />)}</div>
 
       {pendingPlan && <SchedulePreview plan={pendingPlan} timezone={timezone} onClose={() => setPendingPlan(null)} onApply={() => bulk.mutate(pendingPlan.updates)} pending={bulk.isPending} />}
       {detailId && <AttemptDrawer item={items.find((i) => i.id === detailId)} attempts={detail.data?.attempts ?? []} loading={detail.isLoading} error={detail.error instanceof Error ? detail.error.message : null} onClose={() => setDetailId(null)} />}
@@ -207,23 +258,23 @@ function QueuePage() {
   );
 }
 
-function QueueDesktopRow({ row, draft, setDraft, save, retry, details, privacyChange, busy }: { row: QueueRow; draft:string; setDraft:(v:string)=>void; save:()=>void; retry:()=>void; details:()=>void; privacyChange:(privacy:"private"|"unlisted"|"public")=>void; busy:boolean }) {
+function QueueDesktopRow({ row, draft, setDraft, save, retry, details, privacyChange, busy, cancelRender, recoverDead, togglePriority, pauseToggle, selected, selectToggle, conflict }: { row: QueueRow; draft:string; setDraft:(v:string)=>void; save:()=>void; retry:()=>void; details:()=>void; privacyChange:(privacy:"private"|"unlisted"|"public")=>void; busy:boolean; cancelRender:()=>void; recoverDead:()=>void; togglePriority:()=>void; pauseToggle:()=>void; selected:boolean; selectToggle:()=>void; conflict:boolean }) {
   const title = ((row.seo_json ?? {}) as { title?: string }).title || row.video_file_name || `Video ${row.id.slice(0,8)}`;
   const locked = isScheduleLocked(row); const remote = isRemoteScheduled(row); const changed = draft !== toLocalInput(row.schedule_at);
   return <tr className="align-top hover:bg-white/[0.02]">
-    <td className="px-4 py-3 max-w-[260px]"><div className="font-medium truncate">{title}</div><div className="text-[11px] text-zinc-500 font-mono truncate">{row.video_file_name ?? row.id.slice(0,8)}</div></td>
+    <td className="px-4 py-3 max-w-[260px]"><div className="flex items-start gap-2"><input type="checkbox" checked={selected} onChange={selectToggle} className="mt-1" /><div className="min-w-0"><div className="font-medium truncate">{title}</div>{(row as any).is_paused && <div className="text-[10px] text-amber-300">Paused</div>}{conflict && <div className="text-[10px] text-red-300">Schedule conflict</div>}<div className="mt-1 text-[10px] text-zinc-500">Priority {Number((row as any).render_priority ?? 50)} · Est. ${Number((row as any).render_estimated_cost_usd ?? 0).toFixed(4)} · Render retries {Number((row as any).render_retry_count ?? 0)}</div><div className="text-[11px] text-zinc-500 font-mono truncate">{row.video_file_name ?? row.id.slice(0,8)}</div></div></div></td>
     <td className="px-4 py-3"><StatusBadge status={row.status} /><div className="mt-1 text-[11px] text-zinc-500">{stageLabel(row)}{row.retry_count ? ` · retry ${row.retry_count}` : ""}</div></td>
     <td className="px-4 py-3"><div className="flex items-center gap-2"><input value={draft} disabled={locked} onChange={(e)=>setDraft(e.target.value)} className="h-8 w-40 rounded-md bg-canvas border border-border px-2 font-mono text-xs disabled:opacity-50" placeholder="not scheduled" />{changed && !locked && <button disabled={busy} onClick={save} className="px-2 py-1 rounded bg-brand text-white text-[11px] font-semibold">{remote ? "Sync YouTube" : "Save"}</button>}</div><div className="mt-2 flex items-center gap-2"><span className="text-[10px] text-zinc-500">Privacy</span><select disabled={row.status === "uploading" || row.status === "scheduled"} value={row.status === "scheduled" ? "public" : (((row.youtube_settings_json ?? {}) as {privacy?:string}).privacy ?? "private")} onChange={(e)=>privacyChange(e.target.value as "private"|"unlisted"|"public")} className="h-7 rounded bg-canvas border border-border px-1 text-[11px] disabled:opacity-50"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div>{remote && <div className="text-[10px] text-sky-400 mt-1">Changes are sent to YouTube first · scheduled videos publish public</div>}{locked && row.status !== "uploaded" && <div className="text-[10px] text-zinc-600 mt-1">Locked while uploading</div>}</td>
     <td className="px-4 py-3 max-w-[260px]">{row.error_message ? <button onClick={details} className="text-left text-xs text-red-400 hover:underline line-clamp-2">{row.error_message}</button> : <span className="text-zinc-700">—</span>}</td>
-    <td className="px-4 py-3 text-right whitespace-nowrap">{row.youtube_url && <a href={row.youtube_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-400 hover:underline mr-3"><ExternalLink className="size-3" /> YouTube</a>}<button onClick={details} className="inline-flex items-center gap-1 text-xs mr-3 text-zinc-400 hover:text-white"><History className="size-3" /> Details</button>{row.status === "failed" && <button onClick={retry} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:border-brand/50"><RotateCcw className="size-3" /> {row.rendered_video_url ? "Retry upload" : "Retry render"}</button>}</td>
+    <td className="px-4 py-3 text-right whitespace-nowrap"><div className="mb-2 flex justify-end gap-2">{row.status === "rendering" && <button onClick={cancelRender} disabled={busy} className="text-[10px] text-amber-300 hover:text-amber-200">Cancel render</button>}{(row as any).render_dead_lettered_at && <button onClick={recoverDead} disabled={busy} className="text-[10px] text-red-300 hover:text-red-200">Recover</button>}{!["uploading","scheduled","uploaded"].includes(row.status) && <button onClick={togglePriority} disabled={busy} className="text-[10px] text-zinc-400 hover:text-white">Priority</button>}{!["uploading","scheduled","uploaded"].includes(row.status) && <button onClick={pauseToggle} disabled={busy} className="text-[10px] text-zinc-400 hover:text-white">{(row as any).is_paused ? "Resume" : "Pause"}</button>}</div>{row.youtube_url && <a href={row.youtube_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-400 hover:underline mr-3"><ExternalLink className="size-3" /> YouTube</a>}<button onClick={details} className="inline-flex items-center gap-1 text-xs mr-3 text-zinc-400 hover:text-white"><History className="size-3" /> Details</button>{row.status === "failed" && <button onClick={retry} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:border-brand/50"><RotateCcw className="size-3" /> {row.rendered_video_url ? "Retry upload" : "Retry render"}</button>}</td>
   </tr>;
 }
 
 function QueueMobileCard(props: Omit<Parameters<typeof QueueDesktopRow>[0], "busy">) {
-  const { row, draft, setDraft, save, retry, details, privacyChange } = props;
+  const { row, draft, setDraft, save, retry, details, privacyChange, cancelRender, recoverDead, togglePriority, pauseToggle, selected, selectToggle, conflict } = props;
   const title = ((row.seo_json ?? {}) as { title?: string }).title || row.video_file_name || `Video ${row.id.slice(0,8)}`;
   const locked = isScheduleLocked(row); const changed = draft !== toLocalInput(row.schedule_at);
-  return <div className="rounded-xl border border-border bg-panel p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold truncate">{title}</div><div className="text-[11px] text-zinc-500 mt-1">{stageLabel(row)}</div></div><StatusBadge status={row.status} /></div><div className="mt-3"><div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Publish · local time</div><div className="flex gap-2"><input value={draft} disabled={locked} onChange={(e)=>setDraft(e.target.value)} className="h-9 min-w-0 flex-1 rounded-md bg-canvas border border-border px-2 font-mono text-xs disabled:opacity-50" />{changed && !locked && <button onClick={save} className="px-3 rounded-md bg-brand text-white text-xs font-bold">{isRemoteScheduled(row) ? "Sync" : "Save"}</button>}</div><div className="mt-2 flex items-center gap-2"><span className="text-[10px] text-zinc-500">Privacy</span><select disabled={row.status === "uploading" || row.status === "scheduled"} value={row.status === "scheduled" ? "public" : (((row.youtube_settings_json ?? {}) as {privacy?:string}).privacy ?? "private")} onChange={(e)=>privacyChange(e.target.value as "private"|"unlisted"|"public")} className="h-8 rounded bg-canvas border border-border px-2 text-xs disabled:opacity-50"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div></div>{row.error_message && <button onClick={details} className="mt-3 flex items-start gap-2 text-left text-xs text-red-400"><AlertTriangle className="size-3.5 mt-0.5 shrink-0" /><span className="line-clamp-2">{row.error_message}</span></button>}<div className="mt-4 flex flex-wrap gap-3 text-xs"><button onClick={details} className="text-zinc-400">Attempt history</button>{row.youtube_url && <a href={row.youtube_url} target="_blank" rel="noreferrer" className="text-sky-400">Open YouTube</a>}{row.status === "failed" && <button onClick={retry} className="text-brand">{row.rendered_video_url ? "Retry upload" : "Retry render"}</button>}</div></div>;
+  return <div className="rounded-xl border border-border bg-panel p-4"><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2 min-w-0"><input type="checkbox" checked={selected} onChange={selectToggle} className="mt-1" /><div className="min-w-0"><div className="font-semibold truncate">{title}</div>{conflict && <div className="text-[10px] text-red-300">Schedule conflict</div>}{(row as any).is_paused && <div className="text-[10px] text-amber-300">Paused</div>}<div className="text-[11px] text-zinc-500 mt-1">{stageLabel(row)}</div></div></div><StatusBadge status={row.status} /></div><div className="mt-3"><div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Publish · local time</div><div className="flex gap-2"><input value={draft} disabled={locked} onChange={(e)=>setDraft(e.target.value)} className="h-9 min-w-0 flex-1 rounded-md bg-canvas border border-border px-2 font-mono text-xs disabled:opacity-50" />{changed && !locked && <button onClick={save} className="px-3 rounded-md bg-brand text-white text-xs font-bold">{isRemoteScheduled(row) ? "Sync" : "Save"}</button>}</div><div className="mt-2 flex items-center gap-2"><span className="text-[10px] text-zinc-500">Privacy</span><select disabled={row.status === "uploading" || row.status === "scheduled"} value={row.status === "scheduled" ? "public" : (((row.youtube_settings_json ?? {}) as {privacy?:string}).privacy ?? "private")} onChange={(e)=>privacyChange(e.target.value as "private"|"unlisted"|"public")} className="h-8 rounded bg-canvas border border-border px-2 text-xs disabled:opacity-50"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div></div>{row.error_message && <button onClick={details} className="mt-3 flex items-start gap-2 text-left text-xs text-red-400"><AlertTriangle className="size-3.5 mt-0.5 shrink-0" /><span className="line-clamp-2">{row.error_message}</span></button>}<div className="mt-4 flex flex-wrap gap-3 text-xs"><button onClick={details} className="text-zinc-400">Attempt history</button>{row.youtube_url && <a href={row.youtube_url} target="_blank" rel="noreferrer" className="text-sky-400">Open YouTube</a>}{row.status === "failed" && <button onClick={retry} className="text-brand">{row.rendered_video_url ? "Retry upload" : "Retry render"}</button>}{!["uploading","scheduled","uploaded"].includes(row.status) && <button onClick={pauseToggle} className="text-zinc-300">{(row as any).is_paused ? "Resume" : "Pause"}</button>}</div></div>;
 }
 
 function MiniStat({ label, value, danger=false }: {label:string;value:number;danger?:boolean}) { return <div className={`rounded-xl border p-3 ${danger ? "border-red-500/30 bg-red-500/10" : "border-border bg-panel"}`}><div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div><div className={`text-xl font-bold mt-1 ${danger ? "text-red-300" : ""}`}>{value}</div></div>; }
