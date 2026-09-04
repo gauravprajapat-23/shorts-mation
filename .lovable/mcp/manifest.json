@@ -59,15 +59,8 @@
               "maximum": 100
             },
             "status": {
-              "description": "Optional campaign status filter.",
-              "type": "string",
-              "enum": [
-                "draft",
-                "active",
-                "paused",
-                "completed",
-                "failed"
-              ]
+              "description": "Optional status filter (draft, scheduled, running, completed, failed).",
+              "type": "string"
             }
           }
         },
@@ -125,7 +118,7 @@
                 "video",
                 "image",
                 "audio",
-                "logo"
+                "font"
               ]
             },
             "limit": {

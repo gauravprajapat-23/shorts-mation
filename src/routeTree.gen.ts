@@ -14,11 +14,11 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppYoutubeConnectRouteImport } from './routes/_app/youtube-connect'
+import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppDataStudioRouteImport } from './routes/_app/data-studio'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAssetsRouteImport } from './routes/_app/assets'
-import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
+import { Route as AppDataStudioRouteImport } from './routes/_app/data-studio'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates/index'
@@ -61,14 +61,14 @@ const AppYoutubeConnectRoute = AppYoutubeConnectRouteImport.update({
   path: '/youtube-connect',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppDataStudioRoute = AppDataStudioRouteImport.update({
-  id: '/data-studio',
-  path: '/data-studio',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -81,9 +81,9 @@ const AppAssetsRoute = AppAssetsRouteImport.update({
   path: '/assets',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
+const AppDataStudioRoute = AppDataStudioRouteImport.update({
+  id: '/data-studio',
+  path: '/data-studio',
   getParentRoute: () => AppRoute,
 } as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
@@ -188,10 +188,10 @@ export interface FileRoutesByFullPath {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/analytics': typeof AppAnalyticsRoute
   '/assets': typeof AppAssetsRoute
-  '/dashboard': typeof AppDashboardRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/data-studio': typeof AppDataStudioRoute
+  '/dashboard': typeof AppDashboardRoute
   '/settings': typeof AppSettingsRoute
   '/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -203,8 +203,8 @@ export interface FileRoutesByFullPath {
   '/campaigns/': typeof AppCampaignsIndexRoute
   '/templates/': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
-  '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
@@ -216,10 +216,10 @@ export interface FileRoutesByTo {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/analytics': typeof AppAnalyticsRoute
   '/assets': typeof AppAssetsRoute
-  '/dashboard': typeof AppDashboardRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/data-studio': typeof AppDataStudioRoute
+  '/dashboard': typeof AppDashboardRoute
   '/settings': typeof AppSettingsRoute
   '/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -231,8 +231,8 @@ export interface FileRoutesByTo {
   '/campaigns': typeof AppCampaignsIndexRoute
   '/templates': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
-  '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
@@ -246,10 +246,10 @@ export interface FileRoutesById {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/assets': typeof AppAssetsRoute
-  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/data-studio': typeof AppDataStudioRoute
+  '/_app/dashboard': typeof AppDashboardRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -261,8 +261,8 @@ export interface FileRoutesById {
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
-  '/_app/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
+  '/_app/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
@@ -276,10 +276,10 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/analytics'
     | '/assets'
-    | '/dashboard'
+    | '/analytics'
     | '/data-studio'
+    | '/dashboard'
     | '/settings'
     | '/youtube-connect'
     | '/.lovable/oauth/consent'
@@ -291,8 +291,8 @@ export interface FileRouteTypes {
     | '/campaigns/'
     | '/templates/'
     | '/campaigns/$campaignId/automation'
-    | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/queue'
+    | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
     | '/api/public/hooks/render-callback'
@@ -304,10 +304,10 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/analytics'
     | '/assets'
-    | '/dashboard'
+    | '/analytics'
     | '/data-studio'
+    | '/dashboard'
     | '/settings'
     | '/youtube-connect'
     | '/.lovable/oauth/consent'
@@ -319,8 +319,8 @@ export interface FileRouteTypes {
     | '/campaigns'
     | '/templates'
     | '/campaigns/$campaignId/automation'
-    | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/queue'
+    | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
     | '/api/public/hooks/render-callback'
@@ -333,10 +333,10 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/_app/analytics'
     | '/_app/assets'
-    | '/_app/dashboard'
+    | '/_app/analytics'
     | '/_app/data-studio'
+    | '/_app/dashboard'
     | '/_app/settings'
     | '/_app/youtube-connect'
     | '/.lovable/oauth/consent'
@@ -348,8 +348,8 @@ export interface FileRouteTypes {
     | '/_app/campaigns/'
     | '/_app/templates/'
     | '/_app/campaigns/$campaignId/automation'
-    | '/_app/campaigns/$campaignId/calendar'
     | '/_app/campaigns/$campaignId/queue'
+    | '/_app/campaigns/$campaignId/calendar'
     | '/_app/campaigns/$campaignId/test-render'
     | '/api/public/hooks/process-campaign-queue'
     | '/api/public/hooks/render-callback'
@@ -414,13 +414,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/data-studio': {
-      id: '/_app/data-studio'
-      path: '/data-studio'
-      fullPath: '/data-studio'
-      preLoaderRoute: typeof AppDataStudioRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -440,6 +433,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics'
       fullPath: '/analytics'
       preLoaderRoute: typeof AppAnalyticsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/data-studio': {
+      id: '/_app/data-studio'
+      path: '/data-studio'
+      fullPath: '/data-studio'
+      preLoaderRoute: typeof AppDataStudioRouteImport
       parentRoute: typeof AppRoute
     }
     '/.well-known/oauth-protected-resource': {
@@ -566,8 +566,8 @@ declare module '@tanstack/react-router' {
 
 interface AppCampaignsCampaignIdRouteChildren {
   AppCampaignsCampaignIdAutomationRoute: typeof AppCampaignsCampaignIdAutomationRoute
-  AppCampaignsCampaignIdCalendarRoute: typeof AppCampaignsCampaignIdCalendarRoute
   AppCampaignsCampaignIdQueueRoute: typeof AppCampaignsCampaignIdQueueRoute
+  AppCampaignsCampaignIdCalendarRoute: typeof AppCampaignsCampaignIdCalendarRoute
   AppCampaignsCampaignIdTestRenderRoute: typeof AppCampaignsCampaignIdTestRenderRoute
 }
 
@@ -575,8 +575,8 @@ const AppCampaignsCampaignIdRouteChildren: AppCampaignsCampaignIdRouteChildren =
   {
     AppCampaignsCampaignIdAutomationRoute:
       AppCampaignsCampaignIdAutomationRoute,
-    AppCampaignsCampaignIdCalendarRoute: AppCampaignsCampaignIdCalendarRoute,
     AppCampaignsCampaignIdQueueRoute: AppCampaignsCampaignIdQueueRoute,
+    AppCampaignsCampaignIdCalendarRoute: AppCampaignsCampaignIdCalendarRoute,
     AppCampaignsCampaignIdTestRenderRoute:
       AppCampaignsCampaignIdTestRenderRoute,
   }
@@ -587,10 +587,10 @@ const AppCampaignsCampaignIdRouteWithChildren =
   )
 
 interface AppRouteChildren {
-  AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppAssetsRoute: typeof AppAssetsRoute
-  AppDashboardRoute: typeof AppDashboardRoute
+  AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppDataStudioRoute: typeof AppDataStudioRoute
+  AppDashboardRoute: typeof AppDashboardRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppYoutubeConnectRoute: typeof AppYoutubeConnectRoute
   AppCampaignsCampaignIdRoute: typeof AppCampaignsCampaignIdRouteWithChildren
@@ -602,10 +602,10 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppAnalyticsRoute: AppAnalyticsRoute,
   AppAssetsRoute: AppAssetsRoute,
-  AppDashboardRoute: AppDashboardRoute,
+  AppAnalyticsRoute: AppAnalyticsRoute,
   AppDataStudioRoute: AppDataStudioRoute,
+  AppDashboardRoute: AppDashboardRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppYoutubeConnectRoute: AppYoutubeConnectRoute,
   AppCampaignsCampaignIdRoute: AppCampaignsCampaignIdRouteWithChildren,
