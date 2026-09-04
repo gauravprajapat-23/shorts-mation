@@ -97,6 +97,9 @@ function EditorPage() {
   const [brandLibrary, setBrandLibraryState] = useState<BrandKit[]>(() => loadBrandLibrary());
   const [componentLibrary, setComponentLibraryState] = useState<EditorReusableComponent[]>(() => loadComponentLibrary());
   const [previewVars, setPreviewVars] = useState<Record<string, string>>({});
+  // Keep inline editor playback on the same concrete automation document used
+  // by the full Preview modal and production render materialization.
+  const livePlaybackDoc = useMemo(() => doc ? materializeAutomationDocument(doc, previewVars).document as EditorDocumentV2 : null, [doc, previewVars]);
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [mobilePanelOpen,setMobilePanelOpen]=useState(false);
@@ -992,7 +995,7 @@ function EditorPage() {
         }}
       />
 
-      <TimelineAudioPreview doc={doc} tMs={playheadMs} playing={playing} />
+      <TimelineAudioPreview doc={livePlaybackDoc ?? doc} tMs={playheadMs} playing={playing} />
 
       <style>{`.editor-tool{height:28px;display:inline-flex;align-items:center;gap:4px;padding:0 7px;border:1px solid var(--border);border-radius:5px;color:#a1a1aa;white-space:nowrap}.editor-tool:hover{color:white;background:rgba(255,255,255,.05)}.editor-tool:disabled{opacity:.3}`}</style>
       {previewOpen && (

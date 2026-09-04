@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/check-typecheck-deps.mjs && tsc --noEmit",
     "test": "vitest run",
     "test:editor": "vitest run src/lib/*.test.ts",
     "integrity": "node scripts/check-source-integrity.mjs",
@@ -22,8 +22,9 @@
     "profile:browser": "node scripts/browser-memory-profile.mjs",
     "verify:fresh-supabase": "node scripts/verify-fresh-supabase.mjs",
     "certify:staging": "node scripts/staging-release-certification.mjs",
-    "verify:release": "npm run integrity && npm run integrity:migrations && npm run typecheck && npm run test && npm run test:parity && npm run test:stress && npm run build && npm run lint",
-    "integrity:migrations": "node scripts/check-migrations.mjs"
+    "verify:release": "npm run integrity && npm run integrity:migrations && npm run typecheck && npm run test && npm run test:worker && npm run test:parity && npm run test:stress && npm run build && npm run lint",
+    "integrity:migrations": "node scripts/check-migrations.mjs",
+    "test:worker": "npm --prefix worker test"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -88,7 +89,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
-    "@lovable.dev/vite-tanstack-config": "2.9.1",
+    "@lovable.dev/vite-tanstack-config": "2.13.1",
     "@types/node": "^22.16.5",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.0",

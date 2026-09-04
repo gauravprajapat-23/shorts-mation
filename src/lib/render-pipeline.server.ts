@@ -7,9 +7,10 @@
 //      Storage (`renders` bucket) and marks the item `rendered`.
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
-import { buildShotstackEdit, submitShotstackRender, getShotstackRender, cancelShotstackRender } from "@/lib/shotstack.server";
+import { buildFfmpegWorkerManifest } from "@/lib/ffmpeg-worker-manifest.server";
+import { submitFfmpegWorkerJob, getFfmpegWorkerJob, cancelFfmpegWorkerJob } from "@/lib/ffmpeg-worker.server";
 import { DEFAULT_RENDER_BUDGET, estimateRenderCostUsd, renderTimeoutMs, retryBackoffMs, shouldDeadLetter, type RenderBudget } from "@/lib/render-reliability";
-import { getRenderCredentials, renderCallbackBaseUrl } from "@/lib/render-settings.server";
+import { getRenderWorkerConfig, renderCallbackBaseUrl, renderManifestBaseUrl } from "@/lib/render-settings.server";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
 import { campaignAutomationInput, campaignStringVariables, materializeCampaignRenderDocument } from "@/lib/render-materialization";
 import { createHash, randomUUID } from "node:crypto";
@@ -70,6 +71,21 @@ async function signAsset(userId: string, fileName?: string | null): Promise<stri
   if (!path) return null;
   const { data } = await supabaseAdmin.storage.from("assets").createSignedUrl(path.replace(/^assets\//, ""), SIGN_TTL_SECONDS);
   return data?.signedUrl ?? null;
+}
+
+
+async function signDocumentMediaUrls(doc:EditorDocument,userId:string):Promise<EditorDocument>{
+  const copy=structuredClone(doc) as EditorDocument;
+  const sign=async(src:string)=>{
+    if(/^https:\/\//i.test(src))return src;
+    if(src.startsWith("asset://")){
+      const id=src.slice(8);const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {data}=await supabaseAdmin.from("assets").select("storage_path").eq("id",id).eq("user_id",userId).eq("lifecycle_status","active").maybeSingle();if(!data?.storage_path)throw new Error(`Render asset ${id} is unavailable`);const signed=await supabaseAdmin.storage.from("assets").createSignedUrl(String(data.storage_path).replace(/^assets\//,""),SIGN_TTL_SECONDS);if(signed.error||!signed.data?.signedUrl)throw signed.error??new Error("Could not sign render asset");return signed.data.signedUrl;
+    }
+    return src;
+  };
+  for(const scene of copy.scenes)for(const el of scene.elements){if((el.type==="video"||el.type==="image")&&"src" in el&&typeof el.src==="string"&&el.src)el.src=await sign(el.src);}
+  if(copy.version===2){for(const clip of copy.audioClips)if(clip.src)clip.src=await sign(clip.src);}
+  return copy;
 }
 
 function backgroundFromDoc(doc: EditorDocument, vars: Record<string, string>): string | null {
@@ -147,11 +163,11 @@ export async function reclaimStaleRenders(): Promise<{ reclaimed: number }> {
     // stale-looking job is actually still alive or already finished.
     if (row.render_job_ref) {
       try {
-        const cred = await getRenderCredentials(row.user_id);
+        const cred = await getRenderWorkerConfig(row.user_id);
         if (cred) {
-          const provider = await getShotstackRender(row.render_job_ref, cred);
-          if (provider.status === "done" && provider.url) {
-            await storeFinishedRender(row, provider.url, attemptId);
+          const provider = await getFfmpegWorkerJob(cred, row.render_job_ref);
+          if (provider.status === "completed" && provider.outputUrl) {
+            await storeFinishedRender(row, provider.outputUrl!, attemptId);
             continue;
           }
           if (provider.status !== "failed") {
@@ -213,7 +229,7 @@ async function submitDueRendersInner(opts?: {
   const callbackBaseUrl = renderCallbackBaseUrl();
   const workerId = `render-worker:${randomUUID()}`;
   const perUser = { ...flight.perUser };
-  const credCache = new Map<string, Awaited<ReturnType<typeof getRenderCredentials>>>();
+  const credCache = new Map<string, Awaited<ReturnType<typeof getRenderWorkerConfig>>>();
   let submitted = 0, errors = 0, throttled = 0;
   for (const row of (rows ?? []) as any[]) {
     if (submitted >= perTick) break;
@@ -221,12 +237,12 @@ async function submitDueRendersInner(opts?: {
     if (row.render_next_attempt_at && new Date(row.render_next_attempt_at).getTime() > Date.now()) continue;
     const cap = effectiveCap(overrides, row.user_id, "renders", limits.max_user_concurrent_renders);
     if ((perUser[row.user_id] ?? 0) >= cap) { throttled++; continue; }
-    if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderCredentials(row.user_id));
+    if (!credCache.has(row.user_id)) credCache.set(row.user_id, await getRenderWorkerConfig(row.user_id));
     const cred = credCache.get(row.user_id) ?? null;
     if (!cred) continue;
     let attemptId: string | undefined;
     try {
-      const idempotencyKey = `render:${row.id}:${randomUUID()}`;
+      const idempotencyKey = `render:${row.id}:retry:${Number(row.render_retry_count ?? 0)}`;
       const claim = await (supabaseAdmin as any).rpc("claim_render_item", {
         p_item_id: row.id,
         p_worker_id: workerId,
@@ -248,6 +264,7 @@ async function submitDueRendersInner(opts?: {
       if (!doc?.scenes?.length) doc = fallbackDocument(campaignStringVariables(row.content_json));
       const concrete = materializeCampaignRenderDocument(doc, rawVars);
       doc = await hydrateDocumentAssetRefsServer(concrete.document, row.user_id);
+      doc = await signDocumentMediaUrls(doc,row.user_id);
       const vars = concrete.values;
       const budget = await budgetFor(row.user_id);
       const estimatedCost = estimateRenderCostUsd(concrete.durationMs);
@@ -262,17 +279,18 @@ async function submitDueRendersInner(opts?: {
       const backgroundVideoUrl = (await signAsset(row.user_id, asset.background_file_name)) ?? backgroundFromDoc(doc, vars);
       const audioUrl = await signAsset(row.user_id, audio.audio_file_name);
 
-      const edit = buildShotstackEdit({
-        doc,
-        vars,
-        backgroundVideoUrl,
-        audioUrl,
+      const manifest = buildFfmpegWorkerManifest({
+        doc, vars, backgroundVideoUrl, audioUrl,
         audioVolume: audio.volume ?? doc.audio?.volume ?? 0.7,
-        resolution: "1080p",
-        fps: 25,
-        callbackUrl,
+        resolution: "1080p", fps: 25,
       });
-      const jobId = await submitShotstackRender(edit, cred);
+      const manifestToken=randomUUID();
+      const manifestTokenHash=createHash("sha256").update(manifestToken).digest("hex");
+      await (supabaseAdmin as any).from("render_attempts").update({metadata_json:{manifest_token_hash:manifestTokenHash}}).eq("id",attemptId);
+      const {error:manifestError}=await supabaseAdmin.storage.from("assets").upload(`${row.user_id}/render-manifests/${attemptId}.json`,new TextEncoder().encode(JSON.stringify(manifest)),{contentType:"application/json",upsert:true});
+      if(manifestError)throw manifestError;
+      const manifestUrl=`${renderManifestBaseUrl()}?attempt=${encodeURIComponent(attemptId)}&token=${encodeURIComponent(manifestToken)}`;
+      const jobId = await submitFfmpegWorkerJob(cred,{idempotencyKey,attemptId,manifestUrl,callbackUrl});
       await (supabaseAdmin as any).from("render_attempts").update({ provider_job_ref: jobId, status: "submitted", submitted_at: new Date().toISOString() }).eq("id", attemptId);
       await supabaseAdmin.from("campaign_items").update({ render_job_ref: jobId }).eq("id", row.id).eq("active_render_attempt_id", attemptId);
       await log(row, "info", `Server render submitted (attempt ${attemptId}, job ${jobId})`, "submitted", attemptId, { job_id: jobId });
@@ -310,10 +328,10 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
   let completed = 0, pending = 0, errors = 0;
   for (const row of (rows ?? []) as any[]) {
     try {
-      const cred = await getRenderCredentials(row.user_id);
+      const cred = await getRenderWorkerConfig(row.user_id);
       if (!cred) { pending++; continue; }
       if (row.render_cancel_requested_at) {
-        await cancelShotstackRender(row.render_job_ref as string, cred);
+        await cancelFfmpegWorkerJob(cred, row.render_job_ref as string);
         if (row.active_render_attempt_id) await (supabaseAdmin as any).from("render_attempts").update({ status: "cancelled", cancelled_at: new Date().toISOString(), finished_at: new Date().toISOString() }).eq("id", row.active_render_attempt_id);
         await supabaseAdmin.from("campaign_items").update({ status: "pending", render_job_ref: null, active_render_attempt_id: null, render_cancel_requested_at: null, error_message: "Render cancelled" }).eq("id", row.id);
         await log(row, "warn", "Render cancelled by user", "cancelled", row.active_render_attempt_id);
@@ -322,14 +340,14 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
       const budget = await budgetFor(row.user_id);
       const submittedAt = row.render_submitted_at ? new Date(row.render_submitted_at).getTime() : Date.now();
       if (Date.now() - submittedAt > renderTimeoutMs(budget.maxRenderSeconds)) {
-        try { await cancelShotstackRender(row.render_job_ref as string, cred); } catch {}
+        try { await cancelFfmpegWorkerJob(cred, row.render_job_ref as string); } catch {}
         throw new Error(`Render timed out after ${budget.maxRenderSeconds}s`);
       }
-      const status = await getShotstackRender(row.render_job_ref as string, cred);
-      if (row.active_render_attempt_id) await (supabaseAdmin as any).from("render_attempts").update({ provider_status: status.status }).eq("id", row.active_render_attempt_id);
+      const status = await getFfmpegWorkerJob(cred, row.render_job_ref as string);
+      if (row.active_render_attempt_id) await (supabaseAdmin as any).from("render_attempts").update({ provider_status: status.status, progress_percent: Math.max(0,Math.min(100,Math.round(Number(status.progress??0)))), progress_updated_at:new Date().toISOString() }).eq("id", row.active_render_attempt_id);
       if (status.status === "failed") throw new Error(status.error || "Render provider reported a failed render");
-      if (status.status !== "done" || !status.url) { pending++; continue; }
-      await storeFinishedRender(row, status.url, (row as any).active_render_attempt_id);
+      if (status.status !== "completed" || !status.outputUrl) { pending++; continue; }
+      await storeFinishedRender(row, status.outputUrl, (row as any).active_render_attempt_id);
       completed++;
     } catch (e) {
       errors++;
@@ -341,17 +359,20 @@ export async function collectFinishedRenders(): Promise<{ completed: number; pen
 
 type ItemRef = { id: string; user_id: string; campaign_id: string; active_render_attempt_id?: string | null };
 
-function allowedRenderOutputUrl(raw: string): URL {
+async function allowedRenderOutputUrl(raw: string, userId: string): Promise<URL> {
   const url = new URL(raw);
-  if (url.protocol !== "https:") throw new Error("Render output must use HTTPS");
+  if (url.protocol !== "https:") {
+    const localDev=process.env.NODE_ENV!=="production" && url.protocol==="http:" && ["localhost","127.0.0.1"].includes(url.hostname);
+    if(!localDev) throw new Error("Render output must use HTTPS");
+  }
   const configured = (process.env.RENDER_OUTPUT_HOSTS ?? "")
     .split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
   const host = url.hostname.toLowerCase();
-  const shotstackHost = host === "shotstack.io" || host.endsWith(".shotstack.io");
-  const explicitlyAllowed = configured.some((allowed) => host === allowed || (allowed.startsWith("*.") && host.endsWith(allowed.slice(1))));
-  if (!shotstackHost && !explicitlyAllowed) {
-    throw new Error(`Untrusted render output host: ${host}. Configure RENDER_OUTPUT_HOSTS for your provider output CDN.`);
-  }
+  let workerOrigin=""; try{const config=await getRenderWorkerConfig(userId);workerOrigin=config?new URL(config.url).origin:"";}catch{}
+  const workerHost=workerOrigin?new URL(workerOrigin).hostname.toLowerCase():"";
+  const explicitlyAllowed = host===workerHost || configured.some((allowed) => host === allowed || (allowed.startsWith("*.") && host.endsWith(allowed.slice(1))));
+  if (!explicitlyAllowed) throw new Error(`Untrusted render output host: ${host}. Configure FFMPEG_WORKER_URL or RENDER_OUTPUT_HOSTS for the worker output host.`);
+  if(workerOrigin && url.origin===workerOrigin && !url.pathname.startsWith("/outputs/")) throw new Error("Worker output URL must use the protected /outputs/ path");
   return url;
 }
 
@@ -359,21 +380,24 @@ function allowedRenderOutputUrl(raw: string): URL {
  * compare-and-set prevents late callbacks from overwriting a newer render. */
 export async function storeFinishedRender(row: ItemRef, url: string, attemptId?: string | null): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const safeUrl = allowedRenderOutputUrl(url);
+  const safeUrl = await allowedRenderOutputUrl(url, row.user_id);
   const res = await fetch(safeUrl);
   if (!res.ok) throw new Error(`Could not download the finished MP4 [${res.status}]`);
   const contentType = res.headers.get("content-type") ?? "";
   if (contentType && !contentType.startsWith("video/") && contentType !== "application/octet-stream") {
     throw new Error(`Render output was not a video (${contentType})`);
   }
-  const contentLength = Number(res.headers.get("content-length") ?? 0);
-  if (contentLength === 0 && !res.body) throw new Error("The finished MP4 was empty");
+  const declaredLength = Number(res.headers.get("content-length") ?? 0);
+  const configuredMax=Number(process.env.MAX_RENDER_OUTPUT_BYTES||512*1024*1024);
+  const maxBytes=Number.isFinite(configuredMax)?Math.max(10*1024*1024,Math.min(2*1024*1024*1024,configuredMax)):512*1024*1024;
+  if(declaredLength>maxBytes)throw new Error("Finished MP4 exceeds the configured output limit");
+  if(!res.body)throw new Error("The finished MP4 had no response body");
+  const reader=res.body.getReader();const chunks:Uint8Array[]=[];let contentLength=0;
+  while(true){const {done,value}=await reader.read();if(done)break;if(!value)continue;contentLength+=value.byteLength;if(contentLength>maxBytes){await reader.cancel();throw new Error("Finished MP4 exceeded the configured output limit");}chunks.push(value);}
+  if(!contentLength)throw new Error("The finished MP4 was empty");
+  const bytes=new Uint8Array(contentLength);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
   const path = `${row.user_id}/${row.id}-${Date.now()}.mp4`;
-  // V2.18: pass the provider response body through to Storage instead of
-  // materializing the complete MP4 with arrayBuffer(). This keeps worker memory
-  // bounded for concurrent/long renders when the Storage client supports streams.
-  const uploadBody = res.body ?? new Uint8Array(await res.arrayBuffer());
-  const up = await supabaseAdmin.storage.from("renders").upload(path, uploadBody as any, { contentType: "video/mp4", upsert: true });
+  const up = await supabaseAdmin.storage.from("renders").upload(path, bytes, { contentType: "video/mp4", upsert: true });
   if (up.error) throw up.error;
 
   let update = supabaseAdmin.from("campaign_items").update({
@@ -388,8 +412,9 @@ export async function storeFinishedRender(row: ItemRef, url: string, attemptId?:
     throw new Error("Render attempt is no longer active; refusing stale completion");
   }
   if (attemptId) {
-    await (supabaseAdmin as any).from("render_attempts").update({ status: "completed", finished_at: new Date().toISOString(), finalized_at: new Date().toISOString(), output_bytes: contentLength || null, provider_status: "done" }).eq("id", attemptId);
+    await (supabaseAdmin as any).from("render_attempts").update({ status: "completed", finished_at: new Date().toISOString(), finalized_at: new Date().toISOString(), output_bytes: contentLength || null, provider_status: "completed", progress_percent: 100, progress_updated_at: new Date().toISOString() }).eq("id", attemptId);
   }
+  if(attemptId) await supabaseAdmin.storage.from("assets").remove([`${row.user_id}/render-manifests/${attemptId}.json`]).catch(()=>undefined);
   await log(row, "info", "Server render finished and stored", "finalized", attemptId, { output_bytes: contentLength || null, storage_path: path });
 }
 
@@ -416,12 +441,13 @@ export async function failRender(row: ItemRef, message: string, attemptId?: stri
 }
 
 /** Webhook entry point. The callback URL carries a one-attempt token. We ignore
- * provider-supplied output URLs and re-query Shotstack for authoritative state. */
+ * provider-supplied output URLs and re-query the FFmpeg worker for authoritative state. */
 export async function handleRenderCallback(payload: {
   id?: string;
   status?: string;
   url?: string | null;
   error?: string | null;
+  progress?: number;
 }, auth: { attemptId?: string | null; token?: string | null }): Promise<{ ok: boolean; detail: string }> {
   const jobId = payload.id;
   if (!jobId || !auth.attemptId || !auth.token) return { ok: false, detail: "missing render callback identity" };
@@ -450,17 +476,22 @@ export async function handleRenderCallback(payload: {
     .select("id,user_id,campaign_id,rendered_video_url,active_render_attempt_id")
     .eq("id", attempt.campaign_item_id).maybeSingle();
   if (!row || (row as any).active_render_attempt_id !== attempt.id) return { ok: true, detail: "stale attempt ignored" };
+  const progress=Math.max(0,Math.min(100,Math.round(Number(payload.progress??0))));
+  if(payload.status==="queued"||payload.status==="rendering"){
+    await (supabaseAdmin as any).from("render_attempts").update({provider_status:payload.status,progress_percent:progress,progress_updated_at:new Date().toISOString()}).eq("id",attempt.id).eq("status","submitted");
+    return {ok:true,detail:`${payload.status} ${progress}%`};
+  }
 
-  const cred = await getRenderCredentials(attempt.user_id);
+  const cred = await getRenderWorkerConfig(attempt.user_id);
   if (!cred) return { ok: false, detail: "render credentials unavailable" };
   try {
-    const authoritative = await getShotstackRender(jobId, cred);
+    const authoritative = await getFfmpegWorkerJob(cred, jobId);
     if (authoritative.status === "failed") {
       await failRender(row as ItemRef, authoritative.error || payload.error || "Render provider reported failure", attempt.id);
       return { ok: true, detail: "marked failed" };
     }
-    if (authoritative.status !== "done" || !authoritative.url) return { ok: true, detail: `provider status ${authoritative.status}` };
-    await storeFinishedRender(row as ItemRef, authoritative.url, attempt.id);
+    if (authoritative.status !== "completed" || !authoritative.outputUrl) return { ok: true, detail: `provider status ${authoritative.status}` };
+    await storeFinishedRender(row as ItemRef, authoritative.outputUrl, attempt.id);
     return { ok: true, detail: "stored" };
   } catch (e) {
     await failRender(row as ItemRef, e instanceof Error ? e.message : "Could not store finished render", attempt.id);

@@ -1,0 +1,4 @@
+import {createHash,timingSafeEqual} from "node:crypto";
+export async function getRenderManifestForWorker(attemptId:string,token:string){
+ const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {data}=await (supabaseAdmin as any).from("render_attempts").select("id,user_id,status,metadata_json").eq("id",attemptId).maybeSingle();if(!data)return null;const meta=(data.metadata_json??{}) as {manifest_token_hash?:string};const actual=createHash("sha256").update(token).digest();const expected=Buffer.from(meta.manifest_token_hash??"","hex");if(expected.length!==actual.length||!timingSafeEqual(expected,actual)||!["claimed","submitted"].includes(String(data.status)))return null;const path=`${data.user_id}/render-manifests/${attemptId}.json`;const {data:file,error}=await supabaseAdmin.storage.from("assets").download(path);if(error||!file)return null;return JSON.parse(await file.text()) as unknown;
+}

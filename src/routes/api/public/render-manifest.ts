@@ -1,0 +1,3 @@
+import {createFileRoute} from "@tanstack/react-router";
+import {getRenderManifestForWorker} from "@/lib/render-manifest.server";
+export const Route=createFileRoute("/api/public/render-manifest")({server:{handlers:{GET:async({request})=>{const u=new URL(request.url);const attempt=u.searchParams.get("attempt");const token=u.searchParams.get("token");if(!attempt||!token)return Response.json({error:"missing manifest identity"},{status:400});const manifest=await getRenderManifestForWorker(attempt,token);return manifest?Response.json(manifest,{headers:{"cache-control":"no-store"}}):Response.json({error:"manifest unavailable"},{status:401});}}}});

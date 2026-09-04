@@ -132,8 +132,31 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
 }) {
   const scene = doc.scenes[sceneIndex];
   const dims = CANVAS_DIMS[doc.aspect];
-  const timelineFrame = useMemo(() => evaluateTimelineFrame(doc, playheadMs, previewVars), [doc, playheadMs, previewVars]);
-  const localPlayheadMs = timelineFrame.sceneIndex === sceneIndex ? timelineFrame.localMs : Math.max(0, playheadMs - sceneStartMs(doc, sceneIndex));
+
+  // The full Preview has always materialized automation variables before it
+  // evaluates a frame. The editor canvas must do exactly the same thing or
+  // dynamic/repeated/conditional templates can appear completely empty until
+  // the Preview modal is opened.
+  const liveMaterialized = useMemo(() => materializeAutomationDocument(doc, previewVars), [doc, previewVars]);
+  const liveDoc = liveMaterialized.document as EditorDocumentV2;
+  const liveSceneIndex = useMemo(() => {
+    if (!scene) return 0;
+    const exact = liveDoc.scenes.findIndex((item) => item.id === scene.id);
+    if (exact >= 0) return exact;
+    // Repeated scenes are cloned from the source scene. Prefer the first clone
+    // so selecting the source scene in the editor still has a real canvas.
+    const repeated = liveDoc.scenes.findIndex((item) => item.id.startsWith(`${scene.id}__`) || item.id.startsWith(`${scene.id}-`));
+    return repeated >= 0 ? repeated : Math.max(0, Math.min(liveDoc.scenes.length - 1, sceneIndex));
+  }, [liveDoc, scene, sceneIndex]);
+  const liveScene = liveDoc.scenes[liveSceneIndex] ?? scene;
+  const sourceSceneStart = scene ? sceneStartMs(doc, sceneIndex) : 0;
+  const sourceLocalMs = scene ? Math.max(0, playheadMs - sourceSceneStart) : 0;
+  const liveSceneStart = liveDoc.scenes.length ? sceneStartMs(liveDoc, liveSceneIndex) : 0;
+  const livePlayheadMs = liveScene
+    ? liveSceneStart + Math.max(0, Math.min(Math.max(0, liveScene.durationMs - 1), sourceLocalMs))
+    : Math.max(0, playheadMs);
+  const timelineFrame = useMemo(() => evaluateTimelineFrame(liveDoc, livePlayheadMs, {}), [liveDoc, livePlayheadMs]);
+  const localPlayheadMs = timelineFrame.localMs;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [fitScale, setFitScale] = useState(0.3);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
@@ -142,17 +165,31 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
   const [panning, setPanning] = useState(false);
 
   useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let raf = 0;
     const calc = () => {
-      const wrap = wrapRef.current;
-      if (!wrap) return;
-      const pad = 32;
-      const sx = (wrap.clientWidth - pad) / dims.w;
-      const sy = (wrap.clientHeight - pad) / dims.h;
-      setFitScale(Math.min(sx, sy));
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const width = wrap.clientWidth;
+        const height = wrap.clientHeight;
+        if (width <= 1 || height <= 1) return;
+        const pad = Math.min(32, Math.max(8, Math.min(width, height) * 0.04));
+        const sx = Math.max(1, width - pad) / dims.w;
+        const sy = Math.max(1, height - pad) / dims.h;
+        const next = Math.max(0.05, Math.min(4, Math.min(sx, sy)));
+        setFitScale(next);
+      });
     };
     calc();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(calc) : null;
+    observer?.observe(wrap);
     window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      window.removeEventListener("resize", calc);
+    };
   }, [dims.w, dims.h]);
 
   const scale = zoom === "fit" ? fitScale : zoom;
@@ -199,7 +236,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
   }, []);
 
   const zoomToSelection=()=>{
-    const selected=scene.elements.filter(e=>selectedIds.includes(e.id));
+    const selected=(scene?.elements ?? []).filter(e=>selectedIds.includes(e.id));
     const b=selectionBounds(selected);
     const wrap=wrapRef.current;
     if(!b||!wrap)return;
@@ -240,7 +277,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
   const snapTargets = (excludeId: string) => {
     const vs = [0, dims.w / 2, dims.w];
     const hs = [0, dims.h / 2, dims.h];
-    for (const o of scene.elements) {
+    for (const o of scene?.elements ?? []) {
       if (o.id === excludeId) continue;
       vs.push(o.x, o.x + o.w / 2, o.x + o.w);
       hs.push(o.y, o.y + o.h / 2, o.y + o.h);
@@ -253,7 +290,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
     e.stopPropagation();
     const additive=e.shiftKey || e.metaKey || e.ctrlKey;
     onSelectElement(el.id, additive);
-    const movingIds = selectedIds.includes(el.id) && selectedIds.length > 1 ? selectedIds : (el.groupId ? scene.elements.filter(o=>o.groupId===el.groupId).map(o=>o.id) : [el.id]);
+    const movingIds = selectedIds.includes(el.id) && selectedIds.length > 1 ? selectedIds : (el.groupId ? (scene?.elements ?? []).filter(o=>o.groupId===el.groupId).map(o=>o.id) : [el.id]);
     const start = { x: e.clientX, y: e.clientY, ex: el.x, ey: el.y };
     const targets = snapTargets(el.id);
     let appliedDx=0, appliedDy=0;
@@ -381,7 +418,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
           width: dims.w, height: dims.h, left: 0, top: 0,
           transformOrigin: "0 0",
           transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-          background: scene.background, outline: "1px solid #262626",
+          background: liveScene?.background ?? scene?.background ?? "#000000", outline: "1px solid #262626",
         }}
       >
         <div className="absolute inset-0" style={{
@@ -389,7 +426,7 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
           transform: `translate(${timelineFrame.camera.tx + timelineFrame.transition.tx}px, ${timelineFrame.camera.ty + timelineFrame.transition.ty}px) scale(${timelineFrame.camera.scale * timelineFrame.transition.scale})`,
           opacity: timelineFrame.transition.opacity, filter: timelineFrame.transition.blur > 0.1 ? `blur(${timelineFrame.transition.blur}px)` : undefined,
         }}>
-          {(timelineFrame.sceneIndex === sceneIndex ? timelineFrame.visibleElements : []).map((elementState) => {
+          {timelineFrame.visibleElements.map((elementState) => {
             const el = elementState.element;
             return (
             <ElementView
@@ -439,6 +476,12 @@ export function Canvas({ doc, sceneIndex, previewVars, selectedId, selectedIds, 
           <div className="absolute inset-0 bg-black pointer-events-none" style={{ opacity: timelineFrame.transitionOverlayOpacity }} />
         )}
       </div>
+
+      {liveMaterialized.errors.length > 0 && (
+        <div className="absolute top-3 left-3 right-3 z-20 rounded-md border border-amber-500/30 bg-black/75 px-3 py-2 text-[10px] text-amber-200 pointer-events-none">
+          Live canvas is using template defaults · {liveMaterialized.errors.slice(0, 2).map((error) => `${error.variable}: ${error.message}`).join(" · ")}
+        </div>
+      )}
 
       {/* Zoom controls */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-panel border border-border rounded-md px-1 py-1 text-xs">
