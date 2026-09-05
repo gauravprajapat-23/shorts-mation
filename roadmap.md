@@ -1,4 +1,4 @@
-- [ ] Finish the native FFmpeg worker frame contract and campaign integration.
-- [ ] Run a real worker render through queued → rendering → completed and validate the MP4.
+- [x] Finish the native FFmpeg worker frame contract and campaign integration.
+- [x] Run a real worker render through queued → rendering → completed and validate the MP4.
 - [ ] Repair all preview typecheck errors reported in `/tmp/observability/build-errors.log`.
 - [ ] Verify the preview build reports no errors.
