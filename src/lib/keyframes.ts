@@ -61,12 +61,12 @@ export const MOTION_PRESETS: Array<{id: MotionPresetId; label: string; keyframes
     {id:`kf-${Date.now()}-1`,timeMs:0,easing:"linear",values:{scale:1}},
     {id:`kf-${Date.now()}-2`,timeMs:d,easing:"linear",values:{scale:1.08}},
   ]},
-  { id:"shake-hit", label:"Shake Hit", keyframes:(el,d)=>[
+  { id:"shake-hit", label:"Shake Hit", keyframes:(el,d):ElementKeyframe[]=>([
     {id:`kf-${Date.now()}-1`,timeMs:0,easing:"linear",values:{x:el.x,rotation:el.rotation}},
     {id:`kf-${Date.now()}-2`,timeMs:70,easing:"linear",values:{x:el.x-16,rotation:el.rotation-2}},
     {id:`kf-${Date.now()}-3`,timeMs:140,easing:"linear",values:{x:el.x+14,rotation:el.rotation+2}},
     {id:`kf-${Date.now()}-4`,timeMs:220,easing:"easeOut",values:{x:el.x,rotation:el.rotation}},
-  ].filter(k=>k.timeMs<=d)},
+  ] as ElementKeyframe[]).filter(k=>k.timeMs<=d)},
   { id:"ken-burns", label:"Ken Burns", keyframes:(el,d)=>[
     {id:`kf-${Date.now()}-1`,timeMs:0,easing:"linear",values:{cropScale:1,cropX:-2,cropY:0}},
     {id:`kf-${Date.now()}-2`,timeMs:d,easing:"linear",values:{cropScale:1.18,cropX:3,cropY:-2}},

@@ -16,6 +16,7 @@ import { campaignAutomationInput, campaignStringVariables, materializeCampaignRe
 import { createHash, randomUUID } from "node:crypto";
 import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders, RENDER_STALE_MINUTES } from "@/lib/automation-limits.server";
 import { hydrateDocumentAssetRefsServer } from "@/lib/asset-refs.server";
+import { timelineDurationMs } from "@/lib/timeline-engine";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
@@ -267,7 +268,7 @@ async function submitDueRendersInner(opts?: {
       doc = await signDocumentMediaUrls(doc,row.user_id);
       const vars = concrete.values;
       const budget = await budgetFor(row.user_id);
-      const estimatedCost = estimateRenderCostUsd(concrete.durationMs);
+      const estimatedCost = estimateRenderCostUsd(timelineDurationMs(doc));
       const spent = await monthSpend(row.user_id);
       if (estimatedCost > budget.maxCostPerRenderUsd) throw new Error(`Render budget blocked: estimated $${estimatedCost.toFixed(4)} exceeds per-render limit $${budget.maxCostPerRenderUsd.toFixed(4)}`);
       if (spent + estimatedCost > budget.monthlyBudgetUsd) throw new Error(`Render budget blocked: monthly budget $${budget.monthlyBudgetUsd.toFixed(2)} would be exceeded`);

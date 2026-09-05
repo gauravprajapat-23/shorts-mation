@@ -24,7 +24,6 @@ function variableSchema(v:AutomationVariableDefinition|undefined){
   if(v.type==="number")return {type:"number"};
   if(v.type==="boolean")return {type:"boolean"};
   if(v.type==="array")return {type:"array",items:{type:"string"}};
-  if(v.type==="object")return {type:"object",additionalProperties:true};
   return {type:"string"};
 }
 

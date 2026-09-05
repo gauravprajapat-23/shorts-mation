@@ -39,11 +39,11 @@ export const syncYouTubeAnalytics=createServerFn({method:"POST"}).middleware([re
  const channel=await fetchChannelSnapshot(access);
  await (supabaseAdmin as any).from("youtube_channel_snapshots").insert({user_id:context.userId,connection_id:conn.id,subscribers:channel.subscribers,views:channel.views,videos:channel.videos});
  const items=await (supabaseAdmin as any).from("campaign_items").select("id,youtube_video_id,campaign_id,content_json,seo_json,youtube_publish_at,schedule_at").eq("user_id",context.userId).not("youtube_video_id","is",null).limit(500);
- const map=new Map((items.data??[]).map((r:any)=>[r.youtube_video_id,r]));
+ const map=new Map<string,any>((items.data??[]).map((r:any):[string,any]=>[String(r.youtube_video_id),r]));
  const stats=await fetchVideoStats(access,[...map.keys()]);
- const campaignIds=[...new Set((items.data??[]).map((r:any)=>r.campaign_id).filter(Boolean))];
+ const campaignIds=[...new Set<string>((items.data??[]).map((r:any)=>String(r.campaign_id||"")).filter(Boolean))];
  const campaigns=campaignIds.length?await (supabaseAdmin as any).from("campaigns").select("id,name,template_id").in("id",campaignIds):{data:[]};
- const campaignMap=new Map((campaigns.data??[]).map((r:any)=>[r.id,r]));
+ const campaignMap=new Map<string,any>((campaigns.data??[]).map((r:any):[string,any]=>[String(r.id),r]));
  const {inferAttribution}=await import("@/lib/analytics-intelligence");
  const startDate=new Date(Date.now()-90*86_400_000).toISOString().slice(0,10),endDate=new Date().toISOString().slice(0,10);
  const {fetchYouTubeAnalyticsReport}=await import("@/lib/youtube-intelligence.server");

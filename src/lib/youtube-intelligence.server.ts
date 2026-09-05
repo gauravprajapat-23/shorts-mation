@@ -42,8 +42,8 @@ export async function fetchVideoStats(token:string,ids:string[]){
 export async function uploadThumbnail(token:string,videoId:string,bytes:Uint8Array,mimeType:string){
  if(bytes.byteLength>2*1024*1024)throw new Error("YouTube thumbnail must be 2 MB or smaller");
  if(!["image/jpeg","image/png"].includes(mimeType))throw new Error("Thumbnail must be JPEG or PNG");
- const res=await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}`,{
-  method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":mimeType,"Content-Length":String(bytes.byteLength)},body:bytes,signal:AbortSignal.timeout(30_000)
+  const res=await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}`,{
+   method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":mimeType,"Content-Length":String(bytes.byteLength)},body:new Blob([bytes as BlobPart],{type:mimeType}),signal:AbortSignal.timeout(30_000)
  });
  if(!res.ok)throw new Error(`YouTube thumbnail upload failed (${res.status}): ${(await res.text()).slice(0,500)}`);
 }

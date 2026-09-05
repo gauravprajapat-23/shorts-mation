@@ -13,6 +13,7 @@ import { kickCampaignAutomation } from "@/lib/automation.functions";
 import { useState } from "react";
 import { effectivePublishAt, formatDateTime } from "@/lib/date-display";
 import { duplicateCampaign } from "@/lib/campaign-operations.functions";
+import { repairFailedYouTubeUpload } from "@/lib/youtube-intelligence.functions";
 import { campaignEta, campaignProgress, scheduleConflictIds } from "@/lib/campaign-operations";
 
 export const Route = createFileRoute("/_app/campaigns/$campaignId")({
@@ -30,6 +31,12 @@ function CampaignDetail() {
   const kickFn = useServerFn(kickCampaignAutomation);
   const deleteCampaign = useServerFn(deleteCampaignFully);
   const duplicateFn = useServerFn(duplicateCampaign);
+  const repairFn = useServerFn(repairFailedYouTubeUpload);
+  const repairUpload = useMutation({
+    mutationFn: (itemId: string) => repairFn({ data: { itemId } }),
+    onSuccess: () => { toast.success("Upload queued for repair"); qc.invalidateQueries({ queryKey: ["campaign", campaignId] }); },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const publish = async (itemId: string) => {
     setPublishingId(itemId);

@@ -64,7 +64,7 @@ export const generateCampaignDataset=createServerFn({method:"POST"}).middleware(
   try{
     const result=await generateAiDataset(creds,{prompt,count,market:data.market?.slice(0,120),audience:data.audience?.slice(0,240),templateName:template.name,doc:template.template_json as EditorDocument});
     await (supabaseAdmin as any).from("ai_generation_runs").update({status:"completed",generated_count:result.rows.length,usage_json:result.usage,completed_at:new Date().toISOString()}).eq("id",run.id);
-    return {...result,runId:run.id,provider:creds.provider,model:creds.model};
+    return {...result,rows:result.rows as Record<string, string | number | boolean | null>[],runId:run.id,provider:creds.provider,model:creds.model};
   }catch(e){
     await (supabaseAdmin as any).from("ai_generation_runs").update({status:"failed",error_message:e instanceof Error?e.message:"Generation failed",completed_at:new Date().toISOString()}).eq("id",run.id);
     throw e;

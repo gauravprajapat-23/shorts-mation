@@ -17,7 +17,7 @@ export const getWinningTemplateAnalytics=createServerFn({method:"POST"}).middlew
   templateIds.length?(supabaseAdmin as any).from("templates").select("id,name").in("id",templateIds):Promise.resolve({data:[]}),
   campaignIds.length?(supabaseAdmin as any).from("campaigns").select("id,name").in("id",campaignIds):Promise.resolve({data:[]}),
  ]);
- const tm=new Map((templates.data??[]).map((r:any)=>[r.id,r.name])),cm=new Map((campaigns.data??[]).map((r:any)=>[r.id,r.name]));
+ const tm=new Map<string,string>((templates.data??[]).map((r:any):[string,string]=>[r.id,r.name])),cm=new Map<string,string>((campaigns.data??[]).map((r:any):[string,string]=>[r.id,r.name]));
  const observations=latest.map(r=>({
   campaignItemId:String(r.campaign_item_id??r.youtube_video_id),youtubeVideoId:String(r.youtube_video_id),
   templateId:r.template_id,templateName:tm.get(r.template_id)??null,campaignId:r.campaign_id,campaignName:cm.get(r.campaign_id)??null,
@@ -51,7 +51,7 @@ async function getWinningTemplateAnalyticsInternal(userId:string,days:number){
  const seen=new Set<string>(),latest:any[]=[];for(const r of data??[]){const k=r.campaign_item_id||r.youtube_video_id;if(seen.has(k))continue;seen.add(k);latest.push(r);}
  const templateIds=[...new Set(latest.map(r=>r.template_id).filter(Boolean))],campaignIds=[...new Set(latest.map(r=>r.campaign_id).filter(Boolean))];
  const [templates,campaigns]=await Promise.all([templateIds.length?(supabaseAdmin as any).from("templates").select("id,name").in("id",templateIds):Promise.resolve({data:[]}),campaignIds.length?(supabaseAdmin as any).from("campaigns").select("id,name").in("id",campaignIds):Promise.resolve({data:[]})]);
- const tm=new Map((templates.data??[]).map((r:any)=>[r.id,r.name])),cm=new Map((campaigns.data??[]).map((r:any)=>[r.id,r.name]));
+ const tm=new Map<string,string>((templates.data??[]).map((r:any):[string,string]=>[r.id,r.name])),cm=new Map<string,string>((campaigns.data??[]).map((r:any):[string,string]=>[r.id,r.name]));
  const observations=latest.map(r=>({campaignItemId:String(r.campaign_item_id??r.youtube_video_id),youtubeVideoId:String(r.youtube_video_id),templateId:r.template_id,templateName:tm.get(r.template_id)??null,campaignId:r.campaign_id,campaignName:cm.get(r.campaign_id)??null,views:Number(r.views??0),likes:Number(r.likes??0),comments:Number(r.comments??0),impressions:r.impressions==null?null:Number(r.impressions),ctr:r.ctr==null?null:Number(r.ctr),retentionProxy:r.retention_proxy==null?null:Number(r.retention_proxy),first3sProxy:r.first_3s_proxy==null?null:Number(r.first_3s_proxy),uploadTime:r.upload_time,hook:r.hook,cta:r.cta,topic:r.topic,variant:r.variant}));
  const {analyzeWinningContent}=await import("@/lib/analytics-intelligence");return {days,analysis:analyzeWinningContent(observations),observations};
 }

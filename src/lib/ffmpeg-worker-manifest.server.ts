@@ -2,18 +2,12 @@
 // The edge runtime never executes FFmpeg. It builds a serializable timeline
 // manifest which the separately deployed native worker consumes.
 import { computeRevealDurationMs, resolveDocVars } from "@/lib/animate";
-import { collectTimelineAudioSegments, collectTimelineVideoSegments, evaluateTimelineAudio, evaluateTimelineFrame, getTimelineSceneRanges, timelineDurationMs } from "@/lib/timeline-engine";
-import type { ElementFrame } from "@/lib/animate";
+import { collectTimelineAudioSegments, collectTimelineVideoSegments, evaluateTimelineAudio, getTimelineSceneRanges, timelineDurationMs } from "@/lib/timeline-engine";
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
-import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, EditorCaptionClip } from "@/lib/types";
-import { cssTextShadows, gradientCss, layoutText } from "@/lib/text-design";
-import { cssFilterForLook, resolveMediaLook } from "@/lib/effects";
+import type { EditorDocument, EditorScene, TextElement } from "@/lib/types";
+import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 
 const MAX_REVEAL_STEPS = 14;
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 function revealParts(el: TextElement): string[] {
   const reveal = el.reveal ?? "none";
@@ -38,91 +32,6 @@ function publicAssetUrl(src: string): string {
   if (!src.startsWith("/")) return src;
   const base = (process.env["PUBLIC_APP_URL"] || "").replace(/\/$/, "");
   return base ? `${base}${src}` : src;
-}
-
-function elementHtml(el: EditorElement, frame: ElementFrame, textOverride?: string): string {
-  const base = `position:absolute;left:${frame.x}px;top:${frame.y}px;width:${el.w}px;height:${el.h}px;opacity:${frame.opacity};transform:scale(${frame.scale}) rotate(${frame.rotation}deg);transform-origin:center center;overflow:hidden;${frame.blurPx > 0.1 ? `filter:blur(${frame.blurPx}px);` : ""}`;
-  if (el.type === "shape") {
-    const s = el as ShapeElement;
-    const radius = s.shape === "ellipse" ? "50%" : `${s.radius ?? 0}px`;
-    return `<div style="${base}background:${s.fill};border-radius:${radius};"></div>`;
-  }
-  if (el.type === "image") {
-    const im = el as ImageElement;
-    if (!im.src || im.src.startsWith("{{")) return "";
-    const look = resolveMediaLook(im.filterPreset, im.colorAdjustments);
-    return `<div style="${base}"><img src="${escapeHtml(im.src)}" style="width:100%;height:100%;object-fit:${im.fit === "contain" ? "contain" : "cover"};filter:${cssFilterForLook(look)};transform:translate(${frame.cropX}%,${frame.cropY}%) scale(${frame.cropScale});transform-origin:center center;"/></div>`;
-  }
-  if (el.type === "text") {
-    const t = el as TextElement;
-    let txt = textOverride ?? t.text;
-    if (!txt.trim()) return "";
-    if (t.textTransform === "uppercase") txt = txt.toUpperCase();
-    else if (t.textTransform === "lowercase") txt = txt.toLowerCase();
-    const layout = layoutText(t, txt);
-    const justify = t.align === "left" ? "flex-start" : t.align === "right" ? "flex-end" : "center";
-    const valign = t.vAlign === "top" ? "flex-start" : t.vAlign === "bottom" ? "flex-end" : "center";
-    const background = t.backgroundGradient ? gradientCss(t.backgroundGradient) : (t.background || "transparent");
-    const textFill = t.textGradient ? gradientCss(t.textGradient) : undefined;
-    const stroke = t.stroke ? `-webkit-text-stroke:${t.strokeWidth ?? 6}px ${t.stroke};paint-order:stroke fill;` : "";
-    const shadow = cssTextShadows(t);
-    const textStyle = t.textGradient
-      ? `background:${textFill};background-clip:text;-webkit-background-clip:text;color:transparent;`
-      : `color:${t.color};`;
-    const lines = layout.lines.map(escapeHtml).join("<br/>");
-    const radius = t.backgroundRadius ?? (t.background || t.backgroundGradient ? 12 : 0);
-    const border = (t.backgroundBorderWidth ?? 0) > 0 ? `border:${t.backgroundBorderWidth}px solid ${t.backgroundBorderColor ?? "#FFFFFF"};` : "";
-    const clip = t.clipInsetPct ? `clip-path:inset(${t.clipInsetPct.top ?? 0}% ${t.clipInsetPct.right ?? 0}% ${t.clipInsetPct.bottom ?? 0}% ${t.clipInsetPct.left ?? 0}%);` : "";
-    return `<div style="${base}${clip}box-sizing:border-box;display:flex;align-items:${valign};justify-content:${justify};text-align:${t.align};padding:${t.backgroundPaddingY ?? 8}px ${t.backgroundPaddingX ?? 8}px;border-radius:${radius}px;overflow:hidden;"><div style="position:absolute;inset:0;background:${background};opacity:${t.backgroundOpacity ?? 1};border-radius:${radius}px;${border}"></div><span style="position:relative;font-family:'${escapeHtml(t.fontFamily)}',sans-serif;font-size:${layout.fontSize}px;font-weight:${t.fontWeight};line-height:${t.lineHeight ?? 1.15};letter-spacing:${t.letterSpacing ?? 0}px;${t.italic ? "font-style:italic;" : ""}${textStyle}${stroke}${shadow ? `text-shadow:${shadow};` : ""}">${lines}</span></div>`;
-  }
-  return "";
-}
-
-function sceneHtml(doc: EditorDocument, tMs: number, w: number, h: number): string {
-  const frame = evaluateTimelineFrame(doc, tMs);
-  const parts: string[] = [];
-  for (const state of frame.visibleElements) {
-    const el = state.element;
-    if (el.type === "video") continue;
-    if (el.type === "text") {
-      const text = el.text ?? "";
-      const shown = state.frame.visibleChars !== undefined
-        ? text.slice(0, state.frame.visibleChars)
-        : state.frame.visibleWords !== undefined
-          ? text.split(/\s+/).slice(0, state.frame.visibleWords).join(" ")
-          : text;
-      parts.push(elementHtml(el, state.frame, shown));
-    } else {
-      parts.push(elementHtml(el, state.frame));
-    }
-  }
-  const cam = frame.camera; const tr = frame.transition;
-  const effects = frame.visibleEffects.map((fx) => {
-    const o = Math.max(0,Math.min(1,(fx.opacity??1)*fx.intensity));
-    if (fx.kind === "vignette") return `<div style="position:absolute;inset:0;background:radial-gradient(circle at center,transparent 42%,rgba(0,0,0,.92) 100%);opacity:${o};"></div>`;
-    if (fx.kind === "light-leak") return `<div style="position:absolute;inset:0;background:radial-gradient(circle at ${20+60*fx.progress}% 15%,${fx.color??"#FF7A18"},transparent 38%);opacity:${o};mix-blend-mode:screen;"></div>`;
-    if (fx.kind === "flash") return `<div style="position:absolute;inset:0;background:#fff;opacity:${o*Math.sin(fx.progress*Math.PI)};"></div>`;
-    if (fx.kind === "grain") return `<div style="position:absolute;inset:0;opacity:${o*.22};background-image:repeating-radial-gradient(circle at 20% 30%,#fff 0 1px,transparent 1px 3px);mix-blend-mode:overlay;"></div>`;
-    return `<div style="position:absolute;inset:0;opacity:${o*.4};background:repeating-linear-gradient(0deg,rgba(255,0,90,.4) 0 2px,rgba(0,230,255,.3) 2px 4px,transparent 4px 8px);mix-blend-mode:screen;"></div>`;
-  }).join("");
-  const flash = tr.flash > .001 ? `<div style="position:absolute;inset:0;background:#fff;opacity:${tr.flash};"></div>` : "";
-  return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden;"><div style="position:absolute;inset:0;transform-origin:center center;transform:translate(${cam.tx+tr.tx}px,${cam.ty+tr.ty}px) scale(${cam.scale*tr.scale});opacity:${tr.opacity};filter:${tr.blur>0.1?`blur(${tr.blur}px)`:"none"};">${parts.join("")}</div>${effects}${flash}</div>`;
-}
-
-
-function captionHtml(clip: EditorCaptionClip, localMs: number): string {
-  const style = clip.style;
-  const words = clip.words.map((word) => {
-    const active = localMs >= word.startMs && localMs < word.endMs;
-    const spoken = localMs >= word.endMs;
-    const opacity = style.animation === "karaoke" && !spoken && !active ? 0.58 : 1;
-    const progress = Math.max(0, Math.min(1, (localMs - word.startMs) / Math.max(1, word.endMs - word.startMs)));
-    const scale = style.animation === "pop" && active ? 1 + 0.16 * Math.sin(progress * Math.PI) : 1;
-    const text = style.uppercase ? word.text.toUpperCase() : word.text;
-    return `<span style="display:inline-block;margin:0 .14em;color:${active ? style.activeColor : style.color};opacity:${opacity};transform:scale(${scale});transform-origin:center;">${escapeHtml(text)}</span>`;
-  }).join("");
-  const stroke = style.stroke ? `-webkit-text-stroke:${style.strokeWidth ?? 5}px ${style.stroke};paint-order:stroke fill;` : "";
-  return `<div style="position:relative;width:${clip.w}px;height:${clip.h}px;display:flex;align-items:center;justify-content:center;align-content:center;flex-wrap:wrap;text-align:center;padding:${style.padding ?? 14}px;box-sizing:border-box;border-radius:${style.radius ?? 12}px;background:${style.background};font-family:'${escapeHtml(style.fontFamily)}',sans-serif;font-size:${style.fontSize}px;font-weight:${style.fontWeight};line-height:1.08;${stroke}">${words}</div>`;
 }
 
 function sceneRevealSteps(scene: EditorScene): number {
@@ -153,8 +62,8 @@ export type WorkerManifestOptions = {
   callbackUrl?: string | null;
 };
 
-/** Turns the editor document into a native FFmpeg worker edit payload. Scene text reveals
- *  become a series of short HTML clips so the word-by-word pacing survives. */
+/** Turns the editor document into a native FFmpeg worker edit payload. Scene motion,
+ *  captions, effects, and text reveals are baked into sampled SVG timeline frames. */
 export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const doc = resolveDocVars(opts.doc, opts.vars);
   const dims = CANVAS_DIMS[doc.aspect] ?? CANVAS_DIMS["9:16"];
@@ -174,7 +83,18 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
       const lengthMs = i === steps - 1 ? range.endMs - startMs : stepMs;
       if (lengthMs <= 20) continue;
       clips.push({
-        asset: { type: "html", html: sceneHtml(doc, startMs + Math.min(1, lengthMs / 2), dims.w, dims.h), width: dims.w, height: dims.h, background: "transparent" },
+        asset: {
+          type: "svg",
+          svg: buildSceneSvgAtTime({
+            doc,
+            tMs: startMs + Math.min(1, lengthMs / 2),
+            vars: opts.vars,
+            includeBackground: !opts.backgroundVideoUrl,
+            includeVideo: false,
+          }),
+          width: dims.w,
+          height: dims.h,
+        },
         start: startMs / 1000,
         length: lengthMs / 1000,
         fit: "none",
@@ -187,31 +107,6 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const totalSec = Math.max(1, timelineDurationMs(doc) / 1000);
 
   const tracks: unknown[] = [{ clips }];
-
-  // V2.6 professional caption clips. Word boundaries become short HTML clips,
-  // preserving active-word highlight/karaoke/pop timing in server renders.
-  if (doc.version === 2) {
-    for (const caption of (doc.captionClips ?? []).slice().reverse()) {
-      if (caption.hidden || !caption.words.length || caption.durationMs <= 0) continue;
-      const boundaries = new Set<number>([0, caption.durationMs]);
-      for (const word of caption.words) { boundaries.add(Math.max(0, word.startMs)); boundaries.add(Math.min(caption.durationMs, word.endMs)); }
-      const points = [...boundaries].filter((n) => n >= 0 && n <= caption.durationMs).sort((a, b) => a - b);
-      const captionClips: unknown[] = [];
-      for (let i = 0; i < points.length - 1; i++) {
-        const localStart = points[i]!; const localEnd = points[i + 1]!;
-        if (localEnd - localStart < 10) continue;
-        const sampleMs = localStart + (localEnd - localStart) / 2;
-        captionClips.push({
-          asset: { type: "html", html: captionHtml(caption, sampleMs), width: caption.w, height: caption.h, background: "transparent" },
-          start: (caption.startMs + localStart) / 1000,
-          length: (localEnd - localStart) / 1000,
-          fit: "none", scale, position: "topLeft",
-          offset: { x: caption.x / dims.w, y: -(caption.y / dims.h) },
-        });
-      }
-      if (captionClips.length) tracks.unshift({ clips: captionClips });
-    }
-  }
 
   // Timeline video elements are real native FFmpeg worker video assets now (previously
   // skipped). The shared engine supplies project start/length and source trim.
@@ -289,20 +184,8 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const bgClips: unknown[] = [];
   if (opts.backgroundVideoUrl) {
     bgClips.push({ asset: { type: "video", src: opts.backgroundVideoUrl, volume: 0 }, start: 0, length: totalSec, fit: "crop", position: "center" });
-  } else {
-    for (const range of ranges) {
-      const bg = range.scene.background ?? "#0A0A0A";
-      bgClips.push({
-        asset: { type: "html", html: `<div style="width:${dims.w}px;height:${dims.h}px;background:${bg};"></div>`, width: dims.w, height: dims.h },
-        start: range.startMs / 1000,
-        length: range.durationMs / 1000,
-        fit: "none",
-        scale,
-        position: "center",
-      });
-    }
   }
-  tracks.push({ clips: bgClips });
+  if (bgClips.length) tracks.push({ clips: bgClips });
 
   return {
     timeline: {
