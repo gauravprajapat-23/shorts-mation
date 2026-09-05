@@ -23,6 +23,7 @@ import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } fr
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/_app/campaigns/index'
+import { Route as ApiPublicRenderManifestRouteImport } from './routes/api/public/render-manifest'
 import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new'
 import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
 import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
@@ -107,6 +108,11 @@ const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
   id: '/campaigns/',
   path: '/campaigns/',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiPublicRenderManifestRoute = ApiPublicRenderManifestRouteImport.update({
+  id: '/api/public/render-manifest',
+  path: '/api/public/render-manifest',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppTemplatesNewRoute = AppTemplatesNewRouteImport.update({
   id: '/templates/new',
@@ -200,6 +206,7 @@ export interface FileRoutesByFullPath {
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/editor/$templateId': typeof AppEditorTemplateIdRoute
   '/templates/new': typeof AppTemplatesNewRoute
+  '/api/public/render-manifest': typeof ApiPublicRenderManifestRoute
   '/campaigns/': typeof AppCampaignsIndexRoute
   '/templates/': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
@@ -228,6 +235,7 @@ export interface FileRoutesByTo {
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/editor/$templateId': typeof AppEditorTemplateIdRoute
   '/templates/new': typeof AppTemplatesNewRoute
+  '/api/public/render-manifest': typeof ApiPublicRenderManifestRoute
   '/campaigns': typeof AppCampaignsIndexRoute
   '/templates': typeof AppTemplatesIndexRoute
   '/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/_app/campaigns/new': typeof AppCampaignsNewRoute
   '/_app/editor/$templateId': typeof AppEditorTemplateIdRoute
   '/_app/templates/new': typeof AppTemplatesNewRoute
+  '/api/public/render-manifest': typeof ApiPublicRenderManifestRoute
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/campaigns/$campaignId/automation': typeof AppCampaignsCampaignIdAutomationRoute
@@ -288,6 +297,7 @@ export interface FileRouteTypes {
     | '/campaigns/new'
     | '/editor/$templateId'
     | '/templates/new'
+    | '/api/public/render-manifest'
     | '/campaigns/'
     | '/templates/'
     | '/campaigns/$campaignId/automation'
@@ -316,6 +326,7 @@ export interface FileRouteTypes {
     | '/campaigns/new'
     | '/editor/$templateId'
     | '/templates/new'
+    | '/api/public/render-manifest'
     | '/campaigns'
     | '/templates'
     | '/campaigns/$campaignId/automation'
@@ -345,6 +356,7 @@ export interface FileRouteTypes {
     | '/_app/campaigns/new'
     | '/_app/editor/$templateId'
     | '/_app/templates/new'
+    | '/api/public/render-manifest'
     | '/_app/campaigns/'
     | '/_app/templates/'
     | '/_app/campaigns/$campaignId/automation'
@@ -365,6 +377,7 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
+  ApiPublicRenderManifestRoute: typeof ApiPublicRenderManifestRoute
   ApiPublicHooksProcessCampaignQueueRoute: typeof ApiPublicHooksProcessCampaignQueueRoute
   ApiPublicHooksRenderCallbackRoute: typeof ApiPublicHooksRenderCallbackRoute
   ApiPublicYoutubeCallbackRoute: typeof ApiPublicYoutubeCallbackRoute
@@ -469,6 +482,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/campaigns/'
       preLoaderRoute: typeof AppCampaignsIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/public/render-manifest': {
+      id: '/api/public/render-manifest'
+      path: '/api/public/render-manifest'
+      fullPath: '/api/public/render-manifest'
+      preLoaderRoute: typeof ApiPublicRenderManifestRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/templates/new': {
       id: '/_app/templates/new'
@@ -628,6 +648,7 @@ const rootRouteChildren: RootRouteChildren = {
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
+  ApiPublicRenderManifestRoute: ApiPublicRenderManifestRoute,
   ApiPublicHooksProcessCampaignQueueRoute:
     ApiPublicHooksProcessCampaignQueueRoute,
   ApiPublicHooksRenderCallbackRoute: ApiPublicHooksRenderCallbackRoute,
