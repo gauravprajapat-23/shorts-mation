@@ -8,6 +8,7 @@ import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, EditorCaptionClip } from "@/lib/types";
 import { cssTextShadows, gradientCss, layoutText } from "@/lib/text-design";
 import { cssFilterForLook, resolveMediaLook } from "@/lib/effects";
+import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 
 const MAX_REVEAL_STEPS = 14;
 
@@ -174,7 +175,18 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
       const lengthMs = i === steps - 1 ? range.endMs - startMs : stepMs;
       if (lengthMs <= 20) continue;
       clips.push({
-        asset: { type: "html", html: sceneHtml(doc, startMs + Math.min(1, lengthMs / 2), dims.w, dims.h), width: dims.w, height: dims.h, background: "transparent" },
+        asset: {
+          type: "svg",
+          svg: buildSceneSvgAtTime({
+            doc,
+            tMs: startMs + Math.min(1, lengthMs / 2),
+            vars: opts.vars,
+            includeBackground: !opts.backgroundVideoUrl,
+            includeVideo: false,
+          }),
+          width: dims.w,
+          height: dims.h,
+        },
         start: startMs / 1000,
         length: lengthMs / 1000,
         fit: "none",
@@ -202,7 +214,7 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
         if (localEnd - localStart < 10) continue;
         const sampleMs = localStart + (localEnd - localStart) / 2;
         captionClips.push({
-          asset: { type: "html", html: captionHtml(caption, sampleMs), width: caption.w, height: caption.h, background: "transparent" },
+        asset: { type: "html", html: captionHtml(caption, sampleMs), width: caption.w, height: caption.h, background: "transparent" },
           start: (caption.startMs + localStart) / 1000,
           length: (localEnd - localStart) / 1000,
           fit: "none", scale, position: "topLeft",
@@ -289,20 +301,8 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const bgClips: unknown[] = [];
   if (opts.backgroundVideoUrl) {
     bgClips.push({ asset: { type: "video", src: opts.backgroundVideoUrl, volume: 0 }, start: 0, length: totalSec, fit: "crop", position: "center" });
-  } else {
-    for (const range of ranges) {
-      const bg = range.scene.background ?? "#0A0A0A";
-      bgClips.push({
-        asset: { type: "html", html: `<div style="width:${dims.w}px;height:${dims.h}px;background:${bg};"></div>`, width: dims.w, height: dims.h },
-        start: range.startMs / 1000,
-        length: range.durationMs / 1000,
-        fit: "none",
-        scale,
-        position: "center",
-      });
-    }
   }
-  tracks.push({ clips: bgClips });
+  if (bgClips.length) tracks.push({ clips: bgClips });
 
   return {
     timeline: {
