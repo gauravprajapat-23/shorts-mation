@@ -44,7 +44,7 @@ describe("Half-Cut Word Match — Any Word", () => {
   });
 
   it("generates sample CSV rows for arbitrary word lengths", () => {
-    const csv = generateSampleCsv(starter().name, starter().doc);
+    const csv = generateSampleCsv(starter().doc, starter().name);
     expect(csv).toContain("APPLE");
     expect(csv).toContain("MANGO");
     expect(csv).toContain("ZEBRA");

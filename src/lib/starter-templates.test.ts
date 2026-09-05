@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { STARTER_TEMPLATES } from "@/lib/starter-templates";
 import { extractVariables } from "@/lib/editor-defaults";
 import { materializeAutomationDocument } from "@/lib/automation-variables";
-import { migrateEditorDocument } from "@/lib/editor-document-v2";
+import { migrateDocumentV1ToV2 } from "@/lib/editor-document-v2";
 
 const letterMatch = () => {
   const template = STARTER_TEMPLATES.find((item) => item.type === "letter_match");
@@ -45,7 +45,7 @@ describe("Letter Match starter template", () => {
   });
 
   it("migrates into the V2 timeline used by preview and renderers", () => {
-    const migrated = migrateEditorDocument(letterMatch().doc);
+    const migrated = migrateDocumentV1ToV2(letterMatch().doc);
     expect(migrated.version).toBe(2);
     expect(migrated.scenes).toHaveLength(4);
     expect(migrated.durationMs).toBeGreaterThan(10_000);

@@ -82,7 +82,7 @@ export function PreviewModal({ doc, vars, setVars, onClose }: { doc: EditorDocum
                   opacity: item.frame.opacity, filter: item.frame.blurPx > 0.1 ? `blur(${item.frame.blurPx}px)` : undefined,
                   transform: `scale(${item.frame.scale}) rotate(${item.frame.rotation}deg)`, transformOrigin: "center center",
                 }}>
-                  <TimelineVideo element={video} state={item.video} localPlayheadMs={previewFrame.localMs} playing={playing} />
+                  <TimelineVideo element={video} state={item.video} frame={item.frame} localPlayheadMs={previewFrame.localMs} playing={playing} />
                   <MediaLookOverlay element={video} />
                 </div>
               );

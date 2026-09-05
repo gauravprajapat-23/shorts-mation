@@ -2,7 +2,7 @@
 // The edge runtime never executes FFmpeg. It builds a serializable timeline
 // manifest which the separately deployed native worker consumes.
 import { computeRevealDurationMs, resolveDocVars } from "@/lib/animate";
-import { collectTimelineAudioSegments, collectTimelineVideoSegments, evaluateTimelineAudio, evaluateTimelineFrame, getTimelineSceneRanges, timelineDurationMs } from "@/lib/timeline-engine";
+import { collectTimelineAudioSegments, collectTimelineVideoSegments, evaluateTimelineAudio, getTimelineSceneRanges, timelineDurationMs } from "@/lib/timeline-engine";
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorScene, TextElement } from "@/lib/types";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
@@ -62,8 +62,8 @@ export type WorkerManifestOptions = {
   callbackUrl?: string | null;
 };
 
-/** Turns the editor document into a native FFmpeg worker edit payload. Scene text reveals
- *  become a series of short HTML clips so the word-by-word pacing survives. */
+/** Turns the editor document into a native FFmpeg worker edit payload. Scene motion,
+ *  captions, effects, and text reveals are baked into sampled SVG timeline frames. */
 export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const doc = resolveDocVars(opts.doc, opts.vars);
   const dims = CANVAS_DIMS[doc.aspect] ?? CANVAS_DIMS["9:16"];
@@ -107,31 +107,6 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
   const totalSec = Math.max(1, timelineDurationMs(doc) / 1000);
 
   const tracks: unknown[] = [{ clips }];
-
-  // V2.6 professional caption clips. Word boundaries become short HTML clips,
-  // preserving active-word highlight/karaoke/pop timing in server renders.
-  if (doc.version === 2) {
-    for (const caption of (doc.captionClips ?? []).slice().reverse()) {
-      if (caption.hidden || !caption.words.length || caption.durationMs <= 0) continue;
-      const boundaries = new Set<number>([0, caption.durationMs]);
-      for (const word of caption.words) { boundaries.add(Math.max(0, word.startMs)); boundaries.add(Math.min(caption.durationMs, word.endMs)); }
-      const points = [...boundaries].filter((n) => n >= 0 && n <= caption.durationMs).sort((a, b) => a - b);
-      const captionClips: unknown[] = [];
-      for (let i = 0; i < points.length - 1; i++) {
-        const localStart = points[i]!; const localEnd = points[i + 1]!;
-        if (localEnd - localStart < 10) continue;
-        const sampleMs = localStart + (localEnd - localStart) / 2;
-        captionClips.push({
-        asset: { type: "html", html: captionHtml(caption, sampleMs), width: caption.w, height: caption.h, background: "transparent" },
-          start: (caption.startMs + localStart) / 1000,
-          length: (localEnd - localStart) / 1000,
-          fit: "none", scale, position: "topLeft",
-          offset: { x: caption.x / dims.w, y: -(caption.y / dims.h) },
-        });
-      }
-      if (captionClips.length) tracks.unshift({ clips: captionClips });
-    }
-  }
 
   // Timeline video elements are real native FFmpeg worker video assets now (previously
   // skipped). The shared engine supplies project start/length and source trim.

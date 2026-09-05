@@ -82,9 +82,9 @@ export function applyRetentionPreset(doc: EditorDocumentV2, preset: RetentionPre
       appliedMicroZoom = true;
       const clipDuration = Math.max(300, Math.min(el.durationMs ?? duration, duration));
       return { ...el, keyframes: [
-        { id: makeId("retention_kf"), timeMs: 0, easing: "easeInOut", values: { scale: 1 } },
-        { id: makeId("retention_kf"), timeMs: Math.round(clipDuration * .55), easing: "easeInOut", values: { scale: preset === "fast-viral" ? 1.065 : 1.04 } },
-        { id: makeId("retention_kf"), timeMs: clipDuration, easing: "easeInOut", values: { scale: 1 } },
+        { id: makeId("retention_kf"), timeMs: 0, easing: "easeInOut" as const, values: { scale: 1 } },
+        { id: makeId("retention_kf"), timeMs: Math.round(clipDuration * .55), easing: "easeInOut" as const, values: { scale: preset === "fast-viral" ? 1.065 : 1.04 } },
+        { id: makeId("retention_kf"), timeMs: clipDuration, easing: "easeInOut" as const, values: { scale: 1 } },
       ] };
     });
     const scene: EditorScene = {
@@ -112,7 +112,7 @@ export function applyRetentionPreset(doc: EditorDocumentV2, preset: RetentionPre
     const activeScene = scenes.find((scene, i) => { const start = scenes.slice(0, i).reduce((n,s)=>n+effectiveSceneDurationMs(s),0); return clip.startMs >= start && clip.startMs < start + effectiveSceneDurationMs(scene); });
     const role = activeScene?.role;
     const emphasize = role === "hook" || role === "payoff" || role === "cta" || settings.captionEmphasis === "high";
-    return emphasize ? { ...clip, style: { ...clip.style, animation: preset === "educational" ? "karaoke" : "pop", activeColor: preset === "minimal" ? clip.style.activeColor : "#FFD43B" } } : clip;
+    return emphasize ? { ...clip, style: { ...clip.style, animation: (preset === "educational" ? "karaoke" : "pop") as const, activeColor: preset === "minimal" ? clip.style.activeColor : "#FFD43B" } } : clip;
   });
   return { ...doc, retention: { ...settings }, scenes, captionClips, effectClips: effects };
 }

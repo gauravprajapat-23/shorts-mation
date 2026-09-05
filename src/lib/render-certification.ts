@@ -30,7 +30,7 @@ export function buildRenderGoldenManifest(doc: EditorDocument, sampleTimesMs?: n
         sceneId: frame.scene?.id ?? null,
         visibleElementIds: frame.visibleElements.map((s) => s.element.id).sort(),
         visibleCaptionIds: frame.visibleCaptions.map((s) => s.clip.id).sort(),
-        visibleEffectIds: frame.visibleEffects.map((s) => s.clip.id).sort(),
+        visibleEffectIds: frame.visibleEffects.map((s) => s.id).sort(),
         camera: {
           scale: Number(frame.camera.scale.toFixed(6)),
           tx: Number(frame.camera.tx.toFixed(3)),
