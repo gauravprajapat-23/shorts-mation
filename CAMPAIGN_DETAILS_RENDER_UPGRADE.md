@@ -1,0 +1,2 @@
+# Campaign Details native MP4 upgrade
+Added per-row **Render MP4** using the canonical native FFmpeg worker. It targets exactly one campaign item and reuses durable render claims, attempts, idempotency, callbacks, retries, storage and dead-letter handling. UI states are Not generated, Queuing, Rendering, Failed/Render again, and MP4 ready. Existing Publish remains after rendering. Browser Test Render remains a separate legacy fallback.

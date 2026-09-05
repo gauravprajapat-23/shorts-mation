@@ -789,7 +789,7 @@ function EditorPage() {
             onSaveBrandKit={saveCurrentBrandKit}
             onApplyBrandKit={applySavedBrandKit}
             onDeleteBrandKit={deleteSavedBrandKit}
-            onUploadBrandAsset={async (kind, file) => { const asset = await uploadToAssets(file); updateBrand(kind === "logo" ? { logoSrc: asset.url, logoAssetId: asset.id } : { watermarkSrc: asset.url, watermarkAssetId: asset.id }); }}
+            onUploadBrandAsset={async (kind, file) => { try { const asset = await uploadToAssets(file); updateBrand(kind === "logo" ? { logoSrc: asset.url, logoAssetId: asset.id } : { watermarkSrc: asset.url, watermarkAssetId: asset.id }); toast.success(`${kind === "logo" ? "Logo" : "Watermark"} uploaded`); } catch (e) { toast.error(e instanceof Error ? e.message : "Upload failed"); } }}
             onInsertComponent={insertReusableComponent}
             onSaveSelectedComponent={() => saveReusableComponent("selected")}
             onSaveSceneComponent={() => saveReusableComponent("scene")}
@@ -806,7 +806,7 @@ function EditorPage() {
             onDeleteCaption={deleteCaptionClip}
             onDeleteAudio={deleteAudioClip}
             onAddAudioFromUrl={(url, role) => addAudioClip(url, url.split("/").pop() || role, role)}
-            onUploadAudio={async (file, role) => { const asset = await uploadToAssets(file); await addAudioClip(asset.url, file.name, role, file, asset); }}
+            onUploadAudio={async (file, role) => { try { const asset = await uploadToAssets(file); await addAudioClip(asset.url, file.name, role, file, asset); toast.success("Audio uploaded"); } catch (e) { toast.error(e instanceof Error ? e.message : "Audio upload failed"); } }}
             onAddText={() =>
               addElement({
                 id: uid("text"), type: "text", text: "New text", x: dims.w/2 - 200, y: dims.h/2 - 40, w: 400, h: 80,
@@ -926,7 +926,7 @@ function EditorPage() {
           <LeftPanel
             panel={panel} doc={doc} audioAutomationSlot={<AudioAutomationPanel templateId={templateId} scene={scene} selectedAudio={selectedAudio} onNarration={addGeneratedNarration} onAddLibrary={addLibraryAudio} onApplyPreset={applySelectedAudioPreset} onUpdateSceneNarration={(narration)=>updateScene((s)=>({...s,narration}))}/>} onUpdateBrand={updateBrand} brandLibrary={brandLibrary} componentLibrary={componentLibrary}
             onSaveBrandKit={saveCurrentBrandKit} onApplyBrandKit={applySavedBrandKit} onDeleteBrandKit={deleteSavedBrandKit}
-            onUploadBrandAsset={async (kind,file)=>{const asset=await uploadToAssets(file);updateBrand(kind==="logo"?{logoSrc:asset.url,logoAssetId:asset.id}:{watermarkSrc:asset.url,watermarkAssetId:asset.id});}}
+            onUploadBrandAsset={async (kind,file)=>{try{const asset=await uploadToAssets(file);updateBrand(kind==="logo"?{logoSrc:asset.url,logoAssetId:asset.id}:{watermarkSrc:asset.url,watermarkAssetId:asset.id});toast.success(`${kind === "logo" ? "Logo" : "Watermark"} uploaded`);}catch(e){toast.error(e instanceof Error?e.message:"Upload failed");}}}
             onInsertComponent={insertReusableComponent} onSaveSelectedComponent={()=>saveReusableComponent("selected")} onSaveSceneComponent={()=>saveReusableComponent("scene")} onDeleteComponent={deleteReusableComponent}
             selectedAudioId={selectedAudioId} selectedCaptionId={selectedCaptionId} selectedEffectId={selectedEffectId}
             onSelectAudio={(id)=>{setSelectedAudioId(id);setSelectedCaptionId(null);applySelectedIds([]);}}
@@ -934,7 +934,7 @@ function EditorPage() {
             onSelectEffect={(id)=>{setSelectedEffectId(id);setSelectedCaptionId(null);setSelectedAudioId(null);applySelectedIds([]);}}
             onAddEffect={addEffectClip} onDeleteEffect={deleteEffectClip} onAddCaption={(text,preset)=>addCaptionClip(text,preset)} onDeleteCaption={deleteCaptionClip}
             onDeleteAudio={deleteAudioClip} onAddAudioFromUrl={(url,role)=>addAudioClip(url,url.split("/").pop()||role,role)}
-            onUploadAudio={async(file,role)=>{const asset=await uploadToAssets(file);await addAudioClip(asset.url,file.name,role,file,asset);}}
+            onUploadAudio={async(file,role)=>{try{const asset=await uploadToAssets(file);await addAudioClip(asset.url,file.name,role,file,asset);toast.success("Audio uploaded");}catch(e){toast.error(e instanceof Error?e.message:"Audio upload failed");}}}
             onAddText={()=>addElement({id:uid("text"),type:"text",text:"New text",x:dims.w/2-200,y:dims.h/2-40,w:400,h:80,rotation:0,opacity:1,fontFamily:"Plus Jakarta Sans",fontSize:64,fontWeight:800,color:"#FFFFFF",align:"center"} as TextElement)}
             onAddTextPreset={(patch)=>addElement({id:uid("text"),type:"text",text:"New text",x:80,y:dims.h/2-120,w:dims.w-160,h:240,rotation:0,opacity:1,fontFamily:"Plus Jakarta Sans",fontSize:64,fontWeight:800,color:"#FFFFFF",align:"center",...patch} as TextElement)}
             onUpdateAutomationVariable={updateAutomationVariable} onAddAutomationVariable={addAutomationVariable} onDeleteAutomationVariable={deleteAutomationVariable}
@@ -945,7 +945,7 @@ function EditorPage() {
             onAddImagePlaceholder={()=>addElement({id:uid("img"),type:"image",src:"{{background}}",x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover"} as ImageElement)}
             onAddImageFromUrl={(url)=>addElement({id:uid("img"),type:"image",src:url,x:dims.w/2-300,y:dims.h/2-300,w:600,h:600,rotation:0,opacity:1,fit:"cover"} as ImageElement)}
             onAddVideoFromUrl={async(url)=>{const mediaDurationMs=await probeVideoDurationMs(url);const durationMs=Math.min(scene.durationMs,mediaDurationMs??scene.durationMs);addElement({id:uid("vid"),type:"video",src:url,x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover",muted:true,loop:false,autoplay:true,sourceStartMs:0,sourceEndMs:mediaDurationMs?Math.min(mediaDurationMs,durationMs):durationMs,mediaDurationMs,playbackRate:1,volume:1,durationMs} as VideoElement);}}
-            onUploadFile={async(file)=>{const asset=await uploadToAssets(file);if(file.type.startsWith("audio/")){await addAudioClip(asset.url,file.name,"music",file,asset);}else if(file.type.startsWith("video/")){addElement({id:uid("vid"),type:"video",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover",muted:true,loop:false,autoplay:true,playbackRate:1,volume:1,durationMs:scene.durationMs} as VideoElement);}else{addElement({id:uid("img"),type:"image",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:dims.w/2-300,y:dims.h/2-300,w:600,h:600,rotation:0,opacity:1,fit:"cover"} as ImageElement);}}}
+            onUploadFile={async(file)=>{try{const asset=await uploadToAssets(file);if(file.type.startsWith("audio/")){await addAudioClip(asset.url,file.name,"music",file,asset);}else if(file.type.startsWith("video/")){addElement({id:uid("vid"),type:"video",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:0,y:0,w:dims.w,h:dims.h,rotation:0,opacity:1,fit:"cover",muted:true,loop:false,autoplay:true,playbackRate:1,volume:1,durationMs:scene.durationMs} as VideoElement);}else{addElement({id:uid("img"),type:"image",src:asset.url,assetId:asset.id,storagePath:asset.storagePath,x:dims.w/2-300,y:dims.h/2-300,w:600,h:600,rotation:0,opacity:1,fit:"cover"} as ImageElement);}toast.success("Uploaded");}catch(e){toast.error(e instanceof Error?e.message:"Upload failed");}}}
             scene={scene} selectedId={selectedId} selectedIds={selectedIds} onSelectLayer={selectElementProfessional} onToggleLayerLock={toggleLock} onToggleLayerHidden={toggleHidden} deleteElement={deleteElement}
           />
         </div>

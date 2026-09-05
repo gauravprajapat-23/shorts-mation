@@ -48,12 +48,195 @@ export const STUDIO_SYSTEM_COLUMNS: StudioColumn[] = [
   { id:"sys_schedule", key:"schedule_at", label:"Schedule", kind:"schedule", source:"system" },
   { id:"sys_playlist", key:"playlist", label:"Playlist", kind:"text", source:"system" },
   { id:"sys_category", key:"category", label:"Category", kind:"text", source:"system" },
+  { id:"sys_language", key:"language", label:"Language", kind:"text", source:"system" },
+  { id:"sys_made_for_kids", key:"made_for_kids", label:"Made for kids", kind:"boolean", source:"system" },
+  { id:"sys_thumbnail", key:"youtube_thumbnail_asset_id", label:"YouTube thumbnail", kind:"image", source:"system" },
   { id:"sys_background", key:"background_file_name", label:"Background media", kind:"media", source:"system" },
   { id:"sys_audio", key:"audio_file_name", label:"Audio media", kind:"audio", source:"system" },
 ];
 
 function cleanKey(value: string): string {
   return value.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+}
+
+const HEADER_ALIASES: Record<string,string> = {
+  filename:"video_file_name", file:"video_file_name", video:"video_file_name",
+  youtube_title:"title", youtubetitle:"title",
+  youtube_description:"description", youtubedescription:"description",
+  publish_at:"schedule_at", scheduled_at:"schedule_at", schedule:"schedule_at", datetime:"schedule_at",
+  background:"background_file_name", background_media:"background_file_name",
+  audio:"audio_file_name", music:"audio_file_name", sound:"audio_file_name",
+  youtube_privacy:"privacy", playlist_id:"playlist", category_id:"category",
+};
+
+function normalizedHeader(value:string){
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g,"");
+}
+
+export type StudioAsset = {
+  id:string;
+  file_name:string;
+  type:string;
+  lifecycle_status?:string;
+  storage_path?:string|null;
+  mime_type?:string|null;
+  size?:number|null;
+};
+
+function assetRef(asset:StudioAsset){ return `asset://${asset.id}`; }
+
+function fileStem(name:string){
+  return name.toLowerCase().replace(/\.[^.]+$/,"").replace(/[^a-z0-9]+/g," ").trim();
+}
+
+function findLetterAsset(letter:string, assets:StudioAsset[]){
+  const target=letter.toLowerCase();
+  const imageAssets=assets.filter((a)=>["image","logo"].includes(a.type));
+  const scored=imageAssets.map((asset)=>{
+    const stem=fileStem(asset.file_name);
+    const tokens=stem.split(/\s+/).filter(Boolean);
+    let score=0;
+    if(stem===target) score=100;
+    else if(tokens.length===1&&tokens[0]===target) score=95;
+    else if(tokens.includes(target)) score=80;
+    else if(stem.startsWith(`${target} `)||stem.endsWith(` ${target}`)) score=70;
+    return {asset,score};
+  }).filter((x)=>x.score>0).sort((a,b)=>b.score-a.score);
+  return scored[0]?.asset ?? null;
+}
+
+export function buildAlphabetAssetMap(assets:StudioAsset[]):Record<string,string>{
+  return Object.fromEntries("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter)=>{
+    const asset=findLetterAsset(letter,assets);
+    return [letter,asset?assetRef(asset):""];
+  }));
+}
+
+function mediaAssetForColumn(column:StudioColumn,assets:StudioAsset[]):StudioAsset|null{
+  const key=column.key.toLowerCase();
+  const eligible=assets.filter((a)=>{
+    if(column.kind==="audio") return a.type==="audio";
+    if(column.kind==="video") return a.type==="video";
+    if(column.kind==="image") return ["image","logo"].includes(a.type);
+    if(column.kind==="media") return ["image","video","logo"].includes(a.type);
+    return false;
+  });
+  const preferred=eligible.find((a)=>{
+    const n=a.file_name.toLowerCase();
+    if(key.includes("background")) return /background|bg|sky|grass/.test(n);
+    if(key.includes("wrong")) return /wrong|incorrect|cross|error/.test(n);
+    if(key.includes("correct")) return /correct|right|check|tick|success/.test(n);
+    if(key.includes("ambulance")) return /ambulance|siren|move/.test(n);
+    return false;
+  });
+  return preferred ?? eligible[0] ?? null;
+}
+
+export function templateSampleSeed(columns:StudioColumn[],templateName:string,index:number,assets:StudioAsset[]=[]):Record<string,unknown>{
+  const flexibleWords=["APPLE","MANGO","LION","ZEBRA","COCK","HOUSE","TIGER","ORANGE","KITE","ANT"];
+  const halfLetterWords=["ANT","CAT","DOG","RAT","HEN","AXE"];
+  const hasThreeLetterSlots=columns.some((c)=>c.key==="letter1")&&columns.some((c)=>c.key==="letter2")&&columns.some((c)=>c.key==="letter3");
+  const words=hasThreeLetterSlots?halfLetterWords:flexibleWords;
+  const quizQuestions=["Which animal is known as the king of the jungle?","Which planet is called the Red Planet?","Which fruit is yellow and curved?"];
+  const seed:Record<string,unknown>={
+    video_file_name:`${templateName.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"video"}-${String(index+1).padStart(3,"0")}.mp4`,
+    title:`${templateName} #${index+1}`,
+    description:`${templateName} — episode ${index+1}`,
+    tags:"shorts|automation",
+    hashtags:"#shorts|#foryou",
+    privacy:"private",
+    language:"en",
+    made_for_kids:"false",
+    schedule_at:"",
+  };
+  const thumbnail=assets.find((a)=>["image","logo"].includes(a.type) && ["image/jpeg","image/png"].includes(a.mime_type??"") && Number(a.size??0)<=2*1024*1024);
+  if(thumbnail) seed.youtube_thumbnail_asset_id=thumbnail.id;
+  for(const col of columns){
+    if(col.source!=="template")continue;
+    const key=col.key;
+    const lower=key.toLowerCase();
+    if(col.variable?.defaultValue!=null){
+      seed[key]=col.variable.defaultValue;
+      continue;
+    }
+    if(lower==="word") seed[key]=words[index%words.length];
+    else if(lower==="cta") seed[key]="Follow for the next challenge!";
+    else if(lower==="question") seed[key]=quizQuestions[index%quizQuestions.length];
+    else if(lower==="optiona") seed[key]="Lion";
+    else if(lower==="optionb") seed[key]="Tiger";
+    else if(lower==="optionc") seed[key]="Elephant";
+    else if(lower==="optiond") seed[key]="Giraffe";
+    else if(lower==="correct") seed[key]="A";
+    else if(lower==="missingletter") seed[key]="A";
+    else if(lower==="clue") seed[key]="Look carefully and choose the missing letter";
+    else if(lower==="backgroundimage"||lower==="backgroundasset"){
+      const a=mediaAssetForColumn(col,assets); seed[key]=a?assetRef(a):"";
+    } else if(lower.includes("alphabetassets")){
+      seed[key]=buildAlphabetAssetMap(assets);
+    } else if(["image","video","audio","media"].includes(col.kind)){
+      const a=mediaAssetForColumn(col,assets); seed[key]=a?assetRef(a):"";
+    } else if(col.kind==="boolean") seed[key]="false";
+    else if(col.kind==="number") seed[key]=String(index+1);
+    else seed[key]=`Sample ${col.label||key} ${index+1}`;
+  }
+  // Special relationships used by starter matching templates.
+  const word=String(seed.word??words[index%words.length]).toUpperCase();
+  if(columns.some((c)=>c.key==="letter1")) seed.letter1=word[0]??"A";
+  if(columns.some((c)=>c.key==="letter2")) seed.letter2=word[1]??"N";
+  if(columns.some((c)=>c.key==="letter3")) seed.letter3=word[2]??"T";
+  return seed;
+}
+
+export function createTemplateSampleRows(columns:StudioColumn[],templateName:string,count=6,assets:StudioAsset[]=[]):StudioRow[]{
+  return Array.from({length:Math.max(1,Math.min(100,count))},(_,i)=>createStudioRow(columns,i,templateSampleSeed(columns,templateName,i,assets)));
+}
+
+export function blankTemplateCsv(columns:StudioColumn[]):string{
+  return Papa.unparse([Object.fromEntries(columns.map((c)=>[c.key,""]))],{columns:columns.map((c)=>c.key)});
+}
+
+export function sampleTemplateCsv(columns:StudioColumn[],templateName:string,count=6,assets:StudioAsset[]=[]):string{
+  return studioRowsToCsv(createTemplateSampleRows(columns,templateName,count,assets),columns);
+}
+
+export function resolveImportedAssetValues(rows:Record<string,string>[],mapping:ImportMapping,columns:StudioColumn[],assets:StudioAsset[]):Record<string,string>[]{
+  if(!assets.length)return rows;
+  const byName=new Map(assets.map((a)=>[a.file_name.toLowerCase(),a]));
+  const byId=new Map(assets.map((a)=>[a.id,a]));
+  const targetByHeader=new Map(Object.entries(mapping));
+  const columnByKey=new Map(columns.map((c)=>[c.key,c]));
+  const resolveSingle=(raw:string,col:StudioColumn)=>{
+    const value=raw.trim();
+    if(!value||/^asset:\/\//i.test(value)||/^https?:\/\//i.test(value))return raw;
+    const direct=byId.get(value)||byName.get(value.toLowerCase());
+    if(direct&&["image","video","audio","media"].includes(col.kind))return assetRef(direct);
+    return raw;
+  };
+  return rows.map((row)=>{
+    const next={...row};
+    for(const [header,target] of targetByHeader){
+      if(!target)continue;
+      const col=columnByKey.get(target);if(!col)continue;
+      const raw=next[header]??"";
+      if(target.toLowerCase().includes("alphabetassets")&&raw.trim()){
+        try{
+          const obj=JSON.parse(raw);
+          if(obj&&typeof obj==="object"&&!Array.isArray(obj)){
+            const mapped:Record<string,string>={};
+            for(const [letter,v] of Object.entries(obj)){
+              const s=String(v??"");
+              const found=byId.get(s)||byName.get(s.toLowerCase());
+              mapped[letter]=found?assetRef(found):s;
+            }
+            next[header]=JSON.stringify(mapped);
+          }
+        }catch{/* validation will surface malformed JSON as text */}
+      }else{
+        next[header]=resolveSingle(raw,col);
+      }
+    }
+    return next;
+  });
 }
 
 function kindForVariable(def?: AutomationVariableDefinition): StudioColumnKind {
@@ -134,6 +317,20 @@ export function validateStudioRows(rows: StudioRow[], columns: StudioColumn[], m
           if (rule?.max != null && n > rule.max) issues.push({ rowId:row.id,rowIndex,columnKey:col.key,severity:"error",message:`Maximum ${rule.max}` });
         }
       }
+      if (col.key.toLowerCase().includes("alphabetassets") && value) {
+        try {
+          const parsed=JSON.parse(value);
+          if(!parsed || typeof parsed!=="object" || Array.isArray(parsed)) throw new Error();
+          const word=(row.values[mapping?.word||"word"]??"").toUpperCase().replace(/[^A-Z]/g,"");
+          const missing=[...new Set(word.split(""))].filter((letter)=>!String((parsed as Record<string,unknown>)[letter]??"").trim());
+          if(missing.length) issues.push({rowId:row.id,rowIndex,columnKey:col.key,severity:"error",message:`Missing alphabet assets for: ${missing.join(", ")}`});
+        } catch {
+          issues.push({rowId:row.id,rowIndex,columnKey:col.key,severity:"error",message:"Alphabet asset map must be valid JSON"});
+        }
+      }
+      if(col.source==="template" && ["image","video","audio"].includes(col.kind) && value && !/^asset:\/\//i.test(value) && !/^https?:\/\//i.test(value)) {
+        issues.push({rowId:row.id,rowIndex,columnKey:col.key,severity:"warning",message:"Use an Assets picker value or a public URL"});
+      }
     }
 
     const filename=(row.values.video_file_name ?? "").trim().toLowerCase();
@@ -158,13 +355,18 @@ export function validateStudioRows(rows: StudioRow[], columns: StudioColumn[], m
 }
 
 export function parseDelimitedTable(text: string): { headers:string[]; rows:Record<string,string>[] } {
-  const normalized=text.replace(/\r\n/g,"\n").trim();
+  const normalized=text.replace(/^\uFEFF/,"").replace(/\r\n/g,"\n").trim();
   if (!normalized) return {headers:[],rows:[]};
-  const delimiter = normalized.includes("\t") ? "\t" : ",";
-  const parsed=Papa.parse<string[]>(normalized,{delimiter,skipEmptyLines:true});
+  const parsed=Papa.parse<string[]>(normalized,{delimiter:"",skipEmptyLines:"greedy"});
+  if(parsed.errors.some((e)=>e.type==="Delimiter")) throw new Error("Could not detect CSV delimiter");
   const matrix=(parsed.data ?? []).map((r)=>r.map((v)=>String(v??"")));
   if (!matrix.length) return {headers:[],rows:[]};
-  const headers=matrix[0]!.map((v,i)=>cleanKey(v)||`column_${i+1}`);
+  const used=new Map<string,number>();
+  const headers=matrix[0]!.map((v,i)=>{
+    const base=cleanKey(v)||`column_${i+1}`;
+    const count=(used.get(base)??0)+1;used.set(base,count);
+    return count===1?base:`${base}_${count}`;
+  });
   return {
     headers,
     rows:matrix.slice(1).map((cells)=>Object.fromEntries(headers.map((h,i)=>[h,cells[i]??""]))),
@@ -185,10 +387,12 @@ export function parseStudioJson(text:string): { headers:string[]; rows:Record<st
 export function autoMapHeaders(headers:string[], columns:StudioColumn[]): ImportMapping {
   const out:ImportMapping={};
   for (const header of headers) {
-    const h=header.toLowerCase().replace(/[^a-z0-9]/g,"");
+    const h=normalizedHeader(header);
+    const aliasKey=HEADER_ALIASES[header.trim().toLowerCase()] || HEADER_ALIASES[h];
     const exact=columns.find((c)=>c.key.toLowerCase()===header.toLowerCase());
-    const fuzzy=columns.find((c)=>c.key.toLowerCase().replace(/[^a-z0-9]/g,"")===h || c.label.toLowerCase().replace(/[^a-z0-9]/g,"")===h);
-    out[header]=(exact??fuzzy)?.key ?? "";
+    const alias=aliasKey?columns.find((c)=>c.key===aliasKey):undefined;
+    const fuzzy=columns.find((c)=>normalizedHeader(c.key)===h || normalizedHeader(c.label)===h);
+    out[header]=(exact??alias??fuzzy)?.key ?? "";
   }
   return out;
 }
@@ -237,6 +441,19 @@ export function autofillColumn(rows:StudioRow[], key:string):StudioRow[] {
   });
 }
 
+export function fillTemplateDefaults(rows:StudioRow[],columns:StudioColumn[]):StudioRow[]{
+  return rows.map((row)=>({
+    ...row,
+    values:Object.fromEntries(columns.map((col)=>{
+      const current=row.values[col.key]??"";
+      if(current.trim())return [col.key,current];
+      if(col.key==="privacy")return [col.key,"private"];
+      if(col.variable?.defaultValue!=null)return [col.key,typeof col.variable.defaultValue==="object"?JSON.stringify(col.variable.defaultValue):String(col.variable.defaultValue)];
+      return [col.key,current];
+    })),
+  }));
+}
+
 export function studioRowsToCsv(rows:StudioRow[], columns:StudioColumn[]):string {
   const data=rows.map((row)=>Object.fromEntries(columns.map((c)=>[c.key,row.values[c.key]??""])));
   return Papa.unparse(data,{columns:columns.map((c)=>c.key)});
@@ -276,6 +493,9 @@ export function rowToCampaignItem(row:StudioRow, columns:StudioColumn[], mapping
       privacy,
       playlist:row.values.playlist||undefined,
       category:row.values.category||undefined,
+      language:row.values.language||undefined,
+      madeForKids:["true","1","yes"].includes((row.values.made_for_kids||"").toLowerCase()),
+      thumbnailAssetId:row.values.youtube_thumbnail_asset_id||undefined,
     },
     audio_json: row.values.audio_file_name ? {type:"uploaded",file_name:row.values.audio_file_name} : {},
     asset_json: row.values.background_file_name ? {background_file_name:row.values.background_file_name} : {},

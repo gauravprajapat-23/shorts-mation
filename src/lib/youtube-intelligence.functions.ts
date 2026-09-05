@@ -34,37 +34,51 @@ export const saveYouTubeUploadDefaults=createServerFn({method:"POST"}).middlewar
 export const syncYouTubeAnalytics=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
 .inputValidator((d:{connectionId?:string})=>d).handler(async({data,context})=>{
  const conn=await ownedConnection(context.userId,data.connectionId),access=await token(conn);
- const {fetchChannelSnapshot,fetchVideoStats}=await import("@/lib/youtube-intelligence.server");
+ const {fetchChannelSnapshot,fetchVideoStats,listChannelVideoIds}=await import("@/lib/youtube-intelligence.server");
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
  const channel=await fetchChannelSnapshot(access);
  await (supabaseAdmin as any).from("youtube_channel_snapshots").insert({user_id:context.userId,connection_id:conn.id,subscribers:channel.subscribers,views:channel.views,videos:channel.videos});
- const items=await (supabaseAdmin as any).from("campaign_items").select("id,youtube_video_id,campaign_id,content_json,seo_json,youtube_publish_at,schedule_at").eq("user_id",context.userId).not("youtube_video_id","is",null).limit(500);
- const map=new Map((items.data??[]).map((r:any)=>[r.youtube_video_id,r]));
- const stats=await fetchVideoStats(access,[...map.keys()]);
- const campaignIds=[...new Set((items.data??[]).map((r:any)=>r.campaign_id).filter(Boolean))];
+ const itemRows:any[]=[];
+ for(let from=0;from<50_000;from+=1000){
+   const page=await (supabaseAdmin as any).from("campaign_items").select("id,youtube_video_id,campaign_id,content_json,seo_json,youtube_publish_at,schedule_at").eq("user_id",context.userId).not("youtube_video_id","is",null).order("created_at",{ascending:false}).range(from,from+999);
+   if(page.error)throw new Error(page.error.message);
+   itemRows.push(...(page.data??[]));
+   if((page.data??[]).length<1000)break;
+ }
+ const map=new Map(itemRows.map((r:any)=>[r.youtube_video_id,r]));
+ const channelVideoIds=await listChannelVideoIds(access);
+ const allVideoIds=[...new Set([...map.keys(),...channelVideoIds])];
+ const stats=await fetchVideoStats(access,allVideoIds);
+ const campaignIds=[...new Set(itemRows.map((r:any)=>r.campaign_id).filter(Boolean))];
  const campaigns=campaignIds.length?await (supabaseAdmin as any).from("campaigns").select("id,name,template_id").in("id",campaignIds):{data:[]};
  const campaignMap=new Map((campaigns.data??[]).map((r:any)=>[r.id,r]));
  const {inferAttribution}=await import("@/lib/analytics-intelligence");
- const startDate=new Date(Date.now()-90*86_400_000).toISOString().slice(0,10),endDate=new Date().toISOString().slice(0,10);
- const {fetchYouTubeAnalyticsReport}=await import("@/lib/youtube-intelligence.server");
- let report:any[]=[];try{report=await fetchYouTubeAnalyticsReport(access,startDate,endDate);}catch{/* Data API snapshots still work without Analytics API access */}
+ const startDate="2005-02-14",endDate=new Date().toISOString().slice(0,10);
+ const {fetchYouTubeAnalyticsReport,fetchYouTubeCtrReport}=await import("@/lib/youtube-intelligence.server");
+ let report:any[]=[];let ctrReport:any[]=[];
+ try{report=await fetchYouTubeAnalyticsReport(access,startDate,endDate);}catch{/* Data API snapshots still work without Analytics API access */}
+ try{ctrReport=await fetchYouTubeCtrReport(access,startDate,endDate);}catch{/* CTR coverage is optional */}
  const reportMap=new Map(report.map((r:any)=>[String(r.video),r]));
+ const ctrMap=new Map(ctrReport.map((r:any)=>[String(r.video),r]));
  if(stats.length)await (supabaseAdmin as any).from("youtube_video_performance").insert(stats.map((v:any)=>{
    const item=map.get(v.id),campaign=item?campaignMap.get(item.campaign_id):null,attr=inferAttribution(item?.content_json,item?.seo_json),deep=reportMap.get(v.id);
    const avgPct=deep?.averageViewPercentage==null?null:Number(deep.averageViewPercentage)/100;
+   const thumb=ctrMap.get(v.id);
+   const impressions=thumb?.videoThumbnailImpressions==null?null:Number(thumb.videoThumbnailImpressions);
+   const ctr=thumb?.videoThumbnailImpressionsClickRate==null?null:Number(thumb.videoThumbnailImpressionsClickRate)/100;
    return {user_id:context.userId,connection_id:conn.id,campaign_item_id:item?.id??null,youtube_video_id:v.id,
      views:Number(deep?.views??v.statistics?.viewCount??0),likes:Number(deep?.likes??v.statistics?.likeCount??0),comments:Number(deep?.comments??v.statistics?.commentCount??0),
      estimated_minutes_watched:deep?.estimatedMinutesWatched==null?null:Number(deep.estimatedMinutesWatched),
      average_view_duration_seconds:deep?.averageViewDuration==null?null:Number(deep.averageViewDuration),
      subscribers_gained:deep?.subscribersGained==null?null:Number(deep.subscribersGained),
-     retention_proxy:avgPct,first_3s_proxy:null,ctr:null,impressions:null,
-     upload_time:item?.youtube_publish_at??item?.schedule_at??null,template_id:campaign?.template_id??null,campaign_id:item?.campaign_id??null,
-     hook:attr.hook,cta:attr.cta,topic:attr.topic,variant:attr.variant,
-     metadata_json:{source:deep?"youtube-analytics+data":"youtube-data",average_view_percentage:deep?.averageViewPercentage??null},
+     retention_proxy:avgPct,first_3s_proxy:null,ctr,impressions,
+     upload_time:item?.youtube_publish_at??item?.schedule_at??v.snippet?.publishedAt??null,template_id:campaign?.template_id??null,campaign_id:item?.campaign_id??null,
+     hook:attr.hook,cta:attr.cta,topic:attr.topic??v.snippet?.title??null,variant:attr.variant,
+     metadata_json:{source:deep?"youtube-analytics+data":"youtube-data",average_view_percentage:deep?.averageViewPercentage??null,thumbnail_metrics_available:Boolean(thumb),video_title:v.snippet?.title??null,published_at:v.snippet?.publishedAt??null,thumbnail_url:v.snippet?.thumbnails?.medium?.url??v.snippet?.thumbnails?.default?.url??null},
    };
  }));
  await (supabaseAdmin as any).from("youtube_connections").update({analytics_last_synced_at:new Date().toISOString()}).eq("id",conn.id);
- return {ok:true,channel,videos:stats.length};
+ return {ok:true,channel,videos:stats.length,channelVideos:channelVideoIds.length,deepAnalytics:report.length,ctrMetrics:ctrReport.length};
 });
 
 export const repairFailedYouTubeUpload=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])

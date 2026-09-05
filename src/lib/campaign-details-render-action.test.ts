@@ -1,0 +1,2 @@
+import {describe,expect,it} from "vitest"; import {readFile} from "node:fs/promises";
+describe("campaign row render",()=>{it("uses canonical targeted pipeline",async()=>{const a=await readFile("src/lib/automation.functions.ts","utf8");const p=await readFile("src/lib/render-pipeline.server.ts","utf8");const u=await readFile("src/routes/_app/campaigns/$campaignId.tsx","utf8");expect(a).toContain("renderCampaignItemNow");expect(p).toContain('query = query.eq("id", opts.itemId)');expect(u).toContain("Render MP4");expect(u).toContain("MP4 ready");});});

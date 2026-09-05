@@ -111,3 +111,18 @@ export const kickCampaignAutomation = createServerFn({ method: "POST" })
     const { submitDueRenders } = await import("@/lib/render-pipeline.server");
     return submitDueRenders({ campaignId: data.campaignId, ignoreLeadTime: true, limit: Math.min(data.limit ?? 2, 5) });
   });
+export const renderCampaignItemNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { campaignId: string; itemId: string }) => d)
+  .handler(async ({ data, context }): Promise<{ submitted: number; errors: number; skipped?: string }> => {
+    const { data: item, error } = await context.supabase.from("campaign_items")
+      .select("id,user_id,campaign_id,status,rendered_video_url,active_render_attempt_id,is_paused")
+      .eq("id", data.itemId).eq("campaign_id", data.campaignId).single();
+    if (error || !item || item.user_id !== context.userId) throw new Error("Campaign video not found");
+    if (item.rendered_video_url) return { submitted: 0, errors: 0, skipped: "MP4 already exists" };
+    if (item.active_render_attempt_id || item.status === "rendering") return { submitted: 0, errors: 0, skipped: "Render is already in progress" };
+    if (["uploading","scheduled","uploaded"].includes(item.status)) throw new Error("This video is already in the YouTube upload stage");
+    if (item.is_paused) throw new Error("Resume this video before rendering it");
+    const { submitDueRenders } = await import("@/lib/render-pipeline.server");
+    return submitDueRenders({ campaignId: data.campaignId, itemId: data.itemId, ignoreLeadTime: true, allowInactiveCampaign: true, limit: 1 });
+  });

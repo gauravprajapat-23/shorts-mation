@@ -6,13 +6,12 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import {
   BadgeCheck, BookOpen, Copy, Download, Eye, FileJson, FileSpreadsheet, Heart,
-  History, Pencil, Plus, Search, Settings2, Sparkles, Star, Tags, Trash2, Upload, Video, X, Zap,
+  History, Pencil, Plus, Search, Settings2, Sparkles, Star, Tags, Trash2, Upload, Video, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { generateSampleCsv, downloadCsv } from "@/lib/sample-csv";
 import type { EditorDocument } from "@/lib/types";
 import { TemplatePreview } from "@/lib/template-preview";
-import { STARTER_TEMPLATES } from "@/lib/starter-templates";
 import { downloadPortableTemplate, readTemplateFile } from "@/lib/template-io";
 import {
   generateTemplateDocumentation, normalizeTemplateTags, TEMPLATE_CATEGORIES, validateTemplateProduct,
@@ -37,7 +36,7 @@ type Tab = "library" | "marketplace" | "favorites";
 function TemplatesPage() {
   const qc = useQueryClient();
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [tab, setTab] = useState<Tab>("library");
+  const [tab, setTab] = useState<Tab>("marketplace");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [productTemplate, setProductTemplate] = useState<TemplateRow | null>(null);
@@ -58,7 +57,18 @@ function TemplatesPage() {
       const { data, error } = await (supabase as any).from("templates").select("*")
         .order("is_default", { ascending: false }).order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as TemplateRow[];
+      const rows = (data ?? []) as TemplateRow[];
+      // Legacy "Starters" copied built-ins into each user's library. Collapse
+      // those historical copies in the UI while the cleanup migration removes
+      // them from the database.
+      const seen = new Set<string>();
+      return rows.filter((row) => {
+        const key = `${row.type.trim().toLowerCase()}:${row.name.trim().toLowerCase().replace(/\s+[—-]\s+(remix|copy)$/i, "")}`;
+        if (seen.has(key) && (row.is_default || row.user_id === null || row.visibility === "public")) return false;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     },
   });
 
@@ -121,26 +131,6 @@ function TemplatesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const loadStarters = useMutation({
-    mutationFn: async () => {
-      if (!userId) throw new Error("Not signed in");
-      const existing = new Set((templatesQuery.data ?? []).filter((t) => t.user_id===userId).map((t) => `${t.type}:${t.name}`));
-      const rows = STARTER_TEMPLATES.filter((s) => !existing.has(`${s.type}:${s.name}`)).map((s) => {
-        const validation = validateTemplateProduct(s.doc,{ name:s.name, description:`Animated ${s.name} starter`, tags:[s.type] });
-        return {
-          user_id:userId, name:s.name, type:s.type, aspect_ratio:s.doc.aspect, template_json:s.doc as never,
-          category:guessCategory(s.type), tags:[s.type.replace(/_/g," ")], visibility:"private",
-          description:`Animated starter for ${s.name}.`, validation_score:validation.score, required_variables:validation.requiredVariables,
-        };
-      });
-      if (!rows.length) return 0;
-      const { error } = await (supabase as any).from("templates").insert(rows);
-      if (error) throw error;
-      return rows.length;
-    },
-    onSuccess: (count) => { qc.invalidateQueries({ queryKey:["templates-marketplace"] }); toast.success(count ? `${count} starter templates added` : "Starter templates are already loaded"); },
-    onError: (e: Error) => toast.error(e.message),
-  });
 
   const importTemplate = useMutation({
     mutationFn: async (file: File) => {
@@ -180,12 +170,11 @@ function TemplatesPage() {
   }
 
   return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-    <PageHeader title="Template Marketplace" description="Build reusable video products, validate them, publish to the marketplace, remix community templates, and generate campaign-ready sample data."
+    <PageHeader title="Template Marketplace" description="Browse all pre-added website templates, preview them, remix into your library, or import and build your own."
       action={<div className="flex flex-wrap gap-2">
         <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e)=>{ const f=e.target.files?.[0]; e.currentTarget.value=""; if(f) importTemplate.mutate(f); }} />
         <button onClick={()=>importInputRef.current?.click()} className="action"><Upload className="size-4"/> Import</button>
         <a href="/templates/half-cut-word-match-pro.shorts-template.json" download className="action"><FileJson className="size-4"/> Pro sample</a>
-        <button onClick={()=>loadStarters.mutate()} className="action"><Zap className="size-4"/> Starters</button>
         <Link to="/templates/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white text-sm font-semibold"><Plus className="size-4"/> New template</Link>
       </div>} />
 

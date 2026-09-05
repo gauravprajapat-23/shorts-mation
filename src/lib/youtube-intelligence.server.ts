@@ -63,20 +63,58 @@ export function recommendedPublishHours(performance:Array<{captured_at:string;vi
 }
 
 export async function fetchYouTubeAnalyticsReport(token:string,startDate:string,endDate:string){
-  const q=new URLSearchParams({
-    ids:"channel==MINE",
-    startDate,endDate,
-    metrics:"views,likes,comments,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained",
-    dimensions:"video",
-    sort:"-views",
-    maxResults:"500",
-  });
-  const res=await fetch(`https://youtubeanalytics.googleapis.com/v2/reports?${q}`,{
-    headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30_000),
-  });
-  if(res.status===403)return [] as Array<any>;
-  if(!res.ok)throw new Error(`YouTube Analytics API ${res.status}: ${(await res.text()).slice(0,600)}`);
-  const body=await res.json() as {columnHeaders?:Array<{name:string}>;rows?:unknown[][]};
-  const headers=(body.columnHeaders??[]).map(h=>h.name);
-  return (body.rows??[]).map(row=>Object.fromEntries(headers.map((h,i)=>[h,row[i]])));
+  const out:any[]=[];
+  let startIndex=1;
+  while(startIndex<=50_000){
+    const q=new URLSearchParams({
+      ids:"channel==MINE",startDate,endDate,
+      metrics:"views,likes,comments,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained",
+      dimensions:"video",sort:"-views",maxResults:"200",startIndex:String(startIndex),
+    });
+    const res=await fetch(`https://youtubeanalytics.googleapis.com/v2/reports?${q}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30_000)});
+    if(res.status===403)return out;
+    if(!res.ok)throw new Error(`YouTube Analytics API ${res.status}: ${(await res.text()).slice(0,600)}`);
+    const body=await res.json() as {columnHeaders?:Array<{name:string}>;rows?:unknown[][]};
+    const headers=(body.columnHeaders??[]).map(h=>h.name);
+    const rows=(body.rows??[]).map(row=>Object.fromEntries(headers.map((h,i)=>[h,row[i]])));
+    out.push(...rows);
+    if(rows.length<200)break;
+    startIndex+=rows.length;
+  }
+  return out;
+}
+
+export async function listChannelVideoIds(token:string){
+  const channel=await yt<{items?:Array<{contentDetails?:{relatedPlaylists?:{uploads?:string}}}>}>(token,"https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true");
+  const uploads=channel.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  if(!uploads)return [] as string[];
+  const ids:string[]=[];let pageToken="";
+  do{
+    const q=new URLSearchParams({part:"contentDetails",playlistId:uploads,maxResults:"50",...(pageToken?{pageToken}:{})});
+    const page=await yt<{nextPageToken?:string;items?:Array<{contentDetails?:{videoId?:string}}>}>(token,`https://www.googleapis.com/youtube/v3/playlistItems?${q}`);
+    for(const item of page.items??[]){const id=item.contentDetails?.videoId;if(id)ids.push(id);}
+    pageToken=page.nextPageToken??"";
+  }while(pageToken&&ids.length<50_000);
+  return ids;
+}
+
+export async function fetchYouTubeCtrReport(token:string,startDate:string,endDate:string){
+  const out:any[]=[];let startIndex=1;
+  while(startIndex<=50_000){
+    const q=new URLSearchParams({
+      ids:"channel==MINE",startDate,endDate,
+      metrics:"videoThumbnailImpressions,videoThumbnailImpressionsClickRate",
+      dimensions:"video",sort:"-videoThumbnailImpressions",maxResults:"200",startIndex:String(startIndex),
+    });
+    const res=await fetch(`https://youtubeanalytics.googleapis.com/v2/reports?${q}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30_000)});
+    // These metrics are not enabled for every channel/API surface. Treat that
+    // as missing coverage rather than failing the entire analytics sync.
+    if(res.status===400||res.status===403)return out;
+    if(!res.ok)throw new Error(`YouTube thumbnail analytics ${res.status}: ${(await res.text()).slice(0,600)}`);
+    const body=await res.json() as {columnHeaders?:Array<{name:string}>;rows?:unknown[][]};
+    const headers=(body.columnHeaders??[]).map(h=>h.name);
+    const rows=(body.rows??[]).map(row=>Object.fromEntries(headers.map((h,i)=>[h,row[i]])));
+    out.push(...rows);if(rows.length<200)break;startIndex+=rows.length;
+  }
+  return out;
 }

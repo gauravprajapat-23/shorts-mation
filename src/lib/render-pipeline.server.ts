@@ -132,7 +132,9 @@ async function monthSpend(userId: string): Promise<number> {
 
 export async function submitDueRenders(opts?: {
   campaignId?: string;
+  itemId?: string;
   ignoreLeadTime?: boolean;
+  allowInactiveCampaign?: boolean;
   limit?: number;
 }): Promise<{ submitted: number; errors: number; skipped?: string }> {
   await reclaimStaleRenders();
@@ -197,7 +199,9 @@ export async function reclaimStaleRenders(): Promise<{ reclaimed: number }> {
 
 async function submitDueRendersInner(opts?: {
   campaignId?: string;
+  itemId?: string;
   ignoreLeadTime?: boolean;
+  allowInactiveCampaign?: boolean;
   limit?: number;
 }): Promise<{ submitted: number; errors: number; skipped?: string }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -218,6 +222,7 @@ async function submitDueRendersInner(opts?: {
     .is("render_cancel_requested_at", null)
     .eq("is_paused", false);
   if (opts?.campaignId) query = query.eq("campaign_id", opts.campaignId);
+  if (opts?.itemId) query = query.eq("id", opts.itemId);
   if (!opts?.ignoreLeadTime) {
     query = query.not("render_due_at", "is", null).lte("render_due_at", nowIso);
   }
@@ -233,7 +238,7 @@ async function submitDueRendersInner(opts?: {
   let submitted = 0, errors = 0, throttled = 0;
   for (const row of (rows ?? []) as any[]) {
     if (submitted >= perTick) break;
-    if (row.campaigns?.status !== "active") continue;
+    if (row.campaigns?.status !== "active" && !opts?.allowInactiveCampaign) continue;
     if (row.render_next_attempt_at && new Date(row.render_next_attempt_at).getTime() > Date.now()) continue;
     const cap = effectiveCap(overrides, row.user_id, "renders", limits.max_user_concurrent_renders);
     if ((perUser[row.user_id] ?? 0) >= cap) { throttled++; continue; }

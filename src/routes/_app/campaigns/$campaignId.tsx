@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { deleteCampaignFully } from "@/lib/data-management.functions";
 import { publishItemNow } from "@/lib/youtube-upload.functions";
-import { kickCampaignAutomation } from "@/lib/automation.functions";
+import { kickCampaignAutomation, renderCampaignItemNow } from "@/lib/automation.functions";
 import { useState } from "react";
 import { effectivePublishAt, formatDateTime } from "@/lib/date-display";
 import { duplicateCampaign } from "@/lib/campaign-operations.functions";
@@ -28,9 +28,11 @@ function CampaignDetail() {
   const qc = useQueryClient();
   const publishFn = useServerFn(publishItemNow);
   const kickFn = useServerFn(kickCampaignAutomation);
+  const renderItemFn = useServerFn(renderCampaignItemNow);
   const deleteCampaign = useServerFn(deleteCampaignFully);
   const duplicateFn = useServerFn(duplicateCampaign);
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [renderingId, setRenderingId] = useState<string | null>(null);
   const publish = async (itemId: string) => {
     setPublishingId(itemId);
     try {
@@ -48,6 +50,18 @@ function CampaignDetail() {
       setPublishingId(null);
     }
   };
+  const renderMp4 = async (itemId: string) => {
+    setRenderingId(itemId);
+    try {
+      const result = await renderItemFn({ data: { campaignId, itemId } });
+      if (result.submitted > 0) toast.success("MP4 render queued", { description: "Native FFmpeg worker will render this video." });
+      else if (result.skipped) toast.info(result.skipped);
+      else if (result.errors > 0) toast.error("Render could not be submitted. Check Automation status.");
+      qc.invalidateQueries({ queryKey: ["campaign-items", campaignId] });
+      qc.invalidateQueries({ queryKey: ["campaign-operations", campaignId] });
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not queue MP4 render"); }
+    finally { setRenderingId(null); }
+  };
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
     queryFn: async () => {
@@ -60,7 +74,7 @@ function CampaignDetail() {
     queryKey: ["campaign-items", campaignId],
     queryFn: async () => {
       const { data, error } = await supabase.from("campaign_items")
-        .select("id,video_file_name,seo_json,status,schedule_at,youtube_publish_at,youtube_video_id,youtube_url,rendered_video_url")
+        .select("id,video_file_name,seo_json,status,schedule_at,youtube_publish_at,youtube_video_id,youtube_url,rendered_video_url,render_provider,render_job_ref,render_submitted_at,error_message,is_paused,active_render_attempt_id")
         .eq("campaign_id", campaignId).order("schedule_at", { ascending: true, nullsFirst: false }).range(0, 24);
       if (error) throw error;
       return data ?? [];
@@ -185,12 +199,13 @@ function CampaignDetail() {
           <Link to="/campaigns/$campaignId/queue" params={{ campaignId }} className="text-xs text-zinc-400 hover:text-white">Full queue →</Link>
         </header>
         <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] text-sm">
+        <table className="w-full min-w-[980px] text-sm">
           <thead className="text-[10px] uppercase tracking-widest text-zinc-500 bg-zinc-950/50">
             <tr>
               <th className="text-left px-4 py-3 font-semibold">File</th>
               <th className="text-left px-4 py-3 font-semibold">Title</th>
               <th className="text-left px-4 py-3 font-semibold">Status</th>
+              <th className="text-left px-4 py-3 font-semibold">Render</th>
               <th className="text-left px-4 py-3 font-semibold">Scheduled</th>
               <th className="text-right px-4 py-3 font-semibold">Actions</th>
             </tr>
@@ -203,6 +218,13 @@ function CampaignDetail() {
                   <td className="px-4 py-2.5 font-mono text-xs">{i.video_file_name}</td>
                   <td className="px-4 py-2.5 truncate max-w-xs">{seo.title ?? "—"}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={i.status} /></td>
+                  <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                    {i.rendered_video_url ? <span className="inline-flex items-center gap-1 text-emerald-300"><CheckCircle2 className="size-3.5" /> MP4 ready</span>
+                    : i.status === "rendering" || i.active_render_attempt_id ? <span className="inline-flex items-center gap-1 text-sky-300"><RefreshCw className="size-3.5 animate-spin" /> Rendering</span>
+                    : i.status === "failed" ? <span className="inline-flex items-center gap-1 text-red-300"><AlertTriangle className="size-3.5" /> Failed</span>
+                    : <span className="text-zinc-500">Not generated</span>}
+                    {i.render_provider && <div className="mt-0.5 text-[10px] text-zinc-500">{i.render_provider}</div>}
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-zinc-400 whitespace-nowrap">
                     <div>{formatDateTime(effectivePublishAt(i), c.timezone)}</div>
                     {i.youtube_publish_at && i.schedule_at && i.youtube_publish_at !== i.schedule_at && (
@@ -216,6 +238,13 @@ function CampaignDetail() {
                       )}
                       {i.status==="failed" && !i.youtube_video_id && (
                         <button onClick={()=>repairUpload.mutate(i.id)} disabled={repairUpload.isPending} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/10" title="Repair failed upload state after duplicate-safety checks"><RefreshCw className="size-3"/> Repair</button>
+                      )}
+                      {!i.rendered_video_url && !i.youtube_video_id && !["rendering","uploading","scheduled","uploaded"].includes(i.status) && !i.active_render_attempt_id && (
+                        <button onClick={() => renderMp4(i.id)} disabled={renderingId === i.id || i.is_paused}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-sky-500/40 text-sky-300 text-xs font-semibold hover:bg-sky-500/10 disabled:opacity-50"
+                          title={i.is_paused ? "Resume this video before rendering" : "Render this row as MP4 with the native FFmpeg worker"}>
+                          <Video className="size-3" />{renderingId === i.id ? "Queuing…" : i.status === "failed" ? "Render again" : "Render MP4"}
+                        </button>
                       )}
                       {!!i.rendered_video_url && !i.youtube_video_id && ["pending", "rendered", "upload_pending", "failed"].includes(i.status) && (
                         <button

@@ -23,6 +23,7 @@ export const generateDataStudioCampaign = createServerFn({ method:"POST" })
     }
 
     const seen=new Set<string>();
+    const thumbnailIds=new Set<string>();
     data.items.forEach((item,index)=>{
       const name=String(item.video_file_name??"").trim().toLowerCase();
       if(!name) throw new Error(`Row ${index+1}: video file name is required`);
@@ -31,7 +32,26 @@ export const generateDataStudioCampaign = createServerFn({ method:"POST" })
       if(item.schedule_at && !Number.isFinite(new Date(item.schedule_at).getTime())) {
         throw new Error(`Row ${index+1}: invalid schedule`);
       }
+      const yt=(item.youtube_settings_json??{}) as Record<string,unknown>;
+      const thumbnailId=String(yt.thumbnailAssetId??"").trim();
+      if(thumbnailId) thumbnailIds.add(thumbnailId);
     });
+
+    if(thumbnailIds.size){
+      const {data:thumbs,error:thumbError}=await context.supabase.from("assets")
+        .select("id,type,mime_type,size,lifecycle_status")
+        .in("id",[...thumbnailIds]).eq("user_id",context.userId).eq("lifecycle_status","active");
+      if(thumbError) throw new Error(thumbError.message);
+      const valid=new Set((thumbs??[]).filter((a)=>(
+        ["image","logo"].includes(String(a.type))
+        && ["image/jpeg","image/png"].includes(String(a.mime_type??""))
+        && Number(a.size??0)>0
+        && Number(a.size??0)<=2*1024*1024
+      )).map((a)=>String(a.id)));
+      for(const id of thumbnailIds) if(!valid.has(id)) {
+        throw new Error("A YouTube thumbnail is missing, not owned by this account, not JPEG/PNG, or larger than 2 MB");
+      }
+    }
 
     const {data:result,error}=await (context.supabase as any).rpc("create_campaign_with_items",{
       p_campaign:{...data.campaign,status:"draft"},

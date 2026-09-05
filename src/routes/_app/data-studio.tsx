@@ -12,10 +12,11 @@ import { PageHeader } from "@/components/page-header";
 import { TemplatePreview } from "@/lib/template-preview";
 import type { EditorDocument } from "@/lib/types";
 import {
-  applyBulkPaste, applyImportedRows, autoMapHeaders, autofillColumn, columnsForTemplate,
-  createStudioRow, parseDelimitedTable, parseStudioJson, rowToCampaignItem, studioRowsToCsv,
-  studioRowsToJson, type ImportMapping, type StudioColumn, type StudioIssue, type StudioRow,
-  validateStudioRows,
+  applyBulkPaste, applyImportedRows, autoMapHeaders, autofillColumn, blankTemplateCsv,
+  buildAlphabetAssetMap, columnsForTemplate, createStudioRow, createTemplateSampleRows, fillTemplateDefaults,
+  parseDelimitedTable, parseStudioJson, resolveImportedAssetValues, rowToCampaignItem,
+  sampleTemplateCsv, studioRowsToCsv, studioRowsToJson, type ImportMapping, type StudioAsset,
+  type StudioColumn, type StudioIssue, type StudioRow, validateStudioRows,
 } from "@/lib/automation-data-studio";
 import { materializeAutomationDocument } from "@/lib/automation-variables";
 import { generateDataStudioCampaign } from "@/lib/data-studio.functions";
@@ -30,7 +31,7 @@ type TemplateRow = {
   id:string; name:string; type:string; aspect_ratio:string; template_json:unknown;
   required_variables?:string[]|null; validation_score?:number|null;
 };
-type AssetRow = { id:string; file_name:string; type:string; lifecycle_status?:string; storage_path?:string|null };
+type AssetRow = StudioAsset;
 type ImportState = { headers:string[]; sourceRows:Record<string,string>[]; mapping:ImportMapping } | null;
 
 function AutomationDataStudioPage() {
@@ -48,6 +49,9 @@ function AutomationDataStudioPage() {
   const [bulkOpen,setBulkOpen]=useState(false);
   const [bulkText,setBulkText]=useState("");
   const [importState,setImportState]=useState<ImportState>(null);
+  const [importMode,setImportMode]=useState<"replace"|"append">("replace");
+  const [addUnmatchedColumns,setAddUnmatchedColumns]=useState(true);
+  const [sampleRows,setSampleRows]=useState(6);
   const [previewRow,setPreviewRow]=useState<StudioRow|null>(null);
   const [name,setName]=useState("Automation Data Campaign");
   const [timezone,setTimezone]=useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
@@ -77,7 +81,7 @@ function AutomationDataStudioPage() {
     queryKey:["data-studio-assets"],
     queryFn:async()=>{
       const {data,error}=await (supabase as any).from("assets")
-        .select("id,file_name,type,lifecycle_status,storage_path").eq("lifecycle_status","active").order("created_at",{ascending:false}).limit(1000);
+        .select("id,file_name,type,lifecycle_status,storage_path,mime_type,size").eq("lifecycle_status","active").order("created_at",{ascending:false}).limit(1000);
       if(error)throw error;
       return (data??[]) as AssetRow[];
     },
@@ -131,6 +135,10 @@ function AutomationDataStudioPage() {
     if(!q)return rows;
     return rows.filter((r)=>Object.values(r.values).some((v)=>v.toLowerCase().includes(q)));
   },[rows,search]);
+  const requiredColumns=useMemo(()=>columns.filter((c)=>c.required),[columns]);
+  const mediaColumns=useMemo(()=>columns.filter((c)=>["image","video","audio","media"].includes(c.kind)),[columns]);
+  const alphabetAssetsColumn=useMemo(()=>columns.find((c)=>c.key.toLowerCase().includes("alphabetassets"))??null,[columns]);
+  const mappedImportCount=importState?Object.values(importState.mapping).filter(Boolean).length:0;
 
   function chooseTemplate(id:string){
     setTemplateId(id);
@@ -138,7 +146,7 @@ function AutomationDataStudioPage() {
     if(!selectedTemplate)return;
     const cols=columnsForTemplate(selectedTemplate.template_json as EditorDocument);
     setExtraColumns([]);
-    setRows(Array.from({length:10},(_,i)=>createStudioRow(cols,i)));
+    setRows(createTemplateSampleRows(cols,selectedTemplate.name,6,assets.data??[]));
     setMapping(Object.fromEntries(cols.filter((c)=>c.source==="template").map((c)=>[c.key,c.key])));
     setSelected({row:0,col:0});
     setSelectedRows(new Set());
@@ -179,28 +187,69 @@ function AutomationDataStudioPage() {
       const text=await file.text();
       const parsed=file.name.toLowerCase().endsWith(".json")?parseStudioJson(text):parseDelimitedTable(text);
       if(!parsed.rows.length)throw new Error("The file has no data rows");
-      setImportState({headers:parsed.headers,sourceRows:parsed.rows,mapping:autoMapHeaders(parsed.headers,columns)});
+      const autoMapping=autoMapHeaders(parsed.headers,columns);
+      const resolvedRows=resolveImportedAssetValues(parsed.rows,autoMapping,columns,assets.data??[]);
+      setImportState({headers:parsed.headers,sourceRows:resolvedRows,mapping:autoMapping});
     }catch(e){toast.error(e instanceof Error?e.message:"Import failed");}
   }
   function applyImport(){
     if(!importState)return;
-    const unmatched=importState.headers.filter((h)=>!importState.mapping[h]);
+    const unmatched=addUnmatchedColumns ? importState.headers.filter((h)=>!importState.mapping[h]) : [];
     const existing=new Set(columns.map((c)=>c.key));
     const newCols:StudioColumn[]=unmatched.filter((h)=>!existing.has(h)).map((h)=>({id:`import_${h}_${Date.now()}`,key:h,label:h,kind:"text",source:"imported"}));
     const allColumns=[...columns,...newCols];
     const mapping2={...importState.mapping};
     for(const c of newCols) mapping2[c.key]=c.key;
+    const start=importMode==="append"?rows.length:0;
+    const imported=applyImportedRows(importState.sourceRows,mapping2,allColumns,start);
     setExtraColumns((current)=>[...current,...newCols]);
-    setRows(applyImportedRows(importState.sourceRows,mapping2,allColumns,0).slice(0,100));
-    setImportState(null); toast.success("Data imported into studio");
+    setRows((current)=>(importMode==="append"?[...current,...imported]:imported).slice(0,100));
+    setImportState(null);
+    toast.success(`${imported.length} row${imported.length===1?"":"s"} imported`,{description:importMode==="append"?"Added to the current table":"Replaced the current table"});
   }
 
   function downloadFile(kind:"csv"|"json"){
     if(!rows.length)return;
     const text=kind==="csv"?studioRowsToCsv(rows,columns):studioRowsToJson(rows,columns);
-    const blob=new Blob([text],{type:kind==="csv"?"text/csv;charset=utf-8":"application/json;charset=utf-8"});
+    downloadText(`${draftName.toLowerCase().replace(/[^a-z0-9]+/g,"-")||"data-studio"}.${kind}`,text,kind==="csv"?"text/csv;charset=utf-8":"application/json;charset=utf-8");
+  }
+
+  function downloadText(filename:string,text:string,type:string){
+    const blob=new Blob([text],{type});
     const url=URL.createObjectURL(blob); const a=document.createElement("a");
-    a.href=url;a.download=`${draftName.toLowerCase().replace(/[^a-z0-9]+/g,"-")||"data-studio"}.${kind}`;a.click();URL.revokeObjectURL(url);
+    a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
+  }
+
+  function downloadTemplateCsv(kind:"sample"|"blank"){
+    if(!template)return;
+    const slug=template.name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"template";
+    const csv=kind==="sample"
+      ? sampleTemplateCsv(columns,template.name,sampleRows,assets.data??[])
+      : blankTemplateCsv(columns);
+    downloadText(`${slug}-${kind}.csv`,csv,"text/csv;charset=utf-8");
+    toast.success(kind==="sample"?`Downloaded ${sampleRows}-row template sample CSV`:"Downloaded blank template CSV");
+  }
+
+  function resetToTemplateSamples(){
+    if(!template)return;
+    setRows(createTemplateSampleRows(columns,template.name,sampleRows,assets.data??[]));
+    setSelectedRows(new Set());
+    toast.success("Template sample data loaded");
+  }
+
+  function applyDefaults(){
+    setRows((current)=>fillTemplateDefaults(current,columns));
+    toast.success("Filled empty cells with template defaults");
+  }
+
+  function populateAlphabetAssets(){
+    if(!alphabetAssetsColumn)return;
+    const map=buildAlphabetAssetMap(assets.data??[]);
+    const found=Object.values(map).filter(Boolean).length;
+    const json=JSON.stringify(map);
+    setRows((current)=>current.map((row)=>({...row,values:{...row.values,[alphabetAssetsColumn.key]:json}})));
+    if(found===26) toast.success("A–Z alphabet map populated from Assets");
+    else toast.warning(`Mapped ${found}/26 alphabet images`,{description:"Name alphabet files like A.png, B.png, letter-C.png, etc. Missing letters will stay blank and be shown as row errors."});
   }
 
   const saveDraft=useMutation({
@@ -295,6 +344,21 @@ function AutomationDataStudioPage() {
           {template&&<div className="mt-3 aspect-[9/16] max-h-64 rounded-lg overflow-hidden bg-black border border-border"><TemplatePreview doc={template.template_json as EditorDocument} aspect={template.aspect_ratio as any}/></div>}
           {template&&<div className="text-[11px] text-zinc-500 mt-2">Quality {template.validation_score??0}% · {template.required_variables?.length??0} required variables</div>}
         </section>
+
+        {template&&<section className="panel p-4 space-y-3">
+          <div className="flex items-center justify-between"><div className="text-xs font-bold uppercase tracking-widest text-zinc-500">Template CSV</div><span className="text-[10px] text-zinc-600">{columns.length} columns</span></div>
+          <p className="text-[11px] text-zinc-500">CSV columns are generated from this template's actual automation variables, types, required fields, defaults, and media inputs.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={()=>downloadTemplateCsv("sample")} className="tool justify-center"><FileSpreadsheet className="size-3.5"/> Sample CSV</button>
+            <button onClick={()=>downloadTemplateCsv("blank")} className="tool justify-center"><FileSpreadsheet className="size-3.5"/> Blank CSV</button>
+          </div>
+          <label className="label">Sample rows<input type="number" min={1} max={100} value={sampleRows} onChange={(e)=>setSampleRows(Math.max(1,Math.min(100,Number(e.target.value)||1)))} className="field"/></label>
+          <button onClick={resetToTemplateSamples} className="tool w-full justify-center"><WandSparkles className="size-3.5"/> Load sample rows into table</button>          {alphabetAssetsColumn&&<button onClick={populateAlphabetAssets} className="tool w-full justify-center border-brand/30 text-brand"><Sparkles className="size-3.5"/> Auto-map A–Z from Assets</button>}
+          <div className="border-t border-border pt-3 space-y-2">
+            <div className="text-[10px] text-zinc-500">{requiredColumns.length} required · {mediaColumns.length} media · {templateColumns.length} template variables</div>
+            <div className="max-h-40 overflow-auto space-y-1">{templateColumns.map((c)=><div key={c.key} className="rounded border border-border/70 px-2 py-1.5 text-[10px]"><div className="flex gap-2 items-center"><span className="font-mono text-zinc-300 truncate">{c.key}</span><span className="ml-auto text-zinc-600">{c.kind}{c.required?" · required":""}</span></div>{c.variable?.description&&<div className="text-zinc-600 mt-1 line-clamp-2">{c.variable.description}</div>}</div>)}</div>
+          </div>
+        </section>}
 
         <section className="panel p-4 space-y-3">
           <div className="text-xs font-bold uppercase tracking-widest text-zinc-500">Campaign output</div>
@@ -398,9 +462,18 @@ function AutomationDataStudioPage() {
     </Modal>}
 
     {importState&&<Modal title={`Map ${importState.sourceRows.length} imported rows`} onClose={()=>setImportState(null)}>
-      <p className="text-xs text-zinc-500">Map incoming columns to Data Studio columns. Unmapped columns will be added as custom columns.</p>
-      <div className="space-y-2 max-h-96 overflow-auto">{importState.headers.map((header)=><div key={header} className="grid grid-cols-[1fr_24px_1fr] items-center gap-2"><div className="field truncate">{header}</div><span className="text-zinc-600">→</span><select value={importState.mapping[header]??""} onChange={(e)=>setImportState((state)=>state?{...state,mapping:{...state.mapping,[header]:e.target.value}}:state)} className="field"><option value="">Add as custom column</option>{columns.map((c)=><option key={c.key} value={c.key}>{c.label} ({c.key})</option>)}</select></div>)}</div>
-      <button onClick={applyImport} className="btn bg-brand text-white border-brand w-full justify-center">Import into table</button>
+      <div className="rounded-lg border border-border bg-black/20 p-3 grid sm:grid-cols-3 gap-3 text-xs">
+        <div><div className="text-zinc-500">Columns</div><div className="font-bold mt-1">{importState.headers.length}</div></div>
+        <div><div className="text-zinc-500">Auto-mapped</div><div className="font-bold mt-1">{mappedImportCount}/{importState.headers.length}</div></div>
+        <div><div className="text-zinc-500">Template required</div><div className="font-bold mt-1">{requiredColumns.length}</div></div>
+      </div>
+      <p className="text-xs text-zinc-500">Incoming headers are matched against template variable keys and labels. Asset file names/IDs are automatically converted to durable <code>asset://</code> references for media variables.</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="label">Import mode<select value={importMode} onChange={(e)=>setImportMode(e.target.value as "replace"|"append")} className="field"><option value="replace">Replace current rows</option><option value="append">Append to current rows</option></select></label>
+        <label className="label">Unmatched columns<select value={addUnmatchedColumns?"add":"ignore"} onChange={(e)=>setAddUnmatchedColumns(e.target.value==="add")} className="field"><option value="add">Add as custom columns</option><option value="ignore">Ignore unmatched columns</option></select></label>
+      </div>
+      <div className="space-y-2 max-h-96 overflow-auto">{importState.headers.map((header)=><div key={header} className="grid grid-cols-[1fr_24px_1fr] items-center gap-2"><div className="field truncate">{header}</div><span className="text-zinc-600">→</span><select value={importState.mapping[header]??""} onChange={(e)=>setImportState((state)=>state?{...state,mapping:{...state.mapping,[header]:e.target.value}}:state)} className="field"><option value="">Unmapped</option>{columns.map((c)=><option key={c.key} value={c.key}>{c.label} ({c.key}){c.required?" *":""}</option>)}</select></div>)}</div>
+      <button onClick={applyImport} className="btn bg-brand text-white border-brand w-full justify-center">{importMode==="append"?"Append":"Import"} {importState.sourceRows.length} rows</button>
     </Modal>}
 
     {previewRow&&template&&<RowPreviewModal row={previewRow} template={template} templateColumns={templateColumns} mapping={effectiveMapping} rowNumber={rows.findIndex((r)=>r.id===previewRow.id)+1} onClose={()=>setPreviewRow(null)}/>}
@@ -422,9 +495,13 @@ function StudioCell({column,value,onChange,assets,issues}:{column:StudioColumn;v
   if(column.kind==="boolean") return <select value={value} onChange={(e)=>onChange(e.target.value)} className={cls}><option value="">—</option><option value="true">true</option><option value="false">false</option></select>;
   if(column.kind==="schedule") return <input type="datetime-local" value={toLocalInput(value)} onChange={(e)=>onChange(e.target.value?new Date(e.target.value).toISOString():"")} className={cls}/>;
   if(["image","video","audio","media"].includes(column.kind)){
-    const matching=assets.filter((a)=>column.kind==="media"?["image","video","logo"].includes(a.type):column.kind==="image"?["image","logo"].includes(a.type):a.type===column.kind);
+    const matching=assets.filter((a)=>{
+      if(column.key==="youtube_thumbnail_asset_id") return ["image","logo"].includes(a.type) && ["image/jpeg","image/png"].includes(a.mime_type??"") && Number(a.size??0)>0 && Number(a.size??0)<=2*1024*1024;
+      return column.kind==="media"?["image","video","logo"].includes(a.type):column.kind==="image"?["image","logo"].includes(a.type):a.type===column.kind;
+    });
     const systemMedia=column.key==="background_file_name"||column.key==="audio_file_name";
-    return <div className="flex min-w-56"><input value={value} onChange={(e)=>onChange(e.target.value)} className={`${cls} min-w-0 flex-1`} placeholder={column.kind==="image"?"asset://… or URL":"Choose media…"}/><select aria-label={`Pick ${column.kind}`} value="" onChange={(e)=>{if(e.target.value)onChange(e.target.value)}} className="w-10 bg-canvas border-l border-border text-transparent" title="Pick from asset library"><option value="">◫</option>{matching.map((a)=><option key={a.id} value={systemMedia?a.file_name:`asset://${a.id}`}>{a.file_name}</option>)}</select></div>;
+    const optionValue=(a:AssetRow)=>column.key==="youtube_thumbnail_asset_id"?a.id:(systemMedia?a.file_name:`asset://${a.id}`);
+    return <div className="flex min-w-56"><input value={value} onChange={(e)=>onChange(e.target.value)} className={`${cls} min-w-0 flex-1`} placeholder={column.key==="youtube_thumbnail_asset_id"?"Asset ID":column.kind==="image"?"asset://… or URL":"Choose media…"}/><select aria-label={`Pick ${column.kind}`} value="" onChange={(e)=>{if(e.target.value)onChange(e.target.value)}} className="w-10 bg-canvas border-l border-border text-transparent" title="Pick from asset library"><option value="">◫</option>{matching.map((a)=><option key={a.id} value={optionValue(a)}>{a.file_name}</option>)}</select></div>;
   }
   return <input type={column.kind==="number"?"number":"text"} value={value} onChange={(e)=>onChange(e.target.value)} className={cls} title={issues.map((i)=>i.message).join("; ")}/>;
 }
