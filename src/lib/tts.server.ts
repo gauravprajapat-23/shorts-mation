@@ -36,7 +36,7 @@ export function applyPronunciation(text:string,rules:Array<{find:string;sayAs:st
 export async function verifyTtsKey(provider:TtsProviderName,key:string):Promise<{ok:boolean;error?:string}>{
   try{
     const url=provider==="openai"?"https://api.openai.com/v1/models":"https://api.elevenlabs.io/v1/user";
-    const headers=provider==="openai"?{Authorization:`Bearer ${key}`}:{ "xi-api-key":key };
+    const headers:Record<string,string>=provider==="openai"?{Authorization:`Bearer ${key}`}:{"xi-api-key":key};
     const res=await fetch(url,{headers,signal:AbortSignal.timeout(15_000)});
     if(!res.ok)return {ok:false,error:`Provider rejected the key (${res.status})`};
     return {ok:true};

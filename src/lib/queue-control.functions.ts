@@ -17,7 +17,7 @@ export type QueueAttempt = {
 
 export type QueueItemDetail = {
   attempts: QueueAttempt[];
-  renderLogs: Array<{ id: number; level: string; event: string; message: string; created_at: string; metadata_json: Record<string, unknown> }>;
+  renderLogs: Array<{ id: number; level: string; event: string; message: string; created_at: string; metadata_json: Record<string, string | number | boolean | null> }>;
 };
 
 export const retryQueueItem = createServerFn({ method: "POST" })
@@ -69,8 +69,8 @@ async function youtubeAccessForItem(item: any) {
   if (!campaign?.youtube_connection_id || campaign.user_id !== item.user_id) throw new Error("YouTube channel is not connected");
   const { data: conn } = await supabaseAdmin.from("youtube_connections").select("*").eq("id", campaign.youtube_connection_id).single();
   if (!conn) throw new Error("YouTube connection not found");
-  const { getFreshYouTubeAccessToken } = await import("@/lib/youtube-upload.functions");
-  return { supabaseAdmin, token: await getFreshYouTubeAccessToken(conn as any) };
+  const { getFreshYouTubeAccessTokenForIntelligence } = await import("@/lib/youtube-upload.functions");
+  return { supabaseAdmin, token: await getFreshYouTubeAccessTokenForIntelligence(conn as any) };
 }
 
 export const updateQueueItemSchedule = createServerFn({ method: "POST" })
@@ -169,5 +169,5 @@ export const getQueueItemDetail = createServerFn({ method: "POST" })
       ...((renders.data ?? []) as any[]).map((a) => ({ id:a.id, kind:"render" as const, status:a.status, claimed_at:a.claimed_at, started_at:a.submitted_at ?? null, finished_at:a.finished_at ?? null, provider_ref:a.provider_job_ref ?? null, error_message:a.error_message ?? null, estimated_cost_usd:Number(a.estimated_cost_usd ?? 0), retry_number:Number(a.retry_number ?? 0) })),
       ...((uploads.data ?? []) as any[]).map((a) => ({ id:a.id, kind:"upload" as const, status:a.status, claimed_at:a.claimed_at, started_at:a.started_at ?? null, finished_at:a.finished_at ?? null, provider_ref:a.youtube_video_id ?? a.provider_upload_ref ?? null, error_message:a.error_message ?? null })),
     ].sort((a,b) => new Date(b.claimed_at).getTime() - new Date(a.claimed_at).getTime());
-    return { attempts, renderLogs: (logs.data ?? []) as any };
+    return { attempts, renderLogs: (logs.data ?? []) as QueueItemDetail["renderLogs"] };
   });

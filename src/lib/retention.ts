@@ -112,7 +112,8 @@ export function applyRetentionPreset(doc: EditorDocumentV2, preset: RetentionPre
     const activeScene = scenes.find((scene, i) => { const start = scenes.slice(0, i).reduce((n,s)=>n+effectiveSceneDurationMs(s),0); return clip.startMs >= start && clip.startMs < start + effectiveSceneDurationMs(scene); });
     const role = activeScene?.role;
     const emphasize = role === "hook" || role === "payoff" || role === "cta" || settings.captionEmphasis === "high";
-    return emphasize ? { ...clip, style: { ...clip.style, animation: (preset === "educational" ? "karaoke" : "pop") as const, activeColor: preset === "minimal" ? clip.style.activeColor : "#FFD43B" } } : clip;
+    const animation: "karaoke" | "pop" = preset === "educational" ? "karaoke" : "pop";
+    return emphasize ? { ...clip, style: { ...clip.style, animation, activeColor: preset === "minimal" ? clip.style.activeColor : "#FFD43B" } } : clip;
   });
   return { ...doc, retention: { ...settings }, scenes, captionClips, effectClips: effects };
 }

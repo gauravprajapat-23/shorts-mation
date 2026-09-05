@@ -62,7 +62,7 @@ export async function getFreshYouTubeAccessTokenForIntelligence(conn: {
   access_token_encrypted: string | null;
   refresh_token_encrypted: string | null;
   token_expiry: string | null;
-}): Promise<Tokens> {
+}): Promise<string> {
   const { decryptToken, encryptToken, isEncryptedToken } = await import("@/lib/token-crypto.server");
   const currentAccess = await decryptToken(conn.access_token_encrypted);
   if (!currentAccess) throw new Error("No access token stored for this channel");

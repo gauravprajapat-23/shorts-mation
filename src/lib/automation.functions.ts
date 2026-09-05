@@ -33,7 +33,7 @@ export type AutomationStatus = {
     failed: number;
   };
   items: AutomationItem[];
-  logs: Array<{ id: string; level: string; message: string; created_at: string; campaign_item_id: string | null; metadata_json: Record<string, unknown> }>;
+  logs: Array<{ id: string; level: string; message: string; created_at: string; campaign_item_id: string | null; metadata_json: Record<string, string | number | boolean | null> }>;
 };
 
 /** Everything the automation view needs. All state lives in the database, so it
@@ -95,7 +95,7 @@ export const getAutomationStatus = createServerFn({ method: "POST" })
       campaignStatus: campaign?.status ?? null,
       counts,
       items,
-      logs: (logs ?? []) as AutomationStatus["logs"],
+      logs: (logs ?? []) as unknown as AutomationStatus["logs"],
     };
   });
 
