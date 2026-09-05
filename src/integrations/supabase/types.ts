@@ -809,11 +809,11 @@ export type Database = {
           metadata_json: Json
           next_retry_at: string | null
           output_bytes: number | null
+          progress_percent: number
+          progress_updated_at: string | null
           provider: string
           provider_job_ref: string | null
           provider_status: string | null
-          progress_percent: number
-          progress_updated_at: string | null
           retry_number: number
           status: string
           submitted_at: string | null
@@ -835,11 +835,11 @@ export type Database = {
           metadata_json?: Json
           next_retry_at?: string | null
           output_bytes?: number | null
+          progress_percent?: number
+          progress_updated_at?: string | null
           provider?: string
           provider_job_ref?: string | null
           provider_status?: string | null
-          progress_percent?: number
-          progress_updated_at?: string | null
           retry_number?: number
           status?: string
           submitted_at?: string | null
@@ -861,11 +861,11 @@ export type Database = {
           metadata_json?: Json
           next_retry_at?: string | null
           output_bytes?: number | null
+          progress_percent?: number
+          progress_updated_at?: string | null
           provider?: string
           provider_job_ref?: string | null
           provider_status?: string | null
-          progress_percent?: number
-          progress_updated_at?: string | null
           retry_number?: number
           status?: string
           submitted_at?: string | null
@@ -1070,8 +1070,8 @@ export type Database = {
           updated_at: string
           user_id: string
           verified_at: string | null
-          worker_url: string | null
           worker_secret_encrypted: string | null
+          worker_url: string | null
         }
         Insert: {
           api_key_encrypted?: string | null
@@ -1083,8 +1083,8 @@ export type Database = {
           updated_at?: string
           user_id: string
           verified_at?: string | null
-          worker_url?: string | null
           worker_secret_encrypted?: string | null
+          worker_url?: string | null
         }
         Update: {
           api_key_encrypted?: string | null
@@ -1096,8 +1096,8 @@ export type Database = {
           updated_at?: string
           user_id?: string
           verified_at?: string | null
-          worker_url?: string | null
           worker_secret_encrypted?: string | null
+          worker_url?: string | null
         }
         Relationships: []
       }
