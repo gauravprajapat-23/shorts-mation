@@ -5,7 +5,7 @@ import {buildCampaignDatasetSchema,buildGenerationPrompt,providerBase} from "./a
 describe("V2.22 AI content layer",()=>{
   it("builds bounded campaign dataset schemas",()=>{
     const doc=blankDocument("9:16");
-    doc.automationVariables=[{name:"word",label:"Word",type:"text",required:true,defaultValue:"CAT"}];
+    doc.automationVariables=[{id:"var-word",name:"word",label:"Word",type:"text",required:true,defaultValue:"CAT"}];
     const schema=buildCampaignDatasetSchema(doc,30) as any;
     expect(schema.schema.properties.rows.minItems).toBe(30);
     expect(schema.schema.properties.rows.maxItems).toBe(30);

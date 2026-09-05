@@ -66,11 +66,11 @@ suite("V2.16 workflow consistency", () => {
     expect(items.data).toHaveLength(2);
     expect(items.data?.every((row) => row.schedule_at && row.render_due_at && row.upload_due_at)).toBe(true);
 
-    const withoutChannel = await client.from("campaigns").update({ status: "active" as any }).eq("id", campaignId);
+    const withoutChannel = await (client as any).from("campaigns").update({ status: "active" }).eq("id", campaignId);
     expect(withoutChannel.error).toBeTruthy();
     const yc = await admin.from("youtube_connections").insert({ user_id: userId, channel_id: `v216-${Date.now()}`, channel_name: "V2.16 test" }).select("id").single();
     connectionId = yc.data!.id;
-    const active = await client.from("campaigns").update({ youtube_connection_id: connectionId, status: "active" as any }).eq("id", campaignId);
+    const active = await (client as any).from("campaigns").update({ youtube_connection_id: connectionId, status: "active" }).eq("id", campaignId);
     expect(active.error).toBeNull();
   });
 

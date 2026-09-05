@@ -35,12 +35,12 @@ suite("V2.15 queue control state integrity", () => {
   });
 
   it("blocks direct authenticated queue-state updates", async () => {
-    const { error } = await client.from("campaign_items").update({ status: "uploaded" as any }).eq("id", itemB);
+    const { error } = await (client as any).from("campaign_items").update({ status: "uploaded" }).eq("id", itemB);
     expect(error).toBeTruthy();
   });
 
   it("blocks forged uploaded inserts and direct item deletion", async () => {
-    const forged = await client.from("campaign_items").insert({ user_id: userId, campaign_id: campaignId, content_json: {}, status: "uploaded" as any });
+    const forged = await (client as any).from("campaign_items").insert({ user_id: userId, campaign_id: campaignId, content_json: {}, status: "uploaded" });
     expect(forged.error).toBeTruthy();
     const deleted = await client.from("campaign_items").delete().eq("id", itemB);
     expect(deleted.error).toBeTruthy();

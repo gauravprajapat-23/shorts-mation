@@ -293,7 +293,7 @@ function EditorPage() {
   };
 
   const saveReusableComponent = (mode: "selected" | "scene") => {
-    if (!doc) return;
+    if (!doc || !scene) return;
     const source = mode === "selected" ? scene.elements.filter((el) => el.id === selectedId) : scene.elements;
     if (!source.length) { toast.error(mode === "selected" ? "Select an element first" : "This scene has no elements"); return; }
     const name = prompt("Component name", mode === "selected" ? "Reusable element" : `${scene.name} group`);
@@ -307,7 +307,7 @@ function EditorPage() {
   };
 
   const insertReusableComponent = async (component: EditorReusableComponent) => {
-    if (!doc) return;
+    if (!doc || !scene) return;
     const originX = Math.max(0, Math.round((dims.w - component.width) / 2));
     const originY = Math.max(0, Math.round((dims.h - component.height) / 2));
     const elements = instantiateComponent(component, originX, originY, uid).map((el) => ({
