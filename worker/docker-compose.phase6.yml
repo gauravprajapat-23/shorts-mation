@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shorts_mation_render
+      POSTGRES_USER: shorts_mation
+      POSTGRES_PASSWORD: ${RENDER_DB_PASSWORD:-change-me}
+    volumes: [render-db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shorts_mation -d shorts_mation_render"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  renderer-1:
+    build: .
+    depends_on: {postgres: {condition: service_healthy}}
+    environment: &renderer-env
+      FFMPEG_WORKER_SECRET: ${FFMPEG_WORKER_SECRET}
+      RENDER_DATABASE_URL: postgresql://shorts_mation:${RENDER_DB_PASSWORD:-change-me}@postgres:5432/shorts_mation_render
+      RENDER_DB_SSL: disable
+      RENDER_WORK_ROOT: /tmp/shorts-mation-render
+      RENDER_WORKER_ID: renderer-1
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_RENDER_PREFIX: ${R2_RENDER_PREFIX:-shorts-mation/render-v1}
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-2}
+    ports: ["8080:8080"]
+  renderer-2:
+    build: .
+    depends_on: {postgres: {condition: service_healthy}}
+    environment:
+      <<: *renderer-env
+      RENDER_WORKER_ID: renderer-2
+    ports: ["8081:8080"]
+volumes:
+  render-db:

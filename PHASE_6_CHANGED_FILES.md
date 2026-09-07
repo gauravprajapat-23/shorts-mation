@@ -1,0 +1,15 @@
+# Phase 6 changed files
+- worker/src/index.mjs
+- worker/src/r2-store.mjs
+- worker/src/r2-store.test.mjs
+- worker/src/durable-artifacts.mjs
+- worker/src/durable-artifacts.test.mjs
+- worker/src/queue-store.mjs
+- worker/sql/002_r2_distributed_storage.sql
+- worker/scripts/r2-integration-certify.mjs
+- worker/docker-compose.phase6.yml
+- worker/Dockerfile
+- worker/package.json
+- .env.example
+- PHASE_6_R2_DISTRIBUTED_STORAGE.md
+- PHASE_6_CHANGED_FILES.md
