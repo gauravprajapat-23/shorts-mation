@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-export const QUEUE_SCHEMA_VERSION = 1;
+export const QUEUE_SCHEMA_VERSION = 2;
 const ACTIVE = ['leased','rendering','encoding','uploading'];
 
 export function computeRetryDelayMs(attempt,{baseMs=1000,maxMs=30000}={}){
@@ -33,11 +33,13 @@ export class PostgresRenderQueue {
     await this.q(`CREATE TABLE IF NOT EXISTS render_queue_meta (key text PRIMARY KEY,value text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now());
       CREATE TABLE IF NOT EXISTS render_queue_jobs (
         id uuid PRIMARY KEY,idempotency_key text NOT NULL UNIQUE,attempt_id text,manifest_url text NOT NULL,callback_url text NOT NULL,
-        status text NOT NULL DEFAULT 'queued',progress integer NOT NULL DEFAULT 0,error text,output_token text NOT NULL,output_path text,
+        status text NOT NULL DEFAULT 'queued',progress integer NOT NULL DEFAULT 0,error text,output_token text NOT NULL,output_path text,output_object_key text,
         worker_id text,lease_expires_at timestamptz,available_at timestamptz NOT NULL DEFAULT now(),run_attempts integer NOT NULL DEFAULT 0,
         cancel_requested boolean NOT NULL DEFAULT false,checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,asset_cache jsonb,
-        created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz
+        storage jsonb NOT NULL DEFAULT '{}'::jsonb,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz
       );
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS output_object_key text;
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS storage jsonb NOT NULL DEFAULT '{}'::jsonb;
       CREATE INDEX IF NOT EXISTS render_queue_jobs_claim_idx ON render_queue_jobs(status,available_at,created_at);
       CREATE INDEX IF NOT EXISTS render_queue_jobs_lease_idx ON render_queue_jobs(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
       CREATE TABLE IF NOT EXISTS render_worker_nodes (
@@ -70,20 +72,20 @@ export class PostgresRenderQueue {
   async requestCancel(id){const r=await this.q(`UPDATE render_queue_jobs SET cancel_requested=true,updated_at=now(),status=CASE WHEN status IN ('queued','retry_wait') THEN 'cancelled' ELSE status END,completed_at=CASE WHEN status IN ('queued','retry_wait') THEN now() ELSE completed_at END WHERE id=$1 RETURNING *`,[id]);return r.rows[0]||null;}
   async claim(workerId){
     const c=await this.pool.connect();
-    try{await c.query('BEGIN');const r=await c.query(`SELECT * FROM render_queue_jobs WHERE cancel_requested=false AND ((status IN ('queued','retry_wait') AND available_at<=now()) OR (status IN ('leased','rendering','encoding') AND lease_expires_at<now())) ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`);if(!r.rows[0]){await c.query('COMMIT');return null;}const row=r.rows[0];const u=await c.query(`UPDATE render_queue_jobs SET status='leased',worker_id=$2,lease_expires_at=now()+($3||' seconds')::interval,run_attempts=run_attempts+1,error=NULL,updated_at=now() WHERE id=$1 RETURNING *`,[row.id,workerId,String(this.leaseSeconds)]);await c.query(`INSERT INTO render_job_events(job_id,event,data) VALUES($1,'claimed',$2::jsonb)`,[row.id,JSON.stringify({workerId,recovered:Boolean(row.lease_expires_at)})]);await c.query('COMMIT');return u.rows[0];}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
+    try{await c.query('BEGIN');const r=await c.query(`SELECT * FROM render_queue_jobs WHERE cancel_requested=false AND ((status IN ('queued','retry_wait') AND available_at<=now()) OR (status IN ('leased','rendering','encoding','uploading') AND lease_expires_at<now())) ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`);if(!r.rows[0]){await c.query('COMMIT');return null;}const row=r.rows[0];const u=await c.query(`UPDATE render_queue_jobs SET status='leased',worker_id=$2,lease_expires_at=now()+($3||' seconds')::interval,run_attempts=run_attempts+1,error=NULL,updated_at=now() WHERE id=$1 RETURNING *`,[row.id,workerId,String(this.leaseSeconds)]);await c.query(`INSERT INTO render_job_events(job_id,event,data) VALUES($1,'claimed',$2::jsonb)`,[row.id,JSON.stringify({workerId,recovered:Boolean(row.lease_expires_at)})]);await c.query('COMMIT');return u.rows[0];}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
   }
-  async renewLease(id,workerId){const r=await this.q(`UPDATE render_queue_jobs SET lease_expires_at=now()+($3||' seconds')::interval,updated_at=now() WHERE id=$1 AND worker_id=$2 AND status IN ('leased','rendering','encoding') RETURNING cancel_requested,status`,[id,workerId,String(this.leaseSeconds)]);return r.rows[0]||null;}
-  async updateJob(id,workerId,{status,progress,error,outputPath,checkpoint,assetCache}={}){
-    const r=await this.q(`UPDATE render_queue_jobs SET status=COALESCE($3,status),progress=COALESCE($4,progress),error=$5,output_path=COALESCE($6,output_path),checkpoint=COALESCE($7::jsonb,checkpoint),asset_cache=COALESCE($8::jsonb,asset_cache),updated_at=now(),lease_expires_at=CASE WHEN COALESCE($3,status) IN ('leased','rendering','encoding') THEN now()+($9||' seconds')::interval ELSE NULL END WHERE id=$1 AND ($2::text IS NULL OR worker_id=$2) RETURNING *`,[id,workerId??null,status??null,progress??null,error??null,outputPath??null,checkpoint?JSON.stringify(checkpoint):null,assetCache?JSON.stringify(assetCache):null,String(this.leaseSeconds)]);return r.rows[0]||null;
+  async renewLease(id,workerId){const r=await this.q(`UPDATE render_queue_jobs SET lease_expires_at=now()+($3||' seconds')::interval,updated_at=now() WHERE id=$1 AND worker_id=$2 AND status IN ('leased','rendering','encoding','uploading') RETURNING cancel_requested,status`,[id,workerId,String(this.leaseSeconds)]);return r.rows[0]||null;}
+  async updateJob(id,workerId,{status,progress,error,outputPath,outputObjectKey,checkpoint,assetCache,storage}={}){
+    const r=await this.q(`UPDATE render_queue_jobs SET status=COALESCE($3,status),progress=COALESCE($4,progress),error=$5,output_path=COALESCE($6,output_path),output_object_key=COALESCE($7,output_object_key),checkpoint=COALESCE($8::jsonb,checkpoint),asset_cache=COALESCE($9::jsonb,asset_cache),storage=COALESCE($10::jsonb,storage),updated_at=now(),lease_expires_at=CASE WHEN COALESCE($3,status) IN ('leased','rendering','encoding','uploading') THEN now()+($11||' seconds')::interval ELSE NULL END WHERE id=$1 AND ($2::text IS NULL OR worker_id=$2) RETURNING *`,[id,workerId??null,status??null,progress??null,error??null,outputPath??null,outputObjectKey??null,checkpoint?JSON.stringify(checkpoint):null,assetCache?JSON.stringify(assetCache):null,storage?JSON.stringify(storage):null,String(this.leaseSeconds)]);return r.rows[0]||null;
   }
-  async complete(id,workerId,{outputPath,checkpoint={}}){const r=await this.q(`UPDATE render_queue_jobs SET status='completed',progress=100,output_path=$3,checkpoint=$4::jsonb,completed_at=now(),updated_at=now(),lease_expires_at=NULL WHERE id=$1 AND worker_id=$2 RETURNING *`,[id,workerId,outputPath,JSON.stringify(checkpoint)]);return r.rows[0]||null;}
+  async complete(id,workerId,{outputPath=null,outputObjectKey=null,checkpoint={}}){const r=await this.q(`UPDATE render_queue_jobs SET status='completed',progress=100,output_path=COALESCE($3,output_path),output_object_key=COALESCE($4,output_object_key),checkpoint=$5::jsonb,completed_at=now(),updated_at=now(),lease_expires_at=NULL WHERE id=$1 AND worker_id=$2 RETURNING *`,[id,workerId,outputPath,outputObjectKey,JSON.stringify(checkpoint)]);return r.rows[0]||null;}
   async cancelActive(id,workerId,error='cancelled'){const r=await this.q(`UPDATE render_queue_jobs SET status='cancelled',error=$3,completed_at=now(),updated_at=now(),lease_expires_at=NULL WHERE id=$1 AND worker_id=$2 RETURNING *`,[id,workerId,error]);return r.rows[0]||null;}
   async failOrRetry(id,workerId,{error,maxRetries}){
     const j=await this.getJob(id);if(!j||j.worker_id!==workerId)return null;const retriesUsed=Math.max(0,Number(j.run_attempts)-1);if(retriesUsed<maxRetries){const delay=computeRetryDelayMs(retriesUsed+1);const r=await this.q(`UPDATE render_queue_jobs SET status='retry_wait',error=$3,worker_id=NULL,lease_expires_at=NULL,available_at=now()+($4||' milliseconds')::interval,updated_at=now() WHERE id=$1 AND worker_id=$2 RETURNING *`,[id,workerId,error,String(delay)]);await this.q(`INSERT INTO render_job_events(job_id,event,data) VALUES($1,'retry_scheduled',$2::jsonb)`,[id,JSON.stringify({delay,error})]);return r.rows[0]||null;}
     const r=await this.q(`UPDATE render_queue_jobs SET status='failed',error=$3,completed_at=now(),updated_at=now(),lease_expires_at=NULL WHERE id=$1 AND worker_id=$2 RETURNING *`,[id,workerId,error]);return r.rows[0]||null;
   }
   async reconcileStale(){
-    const r=await this.q(`UPDATE render_queue_jobs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'queued' END,worker_id=NULL,lease_expires_at=NULL,available_at=now(),error=CASE WHEN cancel_requested THEN 'cancelled' ELSE COALESCE(error,'recovered stale lease') END,completed_at=CASE WHEN cancel_requested THEN now() ELSE completed_at END,updated_at=now() WHERE status IN ('leased','rendering','encoding') AND lease_expires_at<now() RETURNING id,status`);
+    const r=await this.q(`UPDATE render_queue_jobs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'queued' END,worker_id=NULL,lease_expires_at=NULL,available_at=now(),error=CASE WHEN cancel_requested THEN 'cancelled' ELSE COALESCE(error,'recovered stale lease') END,completed_at=CASE WHEN cancel_requested THEN now() ELSE completed_at END,updated_at=now() WHERE status IN ('leased','rendering','encoding','uploading') AND lease_expires_at<now() RETURNING id,status`);
     return r.rows;
   }
   async fleetHealth(){

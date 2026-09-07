@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { processDueCampaignItems } from "@/lib/youtube-upload.functions";
+import { dispatchUpcomingCampaignItems } from "@/lib/campaign-scheduler.server";
+import { processPublishQueue } from "@/lib/youtube-publisher-v2.server";
 import { submitDueRenders, collectFinishedRenders } from "@/lib/render-pipeline.server";
 
 function safeEqual(a: string, b: string): boolean {
@@ -29,13 +30,19 @@ export const Route = createFileRoute("/api/public/hooks/process-campaign-queue")
           return new Response("Unauthorized", { status: 401 });
         }
         try {
-          // 1) start renders whose lead time arrived (staggered, few per tick)
+          // 0) durably materialize the next scheduling horizon and create one
+          // publish job per rendered campaign item. Safe to run repeatedly.
+          const dispatch = await dispatchUpcomingCampaignItems();
+          // 1) submit render jobs idempotently when their lead time arrives.
           const renders = await submitDueRenders();
-          // 2) pull finished MP4s into storage
+          // 2) reconcile R2-backed worker completion into campaign readiness.
           const collected = await collectFinishedRenders();
-          // 3) upload/schedule anything whose upload lead time arrived
-          const uploads = await processDueCampaignItems();
-          return Response.json({ ok: true, renders, collected, uploads });
+          // A render may have become R2-ready during this tick, so dispatch once
+          // more to create its unique publish job without waiting for next cron.
+          const postRenderDispatch = await dispatchUpcomingCampaignItems();
+          // 3) run the separately leased, crash-resumable YouTube publisher.
+          const publishing = await processPublishQueue();
+          return Response.json({ ok: true, dispatch, renders, collected, postRenderDispatch, publishing });
         } catch (e) {
           const msg = e instanceof Error ? e.message : "unknown";
           return Response.json({ ok: false, error: msg }, { status: 500 });
