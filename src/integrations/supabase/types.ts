@@ -919,6 +919,38 @@ export type Database = {
         }
         Relationships: []
       }
+      render_job_events: {
+        Row: {
+          created_at: string
+          data: Json
+          event: string
+          id: number
+          job_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          event: string
+          id?: number
+          job_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          event?: string
+          id?: number
+          job_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "render_job_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "render_queue_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       render_jobs: {
         Row: {
           campaign_id: string | null
@@ -1098,6 +1130,129 @@ export type Database = {
           verified_at?: string | null
           worker_secret_encrypted?: string | null
           worker_url?: string | null
+        }
+        Relationships: []
+      }
+      render_queue_jobs: {
+        Row: {
+          asset_cache: Json | null
+          attempt_id: string | null
+          available_at: string
+          callback_url: string
+          cancel_requested: boolean
+          checkpoint: Json
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          id: string
+          idempotency_key: string
+          lease_expires_at: string | null
+          manifest_url: string
+          output_path: string | null
+          output_token: string
+          progress: number
+          run_attempts: number
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }
+        Insert: {
+          asset_cache?: Json | null
+          attempt_id?: string | null
+          available_at?: string
+          callback_url: string
+          cancel_requested?: boolean
+          checkpoint?: Json
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id: string
+          idempotency_key: string
+          lease_expires_at?: string | null
+          manifest_url: string
+          output_path?: string | null
+          output_token: string
+          progress?: number
+          run_attempts?: number
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Update: {
+          asset_cache?: Json | null
+          attempt_id?: string | null
+          available_at?: string
+          callback_url?: string
+          cancel_requested?: boolean
+          checkpoint?: Json
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          idempotency_key?: string
+          lease_expires_at?: string | null
+          manifest_url?: string
+          output_path?: string | null
+          output_token?: string
+          progress?: number
+          run_attempts?: number
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Relationships: []
+      }
+      render_queue_meta: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      render_worker_nodes: {
+        Row: {
+          active_jobs: number
+          hostname: string | null
+          last_heartbeat: string
+          max_concurrency: number
+          metadata: Json
+          started_at: string
+          status: string
+          version: string
+          worker_id: string
+        }
+        Insert: {
+          active_jobs?: number
+          hostname?: string | null
+          last_heartbeat?: string
+          max_concurrency: number
+          metadata?: Json
+          started_at?: string
+          status: string
+          version: string
+          worker_id: string
+        }
+        Update: {
+          active_jobs?: number
+          hostname?: string | null
+          last_heartbeat?: string
+          max_concurrency?: number
+          metadata?: Json
+          started_at?: string
+          status?: string
+          version?: string
+          worker_id?: string
         }
         Relationships: []
       }
