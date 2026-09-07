@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setCookie } from "@tanstack/react-start/server";
+import { getRequest, setCookie } from "@tanstack/react-start/server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { signYouTubeOAuthState, youtubeOAuthAppBaseUrl, youtubeOAuthRedirectUri } from "@/lib/youtube-oauth-state";
 
@@ -19,7 +19,10 @@ export const getYouTubeAuthUrl = createServerFn({ method: "POST" })
     const stateSecret = process.env.OAUTH_STATE_SECRET;
     if (!stateSecret) throw new Error("OAUTH_STATE_SECRET is not configured");
 
-    const appUrl = youtubeOAuthAppBaseUrl();
+    const request = getRequest();
+    const requestUrl = new URL(request.url);
+    const requestOrigin = `${requestUrl.protocol}//${requestUrl.host}`;
+    const appUrl = youtubeOAuthAppBaseUrl(requestOrigin);
     const redirectUri = youtubeOAuthRedirectUri(appUrl);
     const nonce = crypto.randomUUID().replace(/-/g, "");
     const issuedAt = Date.now().toString(36);

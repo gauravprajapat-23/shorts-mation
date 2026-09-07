@@ -22,10 +22,11 @@
     "profile:browser": "node scripts/browser-memory-profile.mjs",
     "verify:fresh-supabase": "node scripts/verify-fresh-supabase.mjs",
     "certify:staging": "node scripts/staging-release-certification.mjs",
-    "verify:release": "npm run integrity && npm run integrity:migrations && npm run typecheck && npm run test && npm run test:worker && npm run test:parity && npm run test:stress && npm run build && npm run lint && npm run certify:renderer",
+    "verify:release": "npm run integrity && npm run integrity:migrations && npm run certify:phase7 && npm run typecheck && npm run test && npm run test:worker && npm run test:parity && npm run test:stress && npm run build && npm run lint && npm run certify:renderer",
     "integrity:migrations": "node scripts/check-migrations.mjs",
     "test:worker": "npm --prefix worker test",
-    "certify:renderer": "npm --prefix worker run certify:release"
+    "certify:renderer": "npm --prefix worker run certify:release",
+    "certify:phase7": "node scripts/phase7-certify.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
