@@ -1,0 +1,39 @@
+name: Renderer production gate
+on:
+  pull_request:
+    paths: ["worker/**", "src/lib/**", "src/routes/_app/editor/**", "src/styles.css", "package.json", "package-lock.json"]
+  push:
+    branches: [main]
+    paths: ["worker/**", "src/lib/**", "src/routes/_app/editor/**", "src/styles.css", "package.json", "package-lock.json"]
+jobs:
+  renderer-certification:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: render_cert
+          POSTGRES_USER: render_cert
+          POSTGRES_PASSWORD: render_cert
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U render_cert -d render_cert"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22, cache: npm}
+      - run: npm ci
+      - run: npm --prefix worker install --ignore-scripts
+      - run: sudo apt-get update && sudo apt-get install -y chromium-browser ffmpeg || sudo apt-get install -y chromium ffmpeg
+      - run: npm --prefix worker run certify:queue:integration
+        env:
+          RENDER_TEST_DATABASE_URL: postgresql://render_cert:render_cert@127.0.0.1:5432/render_cert
+          RENDER_DB_SSL: disable
+      - run: npm --prefix worker run certify:release
+        env:
+          CHROMIUM_PATH: /usr/bin/chromium
+          GOLDEN_MIN_SSIM: "0.995"

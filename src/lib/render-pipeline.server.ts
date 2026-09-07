@@ -6,16 +6,18 @@
 //   2. collectFinishedRenders() — downloads finished MP4s into Supabase
 //      Storage (`renders` bucket) and marks the item `rendered`.
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
-import type { EditorDocument, TextElement, VideoElement } from "@/lib/types";
+import type { EditorDocument, TextElement } from "@/lib/types";
 import { buildFfmpegWorkerManifest } from "@/lib/ffmpeg-worker-manifest.server";
 import { submitFfmpegWorkerJob, getFfmpegWorkerJob, cancelFfmpegWorkerJob } from "@/lib/ffmpeg-worker.server";
 import { DEFAULT_RENDER_BUDGET, estimateRenderCostUsd, renderTimeoutMs, retryBackoffMs, shouldDeadLetter, type RenderBudget } from "@/lib/render-reliability";
 import { getRenderWorkerConfig, renderCallbackBaseUrl, renderManifestBaseUrl } from "@/lib/render-settings.server";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
-import { campaignAutomationInput, campaignStringVariables, materializeCampaignRenderDocument } from "@/lib/render-materialization";
+import { campaignAutomationInput, campaignStringVariables, materializeCampaignRenderComposition } from "@/lib/render-materialization";
 import { createHash, randomUUID } from "node:crypto";
 import { effectiveCap, getAutomationLimits, getUserLimitOverrides, inFlightRenders, RENDER_STALE_MINUTES } from "@/lib/automation-limits.server";
 import { hydrateDocumentAssetRefsServer } from "@/lib/asset-refs.server";
+import { createCanonicalComposition } from "@/lib/canonical-composition";
+import { assertNativeRendererSupported } from "@/lib/render-capabilities";
 
 export const RENDER_LEAD_MINUTES = 60;
 export const UPLOAD_LEAD_MINUTES = 20;
@@ -86,21 +88,6 @@ async function signDocumentMediaUrls(doc:EditorDocument,userId:string):Promise<E
   for(const scene of copy.scenes)for(const el of scene.elements){if((el.type==="video"||el.type==="image")&&"src" in el&&typeof el.src==="string"&&el.src)el.src=await sign(el.src);}
   if(copy.version===2){for(const clip of copy.audioClips)if(clip.src)clip.src=await sign(clip.src);}
   return copy;
-}
-
-function backgroundFromDoc(doc: EditorDocument, vars: Record<string, string>): string | null {
-  for (const s of doc.scenes) {
-    for (const el of s.elements) {
-      if (el.type !== "video") continue;
-      const raw = (el as VideoElement).src;
-      if (!raw) continue;
-      if (raw.startsWith("{{")) {
-        const key = raw.replace(/[{}\s]/g, "");
-        if (vars[key]) return vars[key];
-      } else if (/^https:\/\//i.test(raw)) return raw;
-    }
-  }
-  return null;
 }
 
 async function log(row: { user_id: string; campaign_id: string; id: string }, level: "info" | "warn" | "error", message: string, event = "render", attemptId?: string | null, metadata: Record<string, unknown> = {}) {
@@ -267,9 +254,14 @@ async function submitDueRendersInner(opts?: {
         if (tpl?.template_json) doc = parseEditorDocument(tpl.template_json);
       }
       if (!doc?.scenes?.length) doc = fallbackDocument(campaignStringVariables(row.content_json));
-      const concrete = materializeCampaignRenderDocument(doc, rawVars);
-      doc = await hydrateDocumentAssetRefsServer(concrete.document, row.user_id);
+      const concrete = materializeCampaignRenderComposition(doc, rawVars, { compositionId: `campaign-item:${row.id}` });
+      doc = await hydrateDocumentAssetRefsServer(concrete.composition.document, row.user_id);
       doc = await signDocumentMediaUrls(doc,row.user_id);
+      const composition = createCanonicalComposition(doc, {
+        compositionId: concrete.composition.compositionId,
+        createdAt: concrete.composition.createdAt,
+      });
+      const capability = assertNativeRendererSupported(composition);
       const vars = concrete.values;
       const budget = await budgetFor(row.user_id);
       const estimatedCost = estimateRenderCostUsd(concrete.durationMs);
@@ -281,17 +273,27 @@ async function submitDueRendersInner(opts?: {
 
       const asset = (row.asset_json ?? {}) as { background_file_name?: string };
       const audio = (row.audio_json ?? {}) as { audio_file_name?: string; volume?: number };
-      const backgroundVideoUrl = (await signAsset(row.user_id, asset.background_file_name)) ?? backgroundFromDoc(doc, vars);
+      // Renderer V2 treats a campaign background video as the bottom native video
+      // track, so it can safely coexist with positioned/timed document video layers.
+      const backgroundVideoUrl = await signAsset(row.user_id, asset.background_file_name);
       const audioUrl = await signAsset(row.user_id, audio.audio_file_name);
 
       const manifest = buildFfmpegWorkerManifest({
-        doc, vars, backgroundVideoUrl, audioUrl,
+        composition, vars, backgroundVideoUrl, audioUrl,
         audioVolume: audio.volume ?? doc.audio?.volume ?? 0.7,
         resolution: "1080p", fps: 25,
       });
       const manifestToken=randomUUID();
       const manifestTokenHash=createHash("sha256").update(manifestToken).digest("hex");
-      await (supabaseAdmin as any).from("render_attempts").update({metadata_json:{manifest_token_hash:manifestTokenHash}}).eq("id",attemptId);
+      await (supabaseAdmin as any).from("render_attempts").update({metadata_json:{
+        manifest_token_hash: manifestTokenHash,
+        composition_schema: composition.schema,
+        composition_version: composition.version,
+        composition_id: composition.compositionId,
+        renderer: capability.renderer,
+        capability_version: capability.capabilityVersion,
+        capability_warnings: capability.warnings.map((issue) => ({ code: issue.code, path: issue.path, message: issue.message })),
+      }}).eq("id",attemptId);
       const {error:manifestError}=await supabaseAdmin.storage.from("assets").upload(`${row.user_id}/render-manifests/${attemptId}.json`,new TextEncoder().encode(JSON.stringify(manifest)),{contentType:"application/json",upsert:true});
       if(manifestError)throw manifestError;
       const manifestUrl=`${renderManifestBaseUrl()}?attempt=${encodeURIComponent(attemptId)}&token=${encodeURIComponent(manifestToken)}`;

@@ -1,14 +1,104 @@
-import http from "node:http";import {spawn,spawnSync} from "node:child_process";import {createHash,randomUUID} from "node:crypto";import {mkdir,rm,writeFile,readFile,stat} from "node:fs/promises";import {createReadStream} from "node:fs";import {join} from "node:path";import {tmpdir} from "node:os";import {verify} from "./security.mjs";
-const PORT=Number(process.env.PORT||8080),SECRET=process.env.FFMPEG_WORKER_SECRET||"",MAX=Math.max(1,Number(process.env.MAX_CONCURRENCY||2)),RETRIES=Math.max(0,Number(process.env.MAX_RETRIES||2));if(SECRET.length<24)throw new Error("FFMPEG_WORKER_SECRET must be at least 24 characters");
-const jobs=new Map(),queue=[];let active=0,draining=false;const cleanup=(j)=>j?.dir?rm(j.dir,{recursive:true,force:true}).catch(()=>{}):Promise.resolve();const PUBLIC=(process.env.PUBLIC_WORKER_URL||`http://localhost:${PORT}`).replace(/\/+$/,"");const ffmpegOk=spawnSync("ffmpeg",["-version"],{stdio:"ignore"}).status===0;
-const json=(res,status,data)=>{res.writeHead(status,{"content-type":"application/json","cache-control":"no-store"});res.end(JSON.stringify(data));};
-async function body(req){let s="";for await(const c of req){s+=c;if(s.length>1_000_000)throw new Error("body too large");}return s;}
-function auth(req,raw){return verify(SECRET,String(req.headers["x-worker-timestamp"]||""),raw,String(req.headers["x-worker-signature"]||""));}
-async function callback(job,status,extra={}){job.status=status;Object.assign(job,extra);const outputUrl=status==="completed"?`${PUBLIC}/outputs/${job.id}?token=${encodeURIComponent(job.outputToken)}`:null;try{await fetch(job.callbackUrl,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:job.id,status,progress:job.progress,error:job.error??null,url:outputUrl})});}catch{}}
-async function fetchTo(url,path){const r=await fetch(url,{signal:AbortSignal.timeout(60000)});if(!r.ok)throw new Error(`asset fetch ${r.status}`);const max=Math.max(1024*1024,Number(process.env.MAX_ASSET_BYTES||512*1024*1024));const declared=Number(r.headers.get("content-length")||0);if(declared>max)throw new Error("asset exceeds worker limit");const reader=r.body?.getReader();if(!reader)throw new Error("asset has no body");const chunks=[];let total=0;while(true){const {done,value}=await reader.read();if(done)break;if(!value)continue;total+=value.byteLength;if(total>max){await reader.cancel();throw new Error("asset exceeds worker limit");}chunks.push(value);}await writeFile(path,Buffer.concat(chunks.map(v=>Buffer.from(v)),total));}
-async function render(job){const dir=join(tmpdir(),`sf-${job.id}`);job.dir=dir;await mkdir(dir,{recursive:true});try{await callback(job,"rendering",{progress:1});const mr=await fetch(job.manifestUrl,{signal:AbortSignal.timeout(30000)});if(!mr.ok)throw new Error(`manifest ${mr.status}`);const m=await mr.json();const w=Number(m.output?.size?.width||1080),h=Number(m.output?.size?.height||1920),fps=Number(m.output?.fps||25);const tracks=Array.isArray(m.timeline?.tracks)?m.timeline.tracks:[];const clips=tracks.flatMap(t=>Array.isArray(t.clips)?t.clips:[]);const html=clips.filter(c=>c?.asset?.type==="html").sort((a,b)=>Number(a.start)-Number(b.start));const media=clips.filter(c=>c?.asset?.type==="video"&&c?.asset?.src);if(media.length>1)throw new Error("Native worker currently supports one background video per job; timeline video layers require the explicit browser legacy renderer");const total=Math.max(1,...clips.map(c=>Number(c.start||0)+Number(c.length||0)));const frameDir=join(dir,"frames");await mkdir(frameDir);const totalFrames=Math.max(1,Math.ceil(total*fps));for(let i=0;i<totalFrames;i++){if(job.cancelled)throw new Error("cancelled");const t=i/fps;const clip=html.findLast(c=>t>=Number(c.start||0)&&t<Number(c.start||0)+Number(c.length||0));const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px">${clip?.asset?.html||""}</div></foreignObject></svg>`;const svgPath=join(dir,"frame.svg"),png=join(frameDir,`${String(i+1).padStart(6,"0")}.png`);await writeFile(svgPath,svg);const r=spawnSync("rsvg-convert",["-w",String(w),"-h",String(h),"-o",png,svgPath]);if(r.status!==0)throw new Error("SVG rasterization failed");if(i%Math.max(1,Math.floor(totalFrames/20))===0)await callback(job,"rendering",{progress:Math.min(70,Math.round(i/totalFrames*70))});}
- const out=join(dir,"out.mp4");const args=["-y","-framerate",String(fps),"-i",join(frameDir,"%06d.png")];let filter="";if(media[0]){const mp=join(dir,"background.mp4");await fetchTo(media[0].asset.src,mp);args.push("-stream_loop","-1","-i",mp);filter=`[1:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[bg];[bg][0:v]overlay=0:0[v]`;args.push("-filter_complex",filter,"-map","[v]");}else args.push("-map","0:v");if(m.timeline?.soundtrack?.src){const ap=join(dir,"soundtrack.bin");await fetchTo(m.timeline.soundtrack.src,ap);args.push("-stream_loop","-1","-i",ap,"-map",`${media[0]?2:1}:a?`,"-c:a","aac","-shortest");}args.push("-t",String(total),"-c:v","libx264","-preset",process.env.FFMPEG_PRESET||"medium","-crf",process.env.FFMPEG_CRF||"21","-pix_fmt","yuv420p","-movflags","+faststart",out);job.process=spawn("ffmpeg",args,{stdio:["ignore","ignore","pipe"]});await new Promise((resolve,reject)=>{job.process.on("exit",c=>c===0?resolve():reject(new Error(`ffmpeg exited ${c}`)));job.process.on("error",reject);});job.process=null;await callback(job,"rendering",{progress:95});job.outputPath=out;await callback(job,"completed",{progress:100});setTimeout(()=>{cleanup(job);jobs.delete(job.id);},Math.max(300,Number(process.env.JOB_TTL_SECONDS||21600))*1000).unref();active--;pump();}finally{job.process=null;}}
-async function execute(job){for(let n=0;n<=RETRIES;n++){try{await render(job);return;}catch(e){if(job.cancelled){await callback(job,"cancelled",{error:"cancelled"});await cleanup(job);active--;pump();return;}job.error=e instanceof Error?e.message:String(e);if(n===RETRIES){await callback(job,"failed",{error:job.error});await cleanup(job);active--;pump();return;}await new Promise(r=>setTimeout(r,Math.min(30000,1000*2**n)));}}}
-function pump(){if(draining)return;while(active<MAX&&queue.length){const j=queue.shift();if(!j||j.cancelled)continue;active++;execute(j);}}
-const server=http.createServer(async(req,res)=>{try{const u=new URL(req.url||"/","http://worker");if(req.method==="GET"&&u.pathname==="/health"){const raw="";if(!auth(req,raw))return json(res,401,{ok:false});return json(res,200,{ok:!draining,ffmpeg:ffmpegOk,active,queued:queue.length,maxConcurrency:MAX});}if(req.method==="GET"&&u.pathname.startsWith("/outputs/")){const id=u.pathname.split("/").pop(),j=jobs.get(id);if(!j?.outputPath||u.searchParams.get("token")!==j.outputToken)return json(res,404,{error:"not found"});const s=await stat(j.outputPath);res.writeHead(200,{"content-type":"video/mp4","content-length":String(s.size)});return createReadStream(j.outputPath).pipe(res);}const raw=await body(req);if(!auth(req,raw))return json(res,401,{error:"invalid signature"});if(req.method==="POST"&&u.pathname==="/jobs"){if(draining)return json(res,503,{error:"draining"});const d=JSON.parse(raw),existing=[...jobs.values()].find(j=>j.idempotencyKey===d.idempotencyKey);if(existing)return json(res,200,{id:existing.id,status:existing.status});const id=randomUUID(),j={id,idempotencyKey:d.idempotencyKey,attemptId:d.attemptId,manifestUrl:d.manifestUrl,callbackUrl:d.callbackUrl,status:"queued",progress:0,outputToken:randomUUID()};jobs.set(id,j);queue.push(j);await callback(j,"queued",{progress:0});pump();return json(res,202,{id,status:j.status});}const m=u.pathname.match(/^\/jobs\/([^/]+)$/);if(m){const j=jobs.get(m[1]);if(!j)return json(res,404,{error:"not found"});if(req.method==="GET")return json(res,200,{id:j.id,status:j.status,progress:j.progress,error:j.error??null,outputUrl:j.outputPath?`${PUBLIC}/outputs/${j.id}?token=${encodeURIComponent(j.outputToken)}`:null});if(req.method==="DELETE"){j.cancelled=true;const qi=queue.indexOf(j);if(qi>=0){queue.splice(qi,1);await callback(j,"cancelled",{error:"cancelled"});await cleanup(j);jobs.delete(j.id);}else j.process?.kill("SIGTERM");return json(res,200,{ok:true});}}return json(res,404,{error:"not found"});}catch(e){json(res,500,{error:e instanceof Error?e.message:"worker error"});}});
-server.listen(PORT,()=>console.log(`FFmpeg worker listening on ${PORT}`));for(const sig of ["SIGTERM","SIGINT"]){process.on(sig,()=>{draining=true;server.close();const timer=setTimeout(()=>process.exit(1),30000);const wait=setInterval(()=>{if(active===0){clearInterval(wait);clearTimeout(timer);process.exit(0);}},250);});}
+import http from 'node:http';
+import {spawn,spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {mkdir,rm,writeFile,readFile,stat} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {join} from 'node:path';
+import {hostname} from 'node:os';
+import {verify} from './security.mjs';
+import {buildFfmpegPlan,downloadMedia,flattenManifest,manifestDuration} from './render-v2.mjs';
+import {ChromiumFrameRenderer} from './chromium-renderer.mjs';
+import {prefetchRenderAssets,startAssetServer,rewriteManifestUrls} from './asset-cache.mjs';
+import {buildFontCatalogCss,fontFilePath,FONT_CATALOG_VERSION} from './font-catalog.mjs';
+import {PostgresRenderQueue} from './queue-store.mjs';
+
+const PORT=Number(process.env.PORT||8080);
+const SECRET=process.env.FFMPEG_WORKER_SECRET||'';
+const MAX=Math.max(1,Number(process.env.MAX_CONCURRENCY||2));
+const RETRIES=Math.max(0,Number(process.env.MAX_RETRIES||2));
+const LEASE_SECONDS=Math.max(15,Number(process.env.RENDER_LEASE_SECONDS||45));
+const HEARTBEAT_MS=Math.max(2000,Number(process.env.RENDER_HEARTBEAT_MS||10000));
+const RECONCILE_MS=Math.max(5000,Number(process.env.RENDER_RECONCILE_MS||15000));
+const CLAIM_MS=Math.max(100,Number(process.env.RENDER_CLAIM_MS||500));
+const WORK_ROOT=process.env.RENDER_WORK_ROOT||'/var/lib/shorts-mation-render';
+const WORKER_ID=process.env.RENDER_WORKER_ID||`${hostname()}-${process.pid}`;
+const VERSION='native-chromium-ffmpeg-v5';
+if(SECRET.length<24)throw new Error('FFMPEG_WORKER_SECRET must be at least 24 characters');
+const DATABASE_URL=process.env.RENDER_DATABASE_URL||process.env.DATABASE_URL||'';
+const PUBLIC=(process.env.PUBLIC_WORKER_URL||`http://localhost:${PORT}`).replace(/\/+$/,'');
+const ffmpegOk=spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status===0;
+const queue=new PostgresRenderQueue({connectionString:DATABASE_URL,leaseSeconds:LEASE_SECONDS,workerTimeoutSeconds:Number(process.env.RENDER_WORKER_TIMEOUT_SECONDS||90)});
+const runtimes=new Map();
+let draining=false,server=null,claimTimer=null,heartbeatTimer=null,reconcileTimer=null;
+
+const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));};
+async function body(req){let s='';for await(const c of req){s+=c;if(s.length>1_000_000)throw new Error('body too large');}return s;}
+function auth(req,raw){return verify(SECRET,String(req.headers['x-worker-timestamp']||''),raw,String(req.headers['x-worker-signature']||''));}
+async function exists(path){try{const s=await stat(path);return s.isFile()&&s.size>0;}catch{return false;}}
+async function fetchTo(url,path){const r=await fetch(url,{signal:AbortSignal.timeout(60000)});if(!r.ok)throw new Error(`asset fetch ${r.status}`);const max=Math.max(1024*1024,Number(process.env.MAX_ASSET_BYTES||512*1024*1024));const declared=Number(r.headers.get('content-length')||0);if(declared>max)throw new Error('asset exceeds worker limit');const reader=r.body?.getReader();if(!reader)throw new Error('asset has no body');const chunks=[];let total=0;while(true){const {done,value}=await reader.read();if(done)break;if(!value)continue;total+=value.byteLength;if(total>max){await reader.cancel();throw new Error('asset exceeds worker limit');}chunks.push(value);}await writeFile(path,Buffer.concat(chunks.map(v=>Buffer.from(v)),total));}
+function outputUrl(job){return job?.output_path?`${PUBLIC}/outputs/${job.id}?token=${encodeURIComponent(job.output_token)}`:null;}
+async function sendCallback(job,status){
+  const payload={id:job.id,status,progress:job.progress??0,error:job.error??null,url:status==='completed'?outputUrl(job):null};
+  let error=null;for(let attempt=0;attempt<3;attempt++){try{const r=await fetch(job.callback_url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error(`callback ${r.status}`);await queue.event(job.id,'callback_delivered',{status,attempt:attempt+1}).catch(()=>{});return;}catch(e){error=e instanceof Error?e.message:String(e);await new Promise(r=>setTimeout(r,250*(attempt+1)));}}
+  await queue.event(job.id,'callback_failed',{status,error}).catch(()=>{});
+}
+async function persist(job,patch,notify=true){const updated=await queue.updateJob(job.id,WORKER_ID,patch);if(updated)Object.assign(job,updated);if(notify&&updated)await sendCallback(job,updated.status);return updated;}
+async function checkpoint(job,stage,data={}){job.checkpoint={...(job.checkpoint||{}),stage,...data,updatedAt:new Date().toISOString()};await persist(job,{status:job.status||'rendering',progress:job.progress,checkpoint:job.checkpoint},false);}
+
+async function readOrFetchManifest(job,dir){
+  const path=join(dir,'remote-manifest.json');
+  if(await exists(path)){const m=JSON.parse(await readFile(path,'utf8'));await checkpoint(job,'manifest_reused',{manifestCached:true});return m;}
+  const mr=await fetch(job.manifest_url,{signal:AbortSignal.timeout(30000)});if(!mr.ok)throw new Error(`manifest ${mr.status}`);const m=await mr.json();await writeFile(path,JSON.stringify(m));await checkpoint(job,'manifest_cached',{manifestCached:true});return m;
+}
+
+async function render(job,runtime){
+  const dir=join(WORK_ROOT,'jobs',job.id);runtime.dir=dir;await mkdir(dir,{recursive:true});let assetServer=null;
+  try{
+    job.status='rendering';job.progress=Math.max(1,Number(job.progress||0));await persist(job,{status:'rendering',progress:job.progress,error:null});
+    const remoteManifest=await readOrFetchManifest(job,dir);
+    job.progress=Math.max(job.progress,3);await persist(job,{status:'rendering',progress:job.progress});
+    const prefetched=await prefetchRenderAssets(remoteManifest,{dir:join(dir,'asset-cache'),fetchTo,maxConcurrency:Number(process.env.ASSET_PREFETCH_CONCURRENCY||6),reuse:true});
+    const fontCss=await buildFontCatalogCss();assetServer=await startAssetServer({assetMap:prefetched.map,fontCss,fontFilePath});const m=rewriteManifestUrls(remoteManifest,prefetched.map,assetServer);
+    job.asset_cache={count:prefetched.index.assets.length,reused:prefetched.index.reused,downloaded:prefetched.index.downloaded,fontCatalogVersion:FONT_CATALOG_VERSION};
+    await queue.updateJob(job.id,WORKER_ID,{assetCache:job.asset_cache});await checkpoint(job,'assets_ready',{assetsReady:true});
+    const w=Number(m.output?.size?.width||1080),h=Number(m.output?.size?.height||1920),fps=Number(m.output?.fps||25);const {html}=flattenManifest(m);const total=manifestDuration(m);const frameDir=join(dir,'frames');await mkdir(frameDir,{recursive:true});const totalFrames=Math.max(1,Math.ceil(total*fps));
+    const browser=new ChromiumFrameRenderer({width:w,height:h,assetTimeoutMs:Number(process.env.CHROMIUM_ASSET_TIMEOUT_MS||15000),fontStylesheetUrl:`${assetServer.base}/__fonts__/catalog.css`});await browser.start();
+    try{for(let i=0;i<totalFrames;i++){
+      if(runtime.cancelled)throw new Error('cancelled');const t=i/fps;const activeHtml=html.filter(c=>t>=Number(c.start||0)&&t<Number(c.start||0)+Number(c.length||0)).sort((a,b)=>b.trackIndex-a.trackIndex||a.clipIndex-b.clipIndex);const frameBody=activeHtml.map(c=>c?.asset?.html||'').join('');const png=join(frameDir,`${String(i+1).padStart(6,'0')}.png`);
+      if(!(await exists(png)))await browser.renderFrame(frameBody,png);
+      if(i%Math.max(1,Math.floor(totalFrames/20))===0){job.progress=Math.min(65,Math.round(i/totalFrames*65));job.checkpoint={...(job.checkpoint||{}),stage:'frames',framesCompleted:i+1,totalFrames};await persist(job,{status:'rendering',progress:job.progress,checkpoint:job.checkpoint},false);}
+    }}finally{await browser.close();}
+    await checkpoint(job,'frames_complete',{framesCompleted:totalFrames,totalFrames});job.progress=70;await persist(job,{status:'rendering',progress:70});
+    const inputMap=await downloadMedia({manifest:m,dir:join(dir,'media'),fetchTo});await checkpoint(job,'media_ready',{mediaReady:true});
+    const out=join(dir,'out.mp4');job.status='encoding';job.progress=75;await persist(job,{status:'encoding',progress:75});
+    const plan=buildFfmpegPlan(m,inputMap,{framePattern:join(frameDir,'%06d.png'),total,w,h,fps,out});runtime.process=spawn('ffmpeg',plan.args,{stdio:['ignore','ignore','pipe']});let stderr='';runtime.process.stderr?.on('data',d=>{stderr=(stderr+String(d)).slice(-12000)});await new Promise((resolve,reject)=>{runtime.process.on('exit',c=>c===0?resolve():reject(new Error(`ffmpeg exited ${c}: ${stderr.slice(-3000)}`)));runtime.process.on('error',reject);});runtime.process=null;
+    await checkpoint(job,'encoded',{encoded:true});job.output_path=out;const done=await queue.complete(job.id,WORKER_ID,{outputPath:out,checkpoint:{...(job.checkpoint||{}),stage:'completed',encoded:true}});if(!done)throw new Error('lost job lease before completion');Object.assign(job,done);await sendCallback(job,'completed');
+  }finally{if(assetServer)await assetServer.close().catch(()=>{});runtime.process=null;}
+}
+
+async function execute(job){
+  const runtime={cancelled:false,process:null,dir:null,leaseTimer:null};runtimes.set(job.id,runtime);
+  runtime.leaseTimer=setInterval(async()=>{try{const lease=await queue.renewLease(job.id,WORKER_ID);if(!lease){runtime.cancelled=true;runtime.process?.kill('SIGTERM');return;}if(lease.cancel_requested){runtime.cancelled=true;runtime.process?.kill('SIGTERM');}}catch(e){console.error('lease heartbeat failed',job.id,e);}},Math.max(3000,Math.floor(LEASE_SECONDS*1000/3)));runtime.leaseTimer.unref();
+  try{await render(job,runtime);}catch(e){const message=e instanceof Error?e.message:String(e);if(runtime.cancelled||message==='cancelled'){const cancelled=await queue.cancelActive(job.id,WORKER_ID,'cancelled');if(cancelled){Object.assign(job,cancelled);await sendCallback(job,'cancelled');}}else{const next=await queue.failOrRetry(job.id,WORKER_ID,{error:message,maxRetries:RETRIES});if(next){Object.assign(job,next);await sendCallback(job,next.status);}}
+  }finally{clearInterval(runtime.leaseTimer);runtimes.delete(job.id);}
+}
+
+async function claimWork(){if(draining||runtimes.size>=MAX)return;while(!draining&&runtimes.size<MAX){const job=await queue.claim(WORKER_ID);if(!job)break;execute(job).catch(e=>console.error('execute fatal',e));}}
+async function reconcile(){try{const rows=await queue.reconcileStale();if(rows.length)console.warn(`reconciled ${rows.length} stale render lease(s)`);}catch(e){console.error('stale reconciliation failed',e);}}
+async function fleet(){const f=await queue.fleetHealth();return {...f,workerId:WORKER_ID,draining,localActive:runtimes.size,maxConcurrency:MAX,ffmpeg:ffmpegOk,version:VERSION};}
+
+function makeServer(){return http.createServer(async(req,res)=>{try{
+  const u=new URL(req.url||'/','http://worker');
+  if(req.method==='GET'&&(u.pathname==='/health'||u.pathname==='/ready'||u.pathname==='/fleet')){const raw='';if(!auth(req,raw))return json(res,401,{ok:false});const f=await fleet();if(u.pathname==='/ready')return json(res,draining?503:200,{ok:!draining,workerId:WORKER_ID});if(u.pathname==='/fleet')return json(res,200,f);return json(res,200,{ok:!draining,ffmpeg:ffmpegOk,workerId:WORKER_ID,active:runtimes.size,maxConcurrency:MAX,draining,queue:f.queue,nodes:f.nodes});}
+  if(req.method==='GET'&&u.pathname.startsWith('/outputs/')){const id=u.pathname.split('/').pop(),j=await queue.getJob(id);if(!j?.output_path||u.searchParams.get('token')!==j.output_token)return json(res,404,{error:'not found'});if(!(await exists(j.output_path)))return json(res,410,{error:'output unavailable; shared render volume is not mounted on this worker'});const s=await stat(j.output_path);res.writeHead(200,{'content-type':'video/mp4','content-length':String(s.size)});return createReadStream(j.output_path).pipe(res);}
+  const raw=await body(req);if(!auth(req,raw))return json(res,401,{error:'invalid signature'});
+  if(req.method==='POST'&&u.pathname==='/jobs'){if(draining)return json(res,503,{error:'draining'});const d=JSON.parse(raw);if(!d.idempotencyKey||!d.manifestUrl||!d.callbackUrl)return json(res,400,{error:'idempotencyKey, manifestUrl and callbackUrl are required'});const {job:j,created}=await queue.createOrGetJob(d);if(created)await sendCallback(j,'queued');return json(res,created?202:200,{id:j.id,status:j.status});}
+  const m=u.pathname.match(/^\/jobs\/([^/]+)$/);if(m){const j=await queue.getJob(m[1]);if(!j)return json(res,404,{error:'not found'});if(req.method==='GET')return json(res,200,{id:j.id,status:j.status,progress:j.progress,error:j.error??null,workerId:j.worker_id,runAttempts:j.run_attempts,checkpoint:j.checkpoint,outputUrl:outputUrl(j)});if(req.method==='DELETE'){const updated=await queue.requestCancel(j.id);const rt=runtimes.get(j.id);if(rt){rt.cancelled=true;rt.process?.kill('SIGTERM');}if(updated?.status==='cancelled')await sendCallback(updated,'cancelled');return json(res,200,{ok:true,status:updated?.status});}}
+  return json(res,404,{error:'not found'});
+}catch(e){console.error(e);json(res,500,{error:e instanceof Error?e.message:'worker error'});}});}
+
+async function shutdown(signal){if(draining)return;draining=true;console.log(`${signal}: draining worker ${WORKER_ID}`);clearInterval(claimTimer);clearInterval(reconcileTimer);await queue.setWorkerDraining(WORKER_ID,true).catch(()=>{});const deadline=Date.now()+Math.max(5000,Number(process.env.RENDER_DRAIN_TIMEOUT_MS||30000));while(runtimes.size&&Date.now()<deadline)await new Promise(r=>setTimeout(r,250));if(runtimes.size){console.warn(`drain timeout with ${runtimes.size} active job(s); leases will recover on another worker`);for(const rt of runtimes.values())rt.process?.kill('SIGTERM');}clearInterval(heartbeatTimer);await new Promise(r=>server?.close(()=>r()));await queue.close().catch(()=>{});process.exit(runtimes.size?1:0);}
+
+async function main(){await mkdir(join(WORK_ROOT,'jobs'),{recursive:true});await queue.connect();await queue.registerWorker({workerId:WORKER_ID,hostname:hostname(),maxConcurrency:MAX,version:VERSION,metadata:{workRoot:WORK_ROOT,fontCatalogVersion:FONT_CATALOG_VERSION}});await reconcile();server=makeServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(PORT,resolve)});console.log(`Durable render worker ${WORKER_ID} listening on ${PORT}`);claimTimer=setInterval(()=>claimWork().catch(e=>console.error('claim failed',e)),CLAIM_MS);claimTimer.unref();heartbeatTimer=setInterval(()=>queue.heartbeatWorker(WORKER_ID,{activeJobs:runtimes.size,status:draining?'draining':'active'}).catch(e=>console.error('worker heartbeat failed',e)),HEARTBEAT_MS);heartbeatTimer.unref();reconcileTimer=setInterval(reconcile,RECONCILE_MS);reconcileTimer.unref();claimWork().catch(console.error);}
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>shutdown(sig).catch(e=>{console.error(e);process.exit(1)}));
+main().catch(e=>{console.error('worker startup failed',e);process.exit(1)});

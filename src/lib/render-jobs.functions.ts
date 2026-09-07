@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { EditorDocument, TextElement } from "@/lib/types";
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
-import { campaignAutomationInput, materializeCampaignRenderDocument } from "@/lib/render-materialization";
+import { campaignAutomationInput, materializeCampaignRenderComposition } from "@/lib/render-materialization";
 import { buildSceneSvgAtTime } from "@/lib/scene-svg";
 import { evaluateTimelineFrame } from "@/lib/timeline-engine";
 import { hydrateDocumentAssetRefsServer } from "@/lib/asset-refs.server";
@@ -33,9 +33,10 @@ async function loadConcreteDocument(supabase: any, templateId: string | null, co
     if (template?.template_json) source = parseEditorDocument(template.template_json);
   }
   source ??= fallbackDocumentFromVars(rawVars);
-  const concrete = materializeCampaignRenderDocument(source, rawVars);
-  const hydrated = await hydrateDocumentAssetRefsServer(concrete.document, userId);
-  // Force canonical timeline evaluation now so malformed timing fails at the boundary.
+  const concrete = materializeCampaignRenderComposition(source, rawVars);
+  const hydrated = await hydrateDocumentAssetRefsServer(concrete.composition.document, userId);
+  // The interactive Test Render still uses the legacy browser path, but it now
+  // receives the same canonical V2 document produced by the production boundary.
   const frame = evaluateTimelineFrame(hydrated, 0, concrete.values);
   return { doc: hydrated, vars: concrete.values, durationMs: frame.durationMs };
 }

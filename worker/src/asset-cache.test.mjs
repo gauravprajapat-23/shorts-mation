@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {discoverRenderUrls,rewriteManifestUrls} from './asset-cache.mjs';
+test('discovers URLs embedded in manifest HTML and media',()=>{const m={timeline:{tracks:[{clips:[{asset:{type:'html',html:'<img src="https://x.test/a.png">'}},{asset:{type:'video',src:'https://x.test/v.mp4'}}]}]}};assert.deepEqual(discoverRenderUrls(m).sort(),['https://x.test/a.png','https://x.test/v.mp4']);});
+test('rewrites cached URLs to local asset endpoint',()=>{const m={x:'https://x.test/a.png'};const map=new Map([['https://x.test/a.png','/tmp/a']]);const out=rewriteManifestUrls(m,map,{urlFor:()=> 'http://127.0.0.1:99/asset/a'});assert.equal(out.x,'http://127.0.0.1:99/asset/a');});

@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shorts_mation_render
+      POSTGRES_USER: shorts_mation
+      POSTGRES_PASSWORD: ${RENDER_DB_PASSWORD:-change-me}
+    volumes:
+      - render-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shorts_mation -d shorts_mation_render"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  renderer-1:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &renderer-env
+      FFMPEG_WORKER_SECRET: ${FFMPEG_WORKER_SECRET}
+      PUBLIC_WORKER_URL: ${PUBLIC_WORKER_URL:-http://localhost:8080}
+      RENDER_DATABASE_URL: postgresql://shorts_mation:${RENDER_DB_PASSWORD:-change-me}@postgres:5432/shorts_mation_render
+      RENDER_DB_SSL: disable
+      RENDER_WORK_ROOT: /var/lib/shorts-mation-render
+      RENDER_WORKER_ID: renderer-1
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-2}
+      RENDER_LEASE_SECONDS: 45
+      RENDER_HEARTBEAT_MS: 10000
+      RENDER_RECONCILE_MS: 15000
+    volumes:
+      - render-work:/var/lib/shorts-mation-render
+    ports:
+      - "8080:8080"
+
+  renderer-2:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *renderer-env
+      RENDER_WORKER_ID: renderer-2
+      PORT: 8080
+      PUBLIC_WORKER_URL: ${PUBLIC_WORKER_URL_2:-http://localhost:8081}
+    volumes:
+      - render-work:/var/lib/shorts-mation-render
+    ports:
+      - "8081:8080"
+
+volumes:
+  render-db:
+  render-work:

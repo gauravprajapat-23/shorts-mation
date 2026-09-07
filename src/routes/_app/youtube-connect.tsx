@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
-import { getYouTubeAuthUrl } from "@/lib/youtube-oauth.functions";
+import { disconnectYouTubeChannel, getYouTubeAuthUrl } from "@/lib/youtube-oauth.functions";
 import { getYouTubePublishingData, saveYouTubeUploadDefaults, syncYouTubeAnalytics } from "@/lib/youtube-intelligence.functions";
 import { PageHeader } from "@/components/page-header";
 import { Youtube, ShieldCheck, AlertTriangle, Unlink, BarChart3, RefreshCw, Save } from "lucide-react";
@@ -22,6 +22,7 @@ function YoutubeConnectPage() {
   const qc = useQueryClient();
   const search = useSearch({ from: "/_app/youtube-connect" });
   const getAuthUrl = useServerFn(getYouTubeAuthUrl);
+  const disconnectChannel = useServerFn(disconnectYouTubeChannel);
   const publishingFn=useServerFn(getYouTubePublishingData);
   const saveDefaultsFn=useServerFn(saveYouTubeUploadDefaults);
   const syncAnalyticsFn=useServerFn(syncYouTubeAnalytics);
@@ -65,10 +66,14 @@ function YoutubeConnectPage() {
   const disconnect = useMutation({
     mutationFn: async () => {
       if (!conn) return;
-      const { error } = await supabase.from("youtube_connections").update({ is_connected: false }).eq("id", conn.id);
-      if (error) throw error;
+      return disconnectChannel({ data: { connectionId: conn.id } });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["yt"] }); toast.success("Disconnected"); },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["yt"] });
+      qc.invalidateQueries({ queryKey: ["youtube-publishing-data"] });
+      toast.success(result?.revokedAtGoogle ? "Disconnected and Google access revoked" : "Disconnected; local tokens removed");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return (

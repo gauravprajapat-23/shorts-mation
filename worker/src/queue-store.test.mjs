@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {computeRetryDelayMs,isLeaseExpired,QUEUE_SCHEMA_VERSION} from './queue-store.mjs';
+test('retry delay is exponential and bounded',()=>{assert.equal(computeRetryDelayMs(1),1000);assert.equal(computeRetryDelayMs(2),2000);assert.equal(computeRetryDelayMs(10),30000);});
+test('lease expiry only applies to active durable states',()=>{assert.equal(isLeaseExpired({status:'rendering',lease_expires_at:new Date(Date.now()-1000).toISOString()}),true);assert.equal(isLeaseExpired({status:'queued',lease_expires_at:new Date(Date.now()-1000).toISOString()}),false);assert.ok(QUEUE_SCHEMA_VERSION>=1);});

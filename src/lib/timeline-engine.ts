@@ -255,6 +255,7 @@ export type TimelineVideoSegment = {
 export function collectTimelineVideoSegments(
   inputDoc: EditorDocument,
   vars: Record<string, string> = {},
+  sampleStepMs?: number,
 ): TimelineVideoSegment[] {
   const doc = resolveDocVars(inputDoc, vars);
   const ranges = getTimelineSceneRanges(doc);
@@ -269,7 +270,7 @@ export function collectTimelineVideoSegments(
       // lets FFmpeg and Shotstack follow the same x/y/scale/rotation/opacity/
       // blur/crop curve even though their native animation APIs differ.
       const hasKeyframes = Boolean(element.keyframes?.length);
-      const stepMs = hasKeyframes ? Math.max(50, Math.min(125, durationMs / 60)) : durationMs;
+      const stepMs = hasKeyframes ? Math.max(1, sampleStepMs ?? Math.max(50, Math.min(125, durationMs / 60))) : durationMs;
       for (let offset = 0; offset < durationMs - 0.5; offset += stepMs) {
         const chunkDuration = Math.min(stepMs, durationMs - offset);
         const projectStart = baseStartMs + offset;

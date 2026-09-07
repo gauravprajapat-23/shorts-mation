@@ -6,6 +6,7 @@ import { collectTimelineAudioSegments, collectTimelineVideoSegments, evaluateTim
 import type { ElementFrame } from "@/lib/animate";
 import { CANVAS_DIMS } from "@/lib/editor-defaults";
 import type { EditorDocument, EditorElement, EditorScene, TextElement, ShapeElement, ImageElement, EditorCaptionClip } from "@/lib/types";
+import type { CanonicalComposition } from "@/lib/canonical-composition";
 import { cssTextShadows, gradientCss, layoutText } from "@/lib/text-design";
 import { cssFilterForLook, resolveMediaLook } from "@/lib/effects";
 
@@ -106,7 +107,13 @@ function sceneHtml(doc: EditorDocument, tMs: number, w: number, h: number): stri
     return `<div style="position:absolute;inset:0;opacity:${o*.4};background:repeating-linear-gradient(0deg,rgba(255,0,90,.4) 0 2px,rgba(0,230,255,.3) 2px 4px,transparent 4px 8px);mix-blend-mode:screen;"></div>`;
   }).join("");
   const flash = tr.flash > .001 ? `<div style="position:absolute;inset:0;background:#fff;opacity:${tr.flash};"></div>` : "";
-  return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden;"><div style="position:absolute;inset:0;transform-origin:center center;transform:translate(${cam.tx+tr.tx}px,${cam.ty+tr.ty}px) scale(${cam.scale*tr.scale});opacity:${tr.opacity};filter:${tr.blur>0.1?`blur(${tr.blur}px)`:"none"};">${parts.join("")}</div>${effects}${flash}</div>`;
+  // Phase 1: captions must live inside the same HTML frame as the scene because
+  // native worker V1 consumes only one HTML clip per output frame.
+  const captions = frame.visibleCaptions.map(({ clip }) => {
+    const localMs = Math.max(0, tMs - clip.startMs);
+    return `<div style="position:absolute;left:${clip.x}px;top:${clip.y}px;width:${clip.w}px;height:${clip.h}px;">${captionHtml(clip, localMs)}</div>`;
+  }).join("");
+  return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden;"><div style="position:absolute;inset:0;transform-origin:center center;transform:translate(${cam.tx+tr.tx}px,${cam.ty+tr.ty}px) scale(${cam.scale*tr.scale});opacity:${tr.opacity};filter:${tr.blur>0.1?`blur(${tr.blur}px)`:"none"};">${parts.join("")}</div>${effects}${flash}${captions}</div>`;
 }
 
 
@@ -143,7 +150,7 @@ function workerFilterForPreset(preset?: import("@/lib/types").MediaFilterPreset)
 }
 
 export type WorkerManifestOptions = {
-  doc: EditorDocument;
+  composition: CanonicalComposition;
   vars: Record<string, string>;
   backgroundVideoUrl?: string | null;
   audioUrl?: string | null;
@@ -156,7 +163,7 @@ export type WorkerManifestOptions = {
 /** Turns the editor document into a native FFmpeg worker edit payload. Scene text reveals
  *  become a series of short HTML clips so the word-by-word pacing survives. */
 export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
-  const doc = resolveDocVars(opts.doc, opts.vars);
+  const doc = resolveDocVars(opts.composition.document, opts.vars);
   const dims = CANVAS_DIMS[doc.aspect] ?? CANVAS_DIMS["9:16"];
   const scale = opts.resolution === "720p" ? 0.666 : 1;
   const outW = Math.round(dims.w * scale);
@@ -164,23 +171,21 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
 
   const clips: unknown[] = [];
   const ranges = getTimelineSceneRanges(doc);
+  const outputFps = opts.fps ?? 25;
+  const frameStepMs = 1000 / outputFps;
+  // Renderer V2 materializes visual state at the actual output frame cadence.
+  // This removes the old ~500ms HTML sampling drift for captions, keyframes,
+  // transitions, camera moves, images and text animations.
   for (const range of ranges) {
-    const revealSteps = sceneRevealSteps(range.scene);
-    const motionSteps = Math.max(1, Math.min(24, Math.ceil(range.durationMs / 500)));
-    const steps = Math.max(revealSteps, motionSteps);
-    const stepMs = range.durationMs / steps;
-    for (let i = 0; i < steps; i++) {
-      const startMs = range.startMs + i * stepMs;
-      const lengthMs = i === steps - 1 ? range.endMs - startMs : stepMs;
-      if (lengthMs <= 20) continue;
+    for (let startMs = range.startMs; startMs < range.endMs - 0.01; startMs += frameStepMs) {
+      const lengthMs = Math.min(frameStepMs, range.endMs - startMs);
       clips.push({
-        asset: { type: "html", html: sceneHtml(doc, startMs + Math.min(1, lengthMs / 2), dims.w, dims.h), width: dims.w, height: dims.h, background: "transparent" },
+        asset: { type: "html", html: sceneHtml(doc, startMs + lengthMs / 2, dims.w, dims.h), width: dims.w, height: dims.h, background: "transparent" },
         start: startMs / 1000,
         length: lengthMs / 1000,
         fit: "none",
         scale,
         position: "center",
-        ...(i === 0 && (range.scene.transitionIn ?? "fade") !== "cut" ? { transition: { in: "fade" } } : {}),
       });
     }
   }
@@ -188,34 +193,13 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
 
   const tracks: unknown[] = [{ clips }];
 
-  // V2.6 professional caption clips. Word boundaries become short HTML clips,
-  // preserving active-word highlight/karaoke/pop timing in server renders.
-  if (doc.version === 2) {
-    for (const caption of (doc.captionClips ?? []).slice().reverse()) {
-      if (caption.hidden || !caption.words.length || caption.durationMs <= 0) continue;
-      const boundaries = new Set<number>([0, caption.durationMs]);
-      for (const word of caption.words) { boundaries.add(Math.max(0, word.startMs)); boundaries.add(Math.min(caption.durationMs, word.endMs)); }
-      const points = [...boundaries].filter((n) => n >= 0 && n <= caption.durationMs).sort((a, b) => a - b);
-      const captionClips: unknown[] = [];
-      for (let i = 0; i < points.length - 1; i++) {
-        const localStart = points[i]!; const localEnd = points[i + 1]!;
-        if (localEnd - localStart < 10) continue;
-        const sampleMs = localStart + (localEnd - localStart) / 2;
-        captionClips.push({
-          asset: { type: "html", html: captionHtml(caption, sampleMs), width: caption.w, height: caption.h, background: "transparent" },
-          start: (caption.startMs + localStart) / 1000,
-          length: (localEnd - localStart) / 1000,
-          fit: "none", scale, position: "topLeft",
-          offset: { x: caption.x / dims.w, y: -(caption.y / dims.h) },
-        });
-      }
-      if (captionClips.length) tracks.unshift({ clips: captionClips });
-    }
-  }
+  // Phase 1: caption state is baked into each scene HTML clip. Native worker V1
+  // selects one HTML clip per frame, so separate caption HTML tracks would replace
+  // the scene instead of compositing over it.
 
   // Timeline video elements are real native FFmpeg worker video assets now (previously
   // skipped). The shared engine supplies project start/length and source trim.
-  for (const segment of collectTimelineVideoSegments(doc).slice().reverse()) {
+  for (const segment of collectTimelineVideoSegments(doc, {}, frameStepMs).slice().reverse()) {
     const el = segment.element;
     tracks.push({ clips: [{
       asset: {
@@ -231,58 +215,46 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
       width: Math.max(1, Math.round(el.w * scale * segment.frame.scale)),
       height: Math.max(1, Math.round(el.h * scale * segment.frame.scale)),
       position: "topLeft",
-      offset: { x: (segment.frame.x - (el.w * (segment.frame.scale - 1) / 2)) / dims.w, y: -((segment.frame.y - (el.h * (segment.frame.scale - 1) / 2)) / dims.h) },
+      x: Math.round((segment.frame.x - (el.w * (segment.frame.scale - 1) / 2)) * scale),
+      y: Math.round((segment.frame.y - (el.h * (segment.frame.scale - 1) / 2)) * scale),
+      rotation: segment.frame.rotation,
+      blurPx: segment.frame.blurPx * scale,
       opacity: Math.max(0, Math.min(1, segment.frame.opacity)),
+      ...(el.colorAdjustments ? { adjustments: el.colorAdjustments } : {}),
       ...(workerFilterForPreset(el.filterPreset) ? { filter: workerFilterForPreset(el.filterPreset) } : {}),
     }] });
   }
 
-  // V2.5 project audio clips. We split clips at fade/ducking boundaries so
-  // native FFmpeg worker receives the same time-varying gain envelope as editor preview.
+  // Native Renderer V2 audio: each logical clip is emitted once with a sampled
+  // gain envelope. The worker evaluates this envelope continuously through FFmpeg,
+  // preserving fades, solo/mute state and voiceover ducking without track fragmentation.
   const audioSegments = collectTimelineAudioSegments(doc);
   if (doc.version === 2 && audioSegments.length) {
-    const voiceBoundaries = doc.audioClips.filter((clip) => clip.role === "voiceover" && !clip.muted).flatMap((clip) => {
-      const mix = doc.audioMix;
-      return [
-        Math.max(0, clip.startMs - mix.attackMs),
-        clip.startMs,
-        clip.startMs + clip.durationMs,
-        clip.startMs + clip.durationMs + mix.releaseMs,
-      ];
-    });
     for (const segment of audioSegments) {
       const clip = segment.clip;
-      const audioClips: unknown[] = [];
-      const points = new Set<number>([segment.startMs, segment.endMs]);
-      if (clip.fadeInMs) points.add(Math.min(segment.endMs, segment.startMs + clip.fadeInMs));
-      if (clip.fadeOutMs) points.add(Math.max(segment.startMs, segment.endMs - clip.fadeOutMs));
-      if (clip.role === "music" && clip.ducking !== false && doc.audioMix.duckingEnabled) {
-        for (const point of voiceBoundaries) if (point > segment.startMs && point < segment.endMs) points.add(point);
+      const sampleStepMs = 20;
+      const gainPoints: Array<{ t: number; gain: number }> = [];
+      for (let localMs = 0; localMs <= segment.durationMs; localMs += sampleStepMs) {
+        const projectMs = segment.startMs + localMs;
+        const state = evaluateTimelineAudio(doc, projectMs).find((item) => item.clip.id === clip.id);
+        gainPoints.push({ t: localMs / 1000, gain: state?.gain ?? 0 });
       }
-      const sorted = [...points].sort((a, b) => a - b);
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const startMs = sorted[i]!;
-        const endMs = sorted[i + 1]!;
-        if (endMs - startMs < 10) continue;
-        const midMs = startMs + (endMs - startMs) / 2;
-        const state = evaluateTimelineAudio(doc, midMs).find((item) => item.clip.id === clip.id);
-        if (!state || state.gain <= 0.0001) continue;
-        const sourceAtStart = segment.sourceStartMs + Math.max(0, startMs - segment.startMs) * segment.playbackRate;
-        audioClips.push({
-          asset: {
-            type: "audio",
-            src: publicAssetUrl(clip.src),
-            trim: sourceAtStart / 1000,
-            volume: state.gain,
-            ...(Math.abs(segment.playbackRate - 1) > 0.001 ? { speed: segment.playbackRate } : {}),
-          },
-          start: startMs / 1000,
-          length: (endMs - startMs) / 1000,
-        });
+      if (gainPoints[gainPoints.length - 1]?.t !== segment.durationMs / 1000) {
+        const state = evaluateTimelineAudio(doc, segment.endMs).find((item) => item.clip.id === clip.id);
+        gainPoints.push({ t: segment.durationMs / 1000, gain: state?.gain ?? 0 });
       }
-      // Keep each logical audio clip on its own native FFmpeg worker track so music,
-      // voiceover and SFX can overlap without violating track overlap rules.
-      if (audioClips.length) tracks.push({ clips: audioClips });
+      tracks.push({ clips: [{
+        asset: {
+          type: "audio",
+          src: publicAssetUrl(clip.src),
+          trim: segment.sourceStartMs / 1000,
+          speed: segment.playbackRate,
+          volume: 1,
+          gainPoints,
+        },
+        start: segment.startMs / 1000,
+        length: segment.durationMs / 1000,
+      }] });
     }
   }
 
@@ -312,7 +284,7 @@ export function buildFfmpegWorkerManifest(opts: WorkerManifestOptions) {
         : {}),
       tracks,
     },
-    output: { format: "mp4", fps: opts.fps ?? 25, size: { width: outW, height: outH } },
+    output: { format: "mp4", fps: outputFps, size: { width: outW, height: outH } },
     ...(opts.callbackUrl ? { callback: opts.callbackUrl } : {}),
   };
 }

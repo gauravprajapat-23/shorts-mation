@@ -1,16 +1,46 @@
-import {createServerFn} from "@tanstack/react-start";
-import {requireSupabaseAuth} from "@/integrations/supabase/auth-middleware";
-export type RenderSettingsView={configured:boolean;source:"user"|"project"|"none";workerUrl:string|null;verifiedAt:string|null;lastError:string|null;callbackConfigured:boolean;health:"healthy"|"unreachable"|"unknown";limits:{maxGlobalConcurrentRenders:number;maxUserConcurrentRenders:number;maxRendersPerTick:number;maxGlobalConcurrentUploads:number;maxUserConcurrentUploads:number;maxUploadsPerTick:number}};
-export const getRenderSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).handler(async({context}):Promise<RenderSettingsView>=>{
- const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {getAutomationLimits}=await import("@/lib/automation-limits.server");const {renderCallbackBaseUrl,getRenderWorkerConfig}=await import("@/lib/render-settings.server");
- const {data}=await supabaseAdmin.from("render_providers").select("worker_url,worker_secret_encrypted,verified_at,last_error").eq("user_id",context.userId).maybeSingle();
- const project=Boolean(process.env.FFMPEG_WORKER_URL&&process.env.FFMPEG_WORKER_SECRET);const source=data?.worker_url&&data.worker_secret_encrypted?"user":project?"project":"none";const config=await getRenderWorkerConfig(context.userId);let health:"healthy"|"unreachable"|"unknown"="unknown";
- if(config){const {verifyFfmpegWorker}=await import("@/lib/ffmpeg-worker.server");health=(await verifyFfmpegWorker(config)).ok?"healthy":"unreachable";}
- const l=await getAutomationLimits();return {configured:Boolean(config),source,workerUrl:data?.worker_url??process.env.FFMPEG_WORKER_URL??null,verifiedAt:data?.verified_at??null,lastError:data?.last_error??null,callbackConfigured:Boolean(renderCallbackBaseUrl()),health,limits:{maxGlobalConcurrentRenders:l.max_global_concurrent_renders,maxUserConcurrentRenders:l.max_user_concurrent_renders,maxRendersPerTick:l.max_renders_per_tick,maxGlobalConcurrentUploads:l.max_global_concurrent_uploads,maxUserConcurrentUploads:l.max_user_concurrent_uploads,maxUploadsPerTick:l.max_uploads_per_tick}};
-});
-export const saveRenderSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{workerUrl:string;workerSecret:string})=>d).handler(async({data,context}):Promise<{ok:boolean;error?:string}>=>{
- const workerUrl=data.workerUrl.trim(),workerSecret=data.workerSecret.trim();if(workerSecret.length<24)return {ok:false,error:"Worker secret must be at least 24 characters."};let url:string;try{url=new URL(workerUrl).toString().replace(/\/+$/,'');}catch{return {ok:false,error:"Enter a valid FFmpeg worker URL."};}
- const {verifyFfmpegWorker}=await import("@/lib/ffmpeg-worker.server");const check=await verifyFfmpegWorker({url,secret:workerSecret});const {supabaseAdmin}=await import("@/integrations/supabase/client.server");if(!check.ok){await supabaseAdmin.from("render_providers").update({last_error:check.error}).eq("user_id",context.userId);return check;}
- const {encryptToken}=await import("@/lib/token-crypto.server");const {error}=await supabaseAdmin.from("render_providers").upsert({user_id:context.userId,provider:"ffmpeg-worker",worker_url:url,worker_secret_encrypted:await encryptToken(workerSecret),api_key_encrypted:null,env:"native",verified_at:new Date().toISOString(),last_error:null},{onConflict:"user_id"});return error?{ok:false,error:error.message}:{ok:true};
-});
-export const clearRenderSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).handler(async({context})=>{const {supabaseAdmin}=await import("@/integrations/supabase/client.server");await supabaseAdmin.from("render_providers").delete().eq("user_id",context.userId);return {ok:true};});
+import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+export type RenderInfrastructureView = {
+  configured: boolean;
+  source: "project" | "none";
+  callbackConfigured: boolean;
+  health: "healthy" | "unreachable" | "unknown";
+  limits: {
+    maxGlobalConcurrentRenders: number;
+    maxUserConcurrentRenders: number;
+    maxRendersPerTick: number;
+    maxGlobalConcurrentUploads: number;
+    maxUserConcurrentUploads: number;
+    maxUploadsPerTick: number;
+  };
+};
+
+/** Admin/diagnostic read only. There is intentionally no customer write API. */
+export const getRenderSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async (): Promise<RenderInfrastructureView> => {
+    const { getAutomationLimits } = await import("@/lib/automation-limits.server");
+    const { renderCallbackBaseUrl, getRenderWorkerConfig } = await import("@/lib/render-settings.server");
+    const config = await getRenderWorkerConfig();
+    let health: RenderInfrastructureView["health"] = "unknown";
+    if (config) {
+      const { verifyFfmpegWorker } = await import("@/lib/ffmpeg-worker.server");
+      health = (await verifyFfmpegWorker(config)).ok ? "healthy" : "unreachable";
+    }
+    const limits = await getAutomationLimits();
+    return {
+      configured: Boolean(config),
+      source: config ? "project" : "none",
+      callbackConfigured: Boolean(renderCallbackBaseUrl()),
+      health,
+      limits: {
+        maxGlobalConcurrentRenders: limits.max_global_concurrent_renders,
+        maxUserConcurrentRenders: limits.max_user_concurrent_renders,
+        maxRendersPerTick: limits.max_renders_per_tick,
+        maxGlobalConcurrentUploads: limits.max_global_concurrent_uploads,
+        maxUserConcurrentUploads: limits.max_user_concurrent_uploads,
+        maxUploadsPerTick: limits.max_uploads_per_tick,
+      },
+    };
+  });

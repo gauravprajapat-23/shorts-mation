@@ -1,0 +1,136 @@
+{
+  "suiteVersion": "shorts-mation-goldens-v1",
+  "fontCatalogVersion": "shorts-mation-fonts-v1",
+  "minimumSsim": 0.995,
+  "total": 25,
+  "failed": 0,
+  "worstSsim": 1,
+  "generatedAt": "2026-09-06T21:53:08.842Z",
+  "details": [
+    {
+      "key": "quiz-card-00000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "quiz-card-00500.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "quiz-card-01000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "quiz-card-02000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "quiz-card-03500.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "letter-match-00000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "letter-match-00250.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "letter-match-00750.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "letter-match-01500.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "letter-match-02750.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "caption-motion-00000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "caption-motion-00400.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "caption-motion-01000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "caption-motion-01800.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "caption-motion-02900.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "score-board-00000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "score-board-00800.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "score-board-01600.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "score-board-02400.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "score-board-03800.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "effects-stack-00000.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "effects-stack-00200.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "effects-stack-00600.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "effects-stack-01200.png",
+      "ssim": 1,
+      "pass": true
+    },
+    {
+      "key": "effects-stack-01900.png",
+      "ssim": 1,
+      "pass": true
+    }
+  ]
+}
