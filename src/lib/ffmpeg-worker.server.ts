@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type FfmpegWorkerConfig = { url: string; secret: string };
-export type FfmpegWorkerStatus = { id: string; status: "queued"|"rendering"|"completed"|"failed"|"cancelled"; progress: number; outputUrl?: string|null; error?: string|null };
+export type FfmpegWorkerStatus = { id: string; status: "queued"|"rendering"|"completed"|"failed"|"cancelled"; progress: number; outputUrl?: string|null; outputObjectKey?: string|null; error?: string|null };
 
 function normalizeUrl(raw:string){
   const url=new URL(raw);
@@ -33,7 +33,7 @@ export async function verifyFfmpegWorker(config:FfmpegWorkerConfig){
   }catch(e){return {ok:false as const,error:e instanceof Error?e.message:"Could not reach FFmpeg worker"};}
 }
 
-export async function submitFfmpegWorkerJob(config:FfmpegWorkerConfig,input:{idempotencyKey:string;attemptId:string;manifestUrl:string;callbackUrl:string}){
+export async function submitFfmpegWorkerJob(config:FfmpegWorkerConfig,input:{idempotencyKey:string;attemptId:string;manifestUrl:string;callbackUrl:string;tenantId?:string;tenantWeight?:number;tenantMaxConcurrent?:number;priorityAt?:string|null}){
   const body=JSON.stringify(input);
   const res=await signedFetch(config,"/jobs",{method:"POST",body});
   const text=await res.text();
@@ -48,6 +48,14 @@ export async function getFfmpegWorkerJob(config:FfmpegWorkerConfig,id:string):Pr
   const text=await res.text();
   if(!res.ok) throw new Error(`FFmpeg worker status ${res.status}: ${text.slice(0,500)}`);
   return JSON.parse(text) as FfmpegWorkerStatus;
+}
+
+
+export async function getFfmpegWorkerFleet(config:FfmpegWorkerConfig):Promise<any>{
+  const res=await signedFetch(config,"/fleet");
+  const text=await res.text();
+  if(!res.ok) throw new Error(`FFmpeg worker fleet ${res.status}: ${text.slice(0,500)}`);
+  return JSON.parse(text);
 }
 
 export async function cancelFfmpegWorkerJob(config:FfmpegWorkerConfig,id:string){

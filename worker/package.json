@@ -11,7 +11,8 @@
     "certify:release": "npm test && npm run certify:goldens",
     "certify:queue": "node --test src/queue-store.test.mjs",
     "certify:queue:integration": "node scripts/durable-queue-certify.mjs",
-    "certify:r2:integration": "node scripts/r2-integration-certify.mjs"
+    "certify:r2:integration": "node scripts/r2-integration-certify.mjs",
+    "certify:tenant-fairness": "node scripts/tenant-fairness-certify.mjs"
   },
   "engines": {
     "node": ">=20"

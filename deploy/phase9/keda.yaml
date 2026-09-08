@@ -1,0 +1,35 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: shorts-renderers
+spec:
+  scaleTargetRef:
+    name: shorts-renderer
+  minReplicaCount: 1
+  maxReplicaCount: 12
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: postgresql
+      metadata:
+        connectionFromEnv: RENDER_DATABASE_URL
+        query: "SELECT GREATEST(0, CEIL(COUNT(*)::numeric / 4)) FROM public.render_queue_jobs WHERE status IN ('queued','retry_wait')"
+        targetQueryValue: "1"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: shorts-publishers
+spec:
+  scaleTargetRef:
+    name: shorts-publisher
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: postgresql
+      metadata:
+        connectionFromEnv: DATABASE_URL
+        query: "SELECT GREATEST(0, CEIL(COUNT(*)::numeric / 3)) FROM public.publish_jobs WHERE status IN ('pending','retry_wait')"
+        targetQueryValue: "1"

@@ -4,12 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink, Activity, Copy, Clock3, ListTodo, RefreshCw } from "lucide-react";
+import { Play, Pause, Trash2, Video, CheckCircle2, AlertTriangle, CalendarClock, Sparkles, Upload, ExternalLink, Activity, Copy, Clock3, ListTodo, RefreshCw, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { deleteCampaignFully } from "@/lib/data-management.functions";
 import { publishItemNow } from "@/lib/youtube-upload.functions";
-import { kickCampaignAutomation, renderCampaignItemNow } from "@/lib/automation.functions";
+import { kickCampaignAutomation, renderCampaignItemNow, getCampaignItemRenderDownload } from "@/lib/automation.functions";
 import { useState } from "react";
 import { effectivePublishAt, formatDateTime } from "@/lib/date-display";
 import { duplicateCampaign } from "@/lib/campaign-operations.functions";
@@ -29,10 +29,12 @@ function CampaignDetail() {
   const publishFn = useServerFn(publishItemNow);
   const kickFn = useServerFn(kickCampaignAutomation);
   const renderItemFn = useServerFn(renderCampaignItemNow);
+  const renderDownloadFn = useServerFn(getCampaignItemRenderDownload);
   const deleteCampaign = useServerFn(deleteCampaignFully);
   const duplicateFn = useServerFn(duplicateCampaign);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [renderingId, setRenderingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const publish = async (itemId: string) => {
     setPublishingId(itemId);
     try {
@@ -50,10 +52,25 @@ function CampaignDetail() {
       setPublishingId(null);
     }
   };
-  const renderMp4 = async (itemId: string) => {
+  const downloadMp4 = async (itemId: string) => {
+    setDownloadingId(itemId);
+    try {
+      const result = await renderDownloadFn({ data: { campaignId, itemId } });
+      const a = document.createElement("a");
+      a.href = result.url;
+      a.download = result.fileName;
+      a.rel = "noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast.success("MP4 download started");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not download MP4"); }
+    finally { setDownloadingId(null); }
+  };
+  const renderMp4 = async (itemId: string, force = false) => {
     setRenderingId(itemId);
     try {
-      const result = await renderItemFn({ data: { campaignId, itemId } });
+      const result = await renderItemFn({ data: { campaignId, itemId, force } });
       if (result.submitted > 0) toast.success("MP4 render queued", { description: "Native FFmpeg worker will render this video." });
       else if (result.skipped) toast.info(result.skipped);
       else if (result.errors > 0) toast.error("Render could not be submitted. Check Automation status.");
@@ -74,7 +91,7 @@ function CampaignDetail() {
     queryKey: ["campaign-items", campaignId],
     queryFn: async () => {
       const { data, error } = await supabase.from("campaign_items")
-        .select("id,video_file_name,seo_json,status,schedule_at,youtube_publish_at,youtube_video_id,youtube_url,rendered_video_url,render_provider,render_job_ref,render_submitted_at,error_message,is_paused,active_render_attempt_id")
+        .select("id,video_file_name,seo_json,status,schedule_at,youtube_publish_at,youtube_video_id,youtube_url,rendered_video_url,render_output_object_key,render_provider,render_job_ref,render_submitted_at,error_message,is_paused,active_render_attempt_id")
         .eq("campaign_id", campaignId).order("schedule_at", { ascending: true, nullsFirst: false }).range(0, 24);
       if (error) throw error;
       return data ?? [];
@@ -157,7 +174,7 @@ function CampaignDetail() {
               params={{ campaignId }}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-brand/40 text-brand text-sm font-semibold hover:bg-brand/10"
             >
-              <Sparkles className="size-3.5" /> Test render 1 video
+              <Sparkles className="size-3.5" /> Manual MP4
             </Link>
             <Link
               to="/campaigns/$campaignId/automation"
@@ -219,7 +236,7 @@ function CampaignDetail() {
                   <td className="px-4 py-2.5 truncate max-w-xs">{seo.title ?? "—"}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={i.status} /></td>
                   <td className="px-4 py-2.5 text-xs whitespace-nowrap">
-                    {i.rendered_video_url ? <span className="inline-flex items-center gap-1 text-emerald-300"><CheckCircle2 className="size-3.5" /> MP4 ready</span>
+                    {(i.rendered_video_url || i.render_output_object_key) ? <span className="inline-flex items-center gap-1 text-emerald-300"><CheckCircle2 className="size-3.5" /> MP4 ready</span>
                     : i.status === "rendering" || i.active_render_attempt_id ? <span className="inline-flex items-center gap-1 text-sky-300"><RefreshCw className="size-3.5 animate-spin" /> Rendering</span>
                     : i.status === "failed" ? <span className="inline-flex items-center gap-1 text-red-300"><AlertTriangle className="size-3.5" /> Failed</span>
                     : <span className="text-zinc-500">Not generated</span>}
@@ -239,14 +256,35 @@ function CampaignDetail() {
                       {i.status==="failed" && !i.youtube_video_id && (
                         <button onClick={()=>repairUpload.mutate(i.id)} disabled={repairUpload.isPending} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/10" title="Repair failed upload state after duplicate-safety checks"><RefreshCw className="size-3"/> Repair</button>
                       )}
-                      {!i.rendered_video_url && !i.youtube_video_id && !["rendering","uploading","scheduled","uploaded"].includes(i.status) && !i.active_render_attempt_id && (
+                      {!(i.rendered_video_url || i.render_output_object_key) && !i.youtube_video_id && !["rendering","uploading","scheduled","uploaded"].includes(i.status) && !i.active_render_attempt_id && (
                         <button onClick={() => renderMp4(i.id)} disabled={renderingId === i.id || i.is_paused}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-sky-500/40 text-sky-300 text-xs font-semibold hover:bg-sky-500/10 disabled:opacity-50"
                           title={i.is_paused ? "Resume this video before rendering" : "Render this row as MP4 with the native FFmpeg worker"}>
                           <Video className="size-3" />{renderingId === i.id ? "Queuing…" : i.status === "failed" ? "Render again" : "Render MP4"}
                         </button>
                       )}
-                      {!!i.rendered_video_url && !i.youtube_video_id && ["pending", "rendered", "upload_pending", "failed"].includes(i.status) && (
+                      {!!(i.rendered_video_url || i.render_output_object_key) && (
+                        <button
+                          onClick={() => downloadMp4(i.id)}
+                          disabled={downloadingId === i.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-500/40 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/10 disabled:opacity-50"
+                          title="Download the completed MP4 from durable render storage"
+                        >
+                          <Download className="size-3" />
+                          {downloadingId === i.id ? "Preparing…" : "Download"}
+                        </button>
+                      )}
+                      {!!(i.rendered_video_url || i.render_output_object_key) && !i.youtube_video_id && !["uploading","scheduled","uploaded"].includes(i.status) && (
+                        <button
+                          onClick={() => renderMp4(i.id, true)}
+                          disabled={renderingId === i.id || i.is_paused}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-sky-500/30 text-sky-300 text-xs font-semibold hover:bg-sky-500/10 disabled:opacity-50"
+                          title="Generate a fresh MP4 with the production native renderer"
+                        >
+                          <RefreshCw className={`size-3 ${renderingId === i.id ? "animate-spin" : ""}`} /> Re-render
+                        </button>
+                      )}
+                      {!!(i.rendered_video_url || i.render_output_object_key) && !i.youtube_video_id && ["pending", "rendered", "upload_pending", "failed"].includes(i.status) && (
                         <button
                           onClick={() => publish(i.id)}
                           disabled={publishingId === i.id}

@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { processStripeWebhook, verifyStripeWebhook } from "@/lib/billing.server";
+export const Route=createFileRoute("/api/public/billing/webhook")({server:{handlers:{POST:async({request})=>{const raw=await request.text();const sig=request.headers.get("stripe-signature")??"";if(!verifyStripeWebhook(raw,sig))return new Response("invalid signature",{status:400});let event:any;try{event=JSON.parse(raw);}catch{return new Response("invalid json",{status:400});}try{const result=await processStripeWebhook(event);return Response.json({ok:true,...result});}catch(error){return Response.json({ok:false,error:error instanceof Error?error.message:String(error)},{status:500});}}}}});

@@ -3,22 +3,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
-import { startRenderJob, pollRenderJob, attachBrowserRenderedOutput } from "@/lib/render-jobs.functions";
+import { renderCampaignItemNow, getCampaignItemRenderStatus, getCampaignItemRenderDownload } from "@/lib/automation.functions";
 import { hydrateDocumentAssetRefsClient } from "@/lib/asset-client";
-import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2, Film, Volume2, VolumeX, Repeat } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Play, RefreshCw, Sparkles, FileVideo2, Download, CheckCircle2, Film } from "lucide-react";
 import { CANVAS_DIMS, renderText } from "@/lib/editor-defaults";
 import { resolveDocVars } from "@/lib/animate";
 import type { EditorDocument, EditorElement, TextElement, ShapeElement, ImageElement, VideoElement } from "@/lib/types";
 import { toast } from "sonner";
 import { parseEditorDocument } from "@/lib/editor-document-schema";
 import { materializeAutomationDocument } from "@/lib/automation-variables";
-// Types duplicated locally to avoid a static import of a `.client.*` module,
-// which the TanStack import-protection plugin blocks from the server graph.
-type RenderResolution = "720p" | "1080p" | "4k";
-type RenderQuality = "draft" | "standard" | "high";
-
 export const Route = createFileRoute("/_app/campaigns/$campaignId/test-render")({
-  head: () => ({ meta: [{ title: "Test render — ShortsForge" }] }),
+  head: () => ({ meta: [{ title: "Manual MP4 — ShortsForge" }] }),
   component: TestRenderPage,
 });
 
@@ -27,19 +22,13 @@ type Settings = { field_mapping?: Record<string, string>; default_privacy?: stri
 function TestRenderPage() {
   const { campaignId } = useParams({ from: "/_app/campaigns/$campaignId/test-render" });
   const qc = useQueryClient();
-  const attachRenderedOutput = useServerFn(attachBrowserRenderedOutput);
+  const renderItemFn = useServerFn(renderCampaignItemNow);
+  const renderStatusFn = useServerFn(getCampaignItemRenderStatus);
+  const renderDownloadFn = useServerFn(getCampaignItemRenderDownload);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [rowIndex, setRowIndex] = useState(0);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [resolution, setResolution] = useState<RenderResolution>("1080p");
-  const [quality, setQuality] = useState<RenderQuality>("standard");
-  const [muted, setMuted] = useState(true);
-  const [loop, setLoop] = useState(true);
-  const [mp4Progress, setMp4Progress] = useState<number | null>(null);
-  const [mp4Url, setMp4Url] = useState<string | null>(null);
-  const [mp4Err, setMp4Err] = useState<string | null>(null);
-  const startFn = useServerFn(startRenderJob);
-  const pollFn = useServerFn(pollRenderJob);
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
@@ -72,23 +61,6 @@ function TestRenderPage() {
   const item = items.data?.[rowIndex];
   const totalRows = items.data?.length ?? 0;
 
-  // Reset render job when switching row
-  useEffect(() => {
-    setJobId(null);
-    setMp4Url(null);
-    setMp4Progress(null);
-    setMp4Err(null);
-  }, [rowIndex]);
-
-  const job = useQuery({
-    queryKey: ["render-job", jobId],
-    enabled: !!jobId,
-    refetchInterval: (q) => {
-      const d = q.state.data as { status?: string } | undefined;
-      return d?.status === "completed" || d?.status === "failed" ? false : 700;
-    },
-    queryFn: async () => pollFn({ data: { jobId: jobId! } }),
-  });
 
   const rawAutomationVars = useMemo<Record<string, unknown>>(() => {
     if (!item) return {};
@@ -118,94 +90,60 @@ function TestRenderPage() {
   const mappedKeys = Object.keys(mapping);
   const seo = (item?.seo_json ?? {}) as { title?: string; description?: string };
 
-  const runRender = async () => {
-    if (!item) return;
-    try {
-      const res = await startFn({ data: { campaignId, campaignItemId: item.id, renderOptions: { resolution, quality, muted, loop } } });
-      setJobId(res.jobId);
-      toast.info("Render queued", { description: `Job ${res.jobId.slice(0, 8)}…` });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start render");
-    }
-  };
-
-  const bgVideoUrl = useMemo<string | null>(() => {
-    if (!doc) return null;
-    // Find the first video element in the first scene whose src resolves.
-    for (const s of doc.scenes) {
-      for (const el of s.elements) {
-        if (el.type === "video") {
-          const raw = (el as VideoElement).src;
-          if (raw?.startsWith("{{")) {
-            const key = raw.replace(/[{}\s]/g, "");
-            const v = previewVars[key];
-            if (v) return v;
-          } else if (raw) return raw;
-        }
-      }
-    }
-    return null;
-  }, [doc, previewVars]);
-
-  const overlaySvg = useMemo<string | null>(() => {
-    if (!doc) return null;
-    return buildOverlaySvg(doc, sceneIndex, previewVars);
-  }, [doc, sceneIndex, previewVars]);
+  const manualStatus = useQuery({
+    queryKey: ["manual-mp4-status", campaignId, item?.id],
+    enabled: !!item,
+    refetchInterval: (query) => {
+      const state = query.state.data as { status?: string; ready?: boolean } | undefined;
+      return state?.ready || state?.status === "idle" || state?.status === "failed" || state?.status === "cancelled" ? false : 1200;
+    },
+    queryFn: () => renderStatusFn({ data: { campaignId, itemId: item!.id } }),
+  });
 
   const runMp4 = async () => {
-    if (!doc) return;
-    setMp4Err(null); setMp4Url(null); setMp4Progress(0);
+    if (!item) return;
+    const force = !!manualStatus.data?.ready;
+    if (force && !window.confirm("Generate a fresh MP4 and replace the current render for this row?")) return;
+    setManualSubmitting(true);
     try {
-      // Dynamic import keeps ffmpeg.wasm out of the SSR entry chunk; the
-      // browser only fetches it when the user clicks "Render MP4".
-      const { renderMp4 } = await import("@/lib/ffmpeg-render");
-      const blob = await renderMp4({
-        backgroundVideoUrl: bgVideoUrl,
-        doc,
-        vars: previewVars,
-        fps: 20,
-        resolution, quality, muted, loop,
-        onProgress: setMp4Progress,
-      });
-      const url = URL.createObjectURL(blob);
-      setMp4Url(url);
-      if (item) {
-        const { data: u } = await supabase.auth.getUser();
-        if (!u.user) throw new Error("Not signed in");
-        const path = `${u.user.id}/${item.id}-${Date.now()}.mp4`;
-        const { error: uploadError } = await supabase.storage.from("renders").upload(path, blob, {
-          contentType: "video/mp4",
-          upsert: true,
-        });
-        if (uploadError) throw uploadError;
-        try {
-          await attachRenderedOutput({ data: { itemId: item.id, storagePath: path } });
-        } catch (attachError) {
-          await supabase.storage.from("renders").remove([path]);
-          throw attachError;
-        }
-        qc.invalidateQueries({ queryKey: ["campaign-items-preview", campaignId] });
-      }
-      toast.success("MP4 ready for upload");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "MP4 render failed";
-      setMp4Err(msg); toast.error(msg);
-    } finally {
-      setMp4Progress(null);
-    }
+      const result = await renderItemFn({ data: { campaignId, itemId: item.id, force } });
+      if (result.submitted > 0) toast.success("MP4 generation started", { description: "Rendering with the production Chromium + FFmpeg worker." });
+      else if (result.skipped) toast.info(result.skipped);
+      else if (result.errors) toast.error("MP4 render could not be submitted");
+      await qc.invalidateQueries({ queryKey: ["manual-mp4-status", campaignId, item.id] });
+      await qc.invalidateQueries({ queryKey: ["campaign-items-preview", campaignId] });
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not generate MP4"); }
+    finally { setManualSubmitting(false); }
+  };
+
+  const downloadMp4 = async () => {
+    if (!item) return;
+    setDownloading(true);
+    try {
+      const result = await renderDownloadFn({ data: { campaignId, itemId: item.id } });
+      const a = document.createElement("a");
+      a.href = result.url;
+      a.download = result.fileName;
+      a.rel = "noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast.success("MP4 download started");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not download MP4"); }
+    finally { setDownloading(false); }
   };
 
   const notifiedRef = useRef<string | null>(null);
   useEffect(() => {
-    const j = job.data as { id: string; status: string } | undefined;
-    if (j?.status === "completed" && notifiedRef.current !== j.id) {
-      notifiedRef.current = j.id;
-      toast.success("Render complete");
+    if (item && manualStatus.data?.ready && notifiedRef.current !== item.id) {
+      notifiedRef.current = item.id;
+      toast.success("MP4 render complete", { description: "The video is ready to download." });
+      void qc.invalidateQueries({ queryKey: ["campaign-items-preview", campaignId] });
     }
-  }, [job.data]);
+  }, [item, manualStatus.data?.ready, qc, campaignId]);
 
-  const j = job.data as { status: string; progress: number; preview_url: string | null } | undefined;
-  const rendering = j ? j.status !== "completed" && j.status !== "failed" : false;
+  const rendering = manualSubmitting || manualStatus.data?.status === "queued" || manualStatus.data?.status === "rendering";
+  const renderProgress = manualStatus.data?.progress ?? 0;
 
   if (campaign.isLoading || template.isLoading) {
     return <div className="p-4 sm:p-6 lg:p-8 text-zinc-400">Loading…</div>;
@@ -253,22 +191,23 @@ function TestRenderPage() {
             </button>
           </div>
           <button
-            onClick={runRender}
+            onClick={runMp4}
             disabled={rendering || !item}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-bold hover:bg-brand/90 disabled:opacity-50"
+            title="Generate an MP4 with the same native renderer used by automation"
           >
-            {rendering ? <RefreshCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-            {rendering ? `Rendering ${j?.progress ?? 0}%` : "Render this video"}
+            {rendering ? <RefreshCw className="size-3.5 animate-spin" /> : <Film className="size-3.5" />}
+            {rendering ? `Generating ${renderProgress}%` : manualStatus.data?.ready ? "Re-render MP4" : "Generate MP4"}
           </button>
-          <button
-            onClick={runMp4}
-            disabled={mp4Progress !== null || !item}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-brand/50 text-brand text-sm font-bold hover:bg-brand/10 disabled:opacity-50"
-            title="Composite background video + overlay to MP4 in your browser"
-          >
-            {mp4Progress !== null ? <RefreshCw className="size-3.5 animate-spin" /> : <Film className="size-3.5" />}
-            {mp4Progress !== null ? `MP4 ${mp4Progress}%` : "Render MP4"}
-          </button>
+          {manualStatus.data?.ready && (
+            <button
+              onClick={downloadMp4}
+              disabled={downloading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-emerald-500/50 text-emerald-300 text-sm font-bold hover:bg-emerald-500/10 disabled:opacity-50"
+            >
+              <Download className="size-3.5" /> {downloading ? "Preparing…" : "Download MP4"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -288,39 +227,14 @@ function TestRenderPage() {
 
         {/* Side panel */}
         <aside className="border-l border-border bg-panel p-5 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
-          {/* Render options */}
+          {/* Production MP4 */}
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Render options</div>
-            <div className="space-y-2.5">
-              <div>
-                <div className="text-[10px] text-zinc-500 mb-1">Resolution</div>
-                <div className="grid grid-cols-3 gap-1">
-                  {(["720p","1080p","4k"] as const).map((r) => (
-                    <button key={r} onClick={() => setResolution(r)} className={`h-8 rounded-md text-xs font-bold border ${resolution===r?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>{r.toUpperCase()}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-zinc-500 mb-1">Quality</div>
-                <div className="grid grid-cols-3 gap-1">
-                  {(["draft","standard","high"] as const).map((q) => (
-                    <button key={q} onClick={() => setQuality(q)} className={`h-8 rounded-md text-xs font-bold border uppercase ${quality===q?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>{q}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <button onClick={() => setMuted((v) => !v)} className={`h-9 rounded-md text-xs font-semibold border inline-flex items-center justify-center gap-1.5 ${muted?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>
-                  {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-                  {muted ? "Muted" : "With audio"}
-                </button>
-                <button onClick={() => setLoop((v) => !v)} className={`h-9 rounded-md text-xs font-semibold border inline-flex items-center justify-center gap-1.5 ${loop?"border-brand text-brand bg-brand/10":"border-border text-zinc-400"}`}>
-                  <Repeat className="size-3.5" />
-                  {loop ? "Loop bg" : "No loop"}
-                </button>
-              </div>
-              <div className="text-[10px] text-zinc-500">
-                Background video: <span className={bgVideoUrl ? "text-emerald-400" : "text-amber-400"}>{bgVideoUrl ? "detected" : "none — add one in the editor"}</span>
-              </div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Manual MP4 generation</div>
+            <div className="rounded-lg border border-border p-3 space-y-2 text-xs text-zinc-400">
+              <div className="flex items-center justify-between"><span>Renderer</span><span className="text-zinc-200">Native Chromium + FFmpeg</span></div>
+              <div className="flex items-center justify-between"><span>Output</span><span className="text-zinc-200">MP4 · H.264/AAC</span></div>
+              <div className="flex items-center justify-between"><span>Profile</span><span className="text-zinc-200">1080p · 25 FPS</span></div>
+              <p className="pt-1 text-[11px] text-zinc-500">Uses the exact canonical composition, assets, captions, audio and timeline path used by automated production renders. No browser ffmpeg.wasm is used.</p>
             </div>
           </div>
 
@@ -404,59 +318,30 @@ function TestRenderPage() {
             </div>
           </div>
 
-          {/* Render output */}
-          {j && (
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
-                {j.status === "completed" ? <CheckCircle2 className="size-3 text-emerald-400" /> : <RefreshCw className="size-3 animate-spin text-brand" />}
-                Render output · {j.status}
-              </div>
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
-                  <div className="h-full bg-brand transition-all" style={{ width: `${j.progress}%` }} />
-                </div>
-                <div className="text-[10px] font-mono text-zinc-500">{j.progress}% · {j.status === "completed" ? "Ready" : "Compositing frames…"}</div>
-                {j.preview_url && (
-                  <>
-                    <img src={j.preview_url} alt="Render preview" className="w-full rounded border border-border" />
-                    <a href={j.preview_url} download={`render-${jobId}.svg`} className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
-                      <Download className="size-3" /> Download preview
-                    </a>
-                  </>
-                )}
-              </div>
+          {/* MP4 output */}
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
+              {manualStatus.data?.ready ? <CheckCircle2 className="size-3 text-emerald-400" /> : <Film className="size-3 text-brand" />}
+              MP4 output
             </div>
-          )}
-
-          {mp4Progress !== null || mp4Url || mp4Err ? (
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2 flex items-center gap-1.5">
-                <Film className="size-3 text-brand" /> MP4 output
+            <div className="rounded-lg border border-border p-3 space-y-3">
+              <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                <div className="h-full bg-brand transition-all" style={{ width: `${manualStatus.data?.ready ? 100 : renderProgress}%` }} />
               </div>
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                {mp4Progress !== null && (
-                  <>
-                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
-                      <div className="h-full bg-brand transition-all" style={{ width: `${mp4Progress}%` }} />
-                    </div>
-                    <div className="text-[10px] font-mono text-zinc-500">Compositing in your browser · {mp4Progress}%</div>
-                  </>
-                )}
-                {mp4Url && (
-                  <>
-                    <video src={mp4Url} controls className="w-full rounded" />
-                    <a href={mp4Url} download={`row-${rowIndex + 1}.mp4`} className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
-                      <Download className="size-3" /> Download MP4
-                    </a>
-                  </>
-                )}
-                {mp4Err && <div className="text-xs text-brand">{mp4Err}</div>}
+              <div className="text-[10px] font-mono text-zinc-500">
+                {manualStatus.data?.ready ? "100% · Ready to download" : rendering ? `${renderProgress}% · Rendering on server` : manualStatus.data?.status === "failed" ? "Render failed" : "Not generated"}
               </div>
+              {manualStatus.data?.error && <div className="text-xs text-red-300">{manualStatus.data.error}</div>}
+              {manualStatus.data?.ready && (
+                <button onClick={downloadMp4} disabled={downloading} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 text-xs font-bold hover:bg-emerald-500/15 disabled:opacity-50">
+                  <Download className="size-3.5" /> {downloading ? "Preparing download…" : "Download MP4"}
+                </button>
+              )}
             </div>
-          ) : null}
+          </div>
 
-          <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-100 text-xs">
-            <strong className="font-bold">Heads up:</strong> "Render this video" queues a server-side still preview. "Render MP4" composites the background video + text overlay entirely in your browser using ffmpeg.wasm (first run downloads ~30MB).
+          <div className="p-3 rounded-lg border border-sky-500/20 bg-sky-500/5 text-sky-100 text-xs">
+            Manual generation now uses the production render queue. You can leave this page after clicking Generate MP4; the job continues on the server and the completed file is stored durably in R2.
           </div>
         </aside>
       </div>

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { dispatchUpcomingCampaignItems } from "@/lib/campaign-scheduler.server";
-import { processPublishQueue } from "@/lib/youtube-publisher-v2.server";
+import { getPublisherFleetHealth, processPublishQueue } from "@/lib/youtube-publisher-v2.server";
 import { submitDueRenders, collectFinishedRenders } from "@/lib/render-pipeline.server";
 
 function safeEqual(a: string, b: string): boolean {
@@ -48,7 +48,11 @@ export const Route = createFileRoute("/api/public/hooks/process-campaign-queue")
           return Response.json({ ok: false, error: msg }, { status: 500 });
         }
       },
-      GET: async () => Response.json({ ok: true, hint: "POST with 'Authorization: Bearer <CRON_SECRET>' to process due campaign items" }),
+      GET: async ({ request }) => {
+        if (!authorized(request)) return new Response("Unauthorized", { status: 401 });
+        try { return Response.json({ ok: true, publisherFleet: await getPublisherFleetHealth() }); }
+        catch (e) { return Response.json({ ok: false, error: e instanceof Error ? e.message : "unknown" }, { status: 500 }); }
+      },
     },
   },
 });

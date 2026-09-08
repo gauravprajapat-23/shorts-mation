@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: shorts-renderer }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: shorts-renderer } }
+  template:
+    metadata: { labels: { app: shorts-renderer } }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: renderer
+          image: SHORTS_RENDERER_IMAGE
+          envFrom: [{ secretRef: { name: shorts-renderer-env } }]
+          ports: [{ containerPort: 8790 }]
+          readinessProbe: { httpGet: { path: /ready, port: 8790 }, periodSeconds: 10 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: shorts-publisher }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: shorts-publisher } }
+  template:
+    metadata: { labels: { app: shorts-publisher } }
+    spec:
+      terminationGracePeriodSeconds: 240
+      containers:
+        - name: app
+          image: SHORTS_APP_IMAGE
+          envFrom: [{ secretRef: { name: shorts-app-env } }]
+          env:
+            - { name: DEPLOYMENT_ROLE, value: publisher }
+            - { name: PUBLISH_WORKER_ID, valueFrom: { fieldRef: { fieldPath: metadata.name } } }
+          ports: [{ containerPort: 3000 }]
+        - name: publisher-loop
+          image: curlimages/curl:8.12.1
+          envFrom: [{ secretRef: { name: shorts-app-env } }]
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              while true; do
+                curl -fsS -X POST -H "Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/public/hooks/process-publisher || true
+                sleep ${PUBLISH_TICK_SECONDS:-5}
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: shorts-scheduler }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: shorts-scheduler } }
+  template:
+    metadata: { labels: { app: shorts-scheduler } }
+    spec:
+      containers:
+        - name: app
+          image: SHORTS_APP_IMAGE
+          envFrom: [{ secretRef: { name: shorts-app-env } }]
+          env: [{ name: DEPLOYMENT_ROLE, value: scheduler }]
+          ports: [{ containerPort: 3000 }]
+        - name: scheduler-loop
+          image: curlimages/curl:8.12.1
+          envFrom: [{ secretRef: { name: shorts-app-env } }]
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              while true; do
+                curl -fsS -X POST -H "Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/public/hooks/process-scheduler || true
+                sleep ${SCHEDULER_TICK_SECONDS:-30}
+              done

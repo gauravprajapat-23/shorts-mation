@@ -22,11 +22,20 @@
     "profile:browser": "node scripts/browser-memory-profile.mjs",
     "verify:fresh-supabase": "node scripts/verify-fresh-supabase.mjs",
     "certify:staging": "node scripts/staging-release-certification.mjs",
-    "verify:release": "npm run integrity && npm run integrity:migrations && npm run certify:phase7 && npm run typecheck && npm run test && npm run test:worker && npm run test:parity && npm run test:stress && npm run build && npm run lint && npm run certify:renderer",
+    "verify:release": "npm run integrity && npm run integrity:migrations && npm run certify:phase7 && npm run certify:phase8 && npm run certify:phase9 && npm run certify:phase10 && npm run certify:phase11 && npm run certify:phase12 && npm run certify:manual-render && npm run typecheck && npm run test && npm run test:worker && npm run test:parity && npm run test:stress && npm run build && npm run lint && npm run certify:renderer",
     "integrity:migrations": "node scripts/check-migrations.mjs",
     "test:worker": "npm --prefix worker test",
     "certify:renderer": "npm --prefix worker run certify:release",
-    "certify:phase7": "node scripts/phase7-certify.mjs"
+    "certify:phase7": "node scripts/phase7-certify.mjs",
+    "certify:phase8": "node scripts/phase8-certify.mjs",
+    "certify:phase8:live": "node scripts/phase8-live-certify.mjs",
+    "certify:phase9": "node scripts/phase9-certify.mjs",
+    "certify:phase9:live": "node scripts/phase9-live-certify.mjs",
+    "certify:phase10": "node scripts/phase10-certify.mjs",
+    "certify:phase11": "node scripts/phase11-certify.mjs",
+    "certify:phase11:stripe": "node scripts/phase11-stripe-live-certify.mjs",
+    "certify:phase12": "node scripts/phase12-certify.mjs",
+    "certify:manual-render": "node scripts/manual-render-certify.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -117,9 +126,7 @@
     "vite": "^8.0.16",
     "vitest": "^4.1.10"
   },
-  "packageManager": "npm@10",
   "engines": {
-    "node": ">=20.19.1 <23",
-    "npm": ">=10"
+    "node": ">=20.19.1 <23"
   }
 }

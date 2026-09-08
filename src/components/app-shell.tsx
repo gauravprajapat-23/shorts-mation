@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Sparkles, Rocket, Folder, Settings, Youtube, LogOut, Table2, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Sparkles, Rocket, Folder, Settings, Youtube, LogOut, Table2, BarChart3, CreditCard, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode } from "react";
@@ -13,6 +13,8 @@ const nav = [
   { to: "/assets", label: "Assets", icon: Folder },
   { to: "/youtube-connect", label: "YouTube", icon: Youtube },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/billing", label: "Billing", icon: CreditCard },
+  { to: "/team", label: "Team", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

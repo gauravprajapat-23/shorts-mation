@@ -4,6 +4,7 @@ export type SchedulerDispatchResult = {
   runId: string | null;
   renderCandidates: number;
   publishCandidates: number;
+  leaderAcquired: boolean;
 };
 
 /**
@@ -17,13 +18,14 @@ export async function dispatchUpcomingCampaignItems(horizonMinutes = 24 * 60): P
   const { data: run } = await (supabaseAdmin as any).from("scheduler_runs").insert({ worker_id: workerId }).select("id").maybeSingle();
   const runId = (run?.id as string | undefined) ?? null;
   try {
-    const { data, error } = await (supabaseAdmin as any).rpc("dispatch_upcoming_campaign_items", { p_horizon_minutes: horizonMinutes });
+    const { data, error } = await (supabaseAdmin as any).rpc("phase8_dispatch_campaign_scheduler", { p_worker_id: workerId, p_horizon_minutes: horizonMinutes });
     if (error) throw new Error(error.message || "Campaign dispatch failed");
-    const row = data?.[0] as { render_candidates?: number; publish_candidates?: number } | undefined;
+    const row = data?.[0] as { leader_acquired?: boolean; render_candidates?: number; publish_candidates?: number } | undefined;
     const result = {
       runId,
       renderCandidates: Number(row?.render_candidates ?? 0),
       publishCandidates: Number(row?.publish_candidates ?? 0),
+      leaderAcquired: Boolean(row?.leader_acquired),
     };
     if (runId) await (supabaseAdmin as any).from("scheduler_runs").update({
       finished_at: new Date().toISOString(), render_candidates: result.renderCandidates, publish_candidates: result.publishCandidates,

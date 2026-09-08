@@ -1,0 +1,21 @@
+# Phase 9 changed files
+
+- `supabase/migrations/20260907160000_phase9_deployment_control_plane.sql`
+- `src/lib/deployment-control-plane.server.ts`
+- `src/lib/operations.functions.ts`
+- `src/lib/ffmpeg-worker.server.ts`
+- `src/lib/render-pipeline.server.ts`
+- `src/lib/youtube-publisher-v2.server.ts`
+- `src/routes/_app/operations.tsx`
+- `src/routes/api/public/hooks/process-scheduler.ts`
+- `src/routes/api/public/hooks/process-publisher.ts`
+- `deploy/phase9/kubernetes.yaml`
+- `deploy/phase9/keda.yaml`
+- `deploy/phase9/README.md`
+- `scripts/phase9-certify.mjs`
+- `scripts/phase9-live-certify.mjs`
+- `.github/workflows/production-release.yml`
+- `.env.example`
+- `package.json`
+- `PHASE_9_DEPLOYMENT_CONTROL_PLANE.md`
+- `PHASE_9_CHANGED_FILES.md`

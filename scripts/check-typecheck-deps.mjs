@@ -10,7 +10,7 @@ const required = [
 const missing = required.filter(([, file]) => !existsSync(resolve(process.cwd(), file)));
 if (missing.length) {
   console.error("Typecheck dependencies are not installed: " + missing.map(([name]) => name).join(", "));
-  console.error("Run: npm ci");
-  console.error("Do not use npm ci --omit=dev / npm install --production for a build or typecheck environment.");
+  console.error("Run: bun install --frozen-lockfile");
+  console.error("Do not omit devDependencies in a build or typecheck environment.");
   process.exit(1);
 }

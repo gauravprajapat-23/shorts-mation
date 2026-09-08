@@ -1,0 +1,13 @@
+# Phase 12 changed files
+- `supabase/migrations/20260907220000_phase12_organizations_teams_rbac.sql`
+- `src/lib/workspace.functions.ts`
+- `src/lib/tenant-governance.server.ts`
+- `src/lib/render-pipeline.server.ts`
+- `src/routes/_app/team.tsx`
+- `src/components/app-shell.tsx`
+- `src/routeTree.gen.ts`
+- `scripts/phase12-certify.mjs`
+- `scripts/phase11-certify.mjs` (organization-aware regression assertion)
+- `package.json`
+- `.github/workflows/production-release.yml`
+- `PHASE_12_TENANT_ORGANIZATIONS_RBAC.md`

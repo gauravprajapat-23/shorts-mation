@@ -1,0 +1,39 @@
+name: Production release certification
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: npm run integrity
+      - run: npm run integrity:migrations
+      - run: npm run certify:phase7
+      - run: npm run certify:phase8
+      - run: npm run certify:phase9
+      - run: npm run certify:phase10
+      - run: npm run certify:phase11
+      - run: npm run certify:phase12
+      - run: npm --prefix worker ci
+      - run: npm --prefix worker test
+      - name: Mandatory staging CSV to public YouTube certification
+        env:
+          PHASE9_CERT_APP_URL: ${{ secrets.PHASE9_CERT_APP_URL }}
+          PHASE9_CERT_ITEM_ID: ${{ secrets.PHASE9_CERT_ITEM_ID }}
+          PHASE9_CRASH_ITEM_MAP: ${{ secrets.PHASE9_CRASH_ITEM_MAP }}
+          PHASE9_CRON_SECRET: ${{ secrets.PHASE9_CRON_SECRET }}
+          PHASE9_SUPABASE_URL: ${{ secrets.PHASE9_SUPABASE_URL }}
+          PHASE9_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PHASE9_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/phase9-live-certify.mjs

@@ -1,0 +1,19 @@
+# Phase 11 changed files
+- `supabase/migrations/20260907213000_phase11_saas_billing_entitlements.sql`
+- `src/lib/billing.server.ts`
+- `src/lib/billing.functions.ts`
+- `src/lib/billing-operations.server.ts`
+- `src/lib/tenant-governance.server.ts`
+- `src/lib/render-pipeline.server.ts`
+- `src/lib/operations.functions.ts`
+- `src/routes/api/public/billing/webhook.ts`
+- `src/routes/_app/billing.tsx`
+- `src/routes/_app/operations.tsx`
+- `src/components/app-shell.tsx`
+- `src/routeTree.gen.ts`
+- `.env.example`
+- `scripts/phase11-certify.mjs`
+- `package.json`
+- `.github/workflows/production-release.yml` (when present)
+- `scripts/phase11-stripe-live-certify.mjs`
+- `PHASE_11_VERIFICATION.md`

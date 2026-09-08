@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-export const QUEUE_SCHEMA_VERSION = 2;
+export const QUEUE_SCHEMA_VERSION = 3;
 const ACTIVE = ['leased','rendering','encoding','uploading'];
 
 export function computeRetryDelayMs(attempt,{baseMs=1000,maxMs=30000}={}){
@@ -36,10 +36,16 @@ export class PostgresRenderQueue {
         status text NOT NULL DEFAULT 'queued',progress integer NOT NULL DEFAULT 0,error text,output_token text NOT NULL,output_path text,output_object_key text,
         worker_id text,lease_expires_at timestamptz,available_at timestamptz NOT NULL DEFAULT now(),run_attempts integer NOT NULL DEFAULT 0,
         cancel_requested boolean NOT NULL DEFAULT false,checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,asset_cache jsonb,
-        storage jsonb NOT NULL DEFAULT '{}'::jsonb,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz
+        storage jsonb NOT NULL DEFAULT '{}'::jsonb,tenant_id text,tenant_weight numeric(8,3) NOT NULL DEFAULT 1,tenant_max_concurrent integer NOT NULL DEFAULT 1,priority_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz
       );
       ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS output_object_key text;
       ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS storage jsonb NOT NULL DEFAULT '{}'::jsonb;
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS tenant_id text;
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS tenant_weight numeric(8,3) NOT NULL DEFAULT 1;
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS tenant_max_concurrent integer NOT NULL DEFAULT 1;
+      ALTER TABLE render_queue_jobs ADD COLUMN IF NOT EXISTS priority_at timestamptz;
+      CREATE TABLE IF NOT EXISTS render_tenant_fairness (tenant_id text PRIMARY KEY,vruntime numeric(20,6) NOT NULL DEFAULT 0,updated_at timestamptz NOT NULL DEFAULT now());
       CREATE INDEX IF NOT EXISTS render_queue_jobs_claim_idx ON render_queue_jobs(status,available_at,created_at);
       CREATE INDEX IF NOT EXISTS render_queue_jobs_lease_idx ON render_queue_jobs(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
       CREATE TABLE IF NOT EXISTS render_worker_nodes (
@@ -62,8 +68,8 @@ export class PostgresRenderQueue {
   async setWorkerDraining(workerId,draining=true){await this.q(`UPDATE render_worker_nodes SET status=$2,last_heartbeat=now() WHERE worker_id=$1`,[workerId,draining?'draining':'active']);}
   async createOrGetJob(data){
     const id=randomUUID(),token=randomUUID();
-    const inserted=await this.q(`INSERT INTO render_queue_jobs(id,idempotency_key,attempt_id,manifest_url,callback_url,output_token)
-      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(idempotency_key) DO NOTHING RETURNING *`,[id,data.idempotencyKey,data.attemptId??null,data.manifestUrl,data.callbackUrl,token]);
+    const inserted=await this.q(`INSERT INTO render_queue_jobs(id,idempotency_key,attempt_id,manifest_url,callback_url,output_token,tenant_id,tenant_weight,tenant_max_concurrent,priority_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(idempotency_key) DO NOTHING RETURNING *`,[id,data.idempotencyKey,data.attemptId??null,data.manifestUrl,data.callbackUrl,token,data.tenantId??null,Math.max(0.001,Number(data.tenantWeight??1)),Math.max(1,Number(data.tenantMaxConcurrent??1)),data.priorityAt??null]);
     if(inserted.rows[0]) return {job:inserted.rows[0],created:true};
     const existing=await this.q(`SELECT * FROM render_queue_jobs WHERE idempotency_key=$1`,[data.idempotencyKey]);
     return {job:existing.rows[0],created:false};
@@ -72,7 +78,7 @@ export class PostgresRenderQueue {
   async requestCancel(id){const r=await this.q(`UPDATE render_queue_jobs SET cancel_requested=true,updated_at=now(),status=CASE WHEN status IN ('queued','retry_wait') THEN 'cancelled' ELSE status END,completed_at=CASE WHEN status IN ('queued','retry_wait') THEN now() ELSE completed_at END WHERE id=$1 RETURNING *`,[id]);return r.rows[0]||null;}
   async claim(workerId){
     const c=await this.pool.connect();
-    try{await c.query('BEGIN');const r=await c.query(`SELECT * FROM render_queue_jobs WHERE cancel_requested=false AND ((status IN ('queued','retry_wait') AND available_at<=now()) OR (status IN ('leased','rendering','encoding','uploading') AND lease_expires_at<now())) ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`);if(!r.rows[0]){await c.query('COMMIT');return null;}const row=r.rows[0];const u=await c.query(`UPDATE render_queue_jobs SET status='leased',worker_id=$2,lease_expires_at=now()+($3||' seconds')::interval,run_attempts=run_attempts+1,error=NULL,updated_at=now() WHERE id=$1 RETURNING *`,[row.id,workerId,String(this.leaseSeconds)]);await c.query(`INSERT INTO render_job_events(job_id,event,data) VALUES($1,'claimed',$2::jsonb)`,[row.id,JSON.stringify({workerId,recovered:Boolean(row.lease_expires_at)})]);await c.query('COMMIT');return u.rows[0];}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
+    try{await c.query('BEGIN');const r=await c.query(`SELECT j.* FROM render_queue_jobs j LEFT JOIN render_tenant_fairness f ON f.tenant_id=j.tenant_id WHERE j.cancel_requested=false AND ((j.status IN ('queued','retry_wait') AND j.available_at<=now()) OR (j.status IN ('leased','rendering','encoding','uploading') AND j.lease_expires_at<now())) AND (j.tenant_id IS NULL OR (SELECT count(*) FROM render_queue_jobs a WHERE a.tenant_id=j.tenant_id AND a.status IN ('leased','rendering','encoding','uploading') AND a.lease_expires_at>now()) < j.tenant_max_concurrent) ORDER BY CASE WHEN j.priority_at IS NOT NULL AND j.priority_at<=now()+interval '45 minutes' THEN 0 ELSE 1 END,COALESCE(f.vruntime,0),j.available_at,j.created_at FOR UPDATE OF j SKIP LOCKED LIMIT 1`);if(!r.rows[0]){await c.query('COMMIT');return null;}const row=r.rows[0];if(row.tenant_id)await c.query(`INSERT INTO render_tenant_fairness(tenant_id,vruntime) VALUES($1,1/GREATEST($2::numeric,0.001)) ON CONFLICT(tenant_id) DO UPDATE SET vruntime=render_tenant_fairness.vruntime+1/GREATEST($2::numeric,0.001),updated_at=now()`,[row.tenant_id,String(row.tenant_weight||1)]);const u=await c.query(`UPDATE render_queue_jobs SET status='leased',worker_id=$2,lease_expires_at=now()+($3||' seconds')::interval,run_attempts=run_attempts+1,error=NULL,updated_at=now() WHERE id=$1 RETURNING *`,[row.id,workerId,String(this.leaseSeconds)]);await c.query(`INSERT INTO render_job_events(job_id,event,data) VALUES($1,'claimed',$2::jsonb)`,[row.id,JSON.stringify({workerId,recovered:Boolean(row.lease_expires_at),tenantId:row.tenant_id})]);await c.query('COMMIT');return u.rows[0];}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
   }
   async renewLease(id,workerId){const r=await this.q(`UPDATE render_queue_jobs SET lease_expires_at=now()+($3||' seconds')::interval,updated_at=now() WHERE id=$1 AND worker_id=$2 AND status IN ('leased','rendering','encoding','uploading') RETURNING cancel_requested,status`,[id,workerId,String(this.leaseSeconds)]);return r.rows[0]||null;}
   async updateJob(id,workerId,{status,progress,error,outputPath,outputObjectKey,checkpoint,assetCache,storage}={}){
