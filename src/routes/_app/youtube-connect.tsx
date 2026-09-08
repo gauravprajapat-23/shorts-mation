@@ -9,6 +9,22 @@ import { PageHeader } from "@/components/page-header";
 import { Youtube, ShieldCheck, AlertTriangle, Unlink, BarChart3, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
+
+const YOUTUBE_ERROR_MESSAGES: Record<string, string> = {
+  token_encryption_not_configured: "Server token encryption is not configured. Set TOKEN_ENCRYPTION_KEY and restart the app.",
+  supabase_server_not_configured: "Server Supabase credentials are missing. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
+  google_oauth_not_configured: "Google OAuth credentials are missing. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+  oauth_state_secret_not_configured: "OAuth state signing is not configured. Set OAUTH_STATE_SECRET.",
+  csrf_state_mismatch: "OAuth state cookie was lost or changed. Start the YouTube connection again from this browser.",
+  state_expired: "The YouTube authorization request expired. Start the connection again.",
+  workspace_permission_denied: "Only a workspace Owner or Admin can connect a YouTube channel.",
+  callback_server_error: "The YouTube callback failed on the server. Check the server console for [YouTube OAuth callback].",
+};
+
+function youtubeErrorMessage(code: string) {
+  return YOUTUBE_ERROR_MESSAGES[code] ?? code;
+}
+
 export const Route = createFileRoute("/_app/youtube-connect")({
   head: () => ({ meta: [{ title: "YouTube — ShortsForge" }] }),
   validateSearch: (s: Record<string, unknown>) => ({
@@ -34,7 +50,7 @@ function YoutubeConnectPage() {
       toast.success("YouTube channel connected");
       qc.invalidateQueries({ queryKey: ["yt"] });
     }
-    if (search.yt_error) toast.error(`YouTube connect failed: ${search.yt_error}`);
+    if (search.yt_error) toast.error(`YouTube connect failed: ${youtubeErrorMessage(search.yt_error)}`);
   }, [search.yt_connected, search.yt_error, qc]);
 
   const connection = useQuery({

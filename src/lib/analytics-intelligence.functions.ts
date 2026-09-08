@@ -183,10 +183,10 @@ async function buildDashboard(userId:string,input:DashboardInput){
 }
 
 export const getChannelAnalyticsDashboard=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:DashboardInput)=>d).handler(async({data,context})=>buildDashboard(context.userId,data));
+.validator((d:DashboardInput)=>d).handler(async({data,context})=>buildDashboard(context.userId,data));
 
 export const getWinningTemplateAnalytics=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{days?:number})=>d).handler(async({data,context})=>{
+.validator((d:{days?:number})=>d).handler(async({data,context})=>{
   const dashboard=await buildDashboard(context.userId,{days:data.days,page:1,pageSize:100,sort:"views",direction:"desc"});
   const observations=dashboard.videos.map((r:any)=>({
     campaignItemId:r.campaignItemId,youtubeVideoId:r.youtubeVideoId,templateId:r.templateId,templateName:r.templateName,campaignId:r.campaignId,campaignName:r.campaignName,
@@ -197,7 +197,7 @@ export const getWinningTemplateAnalytics=createServerFn({method:"POST"}).middlew
 });
 
 export const saveWinningRecommendations=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{days?:number})=>d).handler(async({data,context})=>{
+.validator((d:{days?:number})=>d).handler(async({data,context})=>{
   const dashboard=await buildDashboard(context.userId,{days:data.days,page:1,pageSize:100,sort:"views",direction:"desc"});
   const observations=dashboard.videos.map((r:any)=>({campaignItemId:r.campaignItemId,youtubeVideoId:r.youtubeVideoId,templateId:r.templateId,templateName:r.templateName,campaignId:r.campaignId,campaignName:r.campaignName,views:r.views,likes:r.likes,comments:r.comments,impressions:r.impressions,ctr:r.ctr,retentionProxy:r.retentionProxy,first3sProxy:r.first3sProxy,uploadTime:r.uploadTime,hook:r.hook,cta:r.cta,topic:r.topic,variant:r.variant}));
   const {analyzeWinningContent}=await import("@/lib/analytics-intelligence");

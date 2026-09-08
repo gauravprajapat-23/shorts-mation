@@ -11,7 +11,7 @@ async function ownedConnection(userId:string,id?:string){
 async function token(conn:any){const mod=await import("@/lib/youtube-upload.functions");return mod.getFreshYouTubeAccessTokenForIntelligence(conn);}
 
 export const getYouTubePublishingData=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{connectionId?:string;regionCode?:string})=>d).handler(async({data,context})=>{
+.validator((d:{connectionId?:string;regionCode?:string})=>d).handler(async({data,context})=>{
  const conn=await ownedConnection(context.userId,data.connectionId);const access=await token(conn);
  const {listYouTubeCategories,listYouTubePlaylists,fetchChannelSnapshot,recommendedPublishHours}=await import("@/lib/youtube-intelligence.server");
  const [categories,playlists,channel]=await Promise.all([listYouTubeCategories(access,data.regionCode||"US"),listYouTubePlaylists(access),fetchChannelSnapshot(access)]);
@@ -21,7 +21,7 @@ export const getYouTubePublishingData=createServerFn({method:"POST"}).middleware
 });
 
 export const saveYouTubeUploadDefaults=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{connectionId:string;audienceTimezone:string;defaults:any})=>d).handler(async({data,context})=>{
+.validator((d:{connectionId:string;audienceTimezone:string;defaults:any})=>d).handler(async({data,context})=>{
  const conn=await ownedConnection(context.userId,data.connectionId);
  const defaults={privacy:["private","unlisted","public"].includes(data.defaults?.privacy)?data.defaults.privacy:"private",categoryId:String(data.defaults?.categoryId||""),playlistId:String(data.defaults?.playlistId||""),language:String(data.defaults?.language||"").slice(0,35),madeForKids:Boolean(data.defaults?.madeForKids),titleTemplate:String(data.defaults?.titleTemplate||"{{title}}").slice(0,500),descriptionTemplate:String(data.defaults?.descriptionTemplate||"{{description}}").slice(0,8000),hashtagMax:Math.max(0,Math.min(15,Number(data.defaults?.hashtagMax??5))),appendHashtags:data.defaults?.appendHashtags!==false};
  const tz=String(data.audienceTimezone||"UTC").slice(0,80);
@@ -32,7 +32,7 @@ export const saveYouTubeUploadDefaults=createServerFn({method:"POST"}).middlewar
 });
 
 export const syncYouTubeAnalytics=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{connectionId?:string})=>d).handler(async({data,context})=>{
+.validator((d:{connectionId?:string})=>d).handler(async({data,context})=>{
  const conn=await ownedConnection(context.userId,data.connectionId),access=await token(conn);
  const {fetchChannelSnapshot,fetchVideoStats,listChannelVideoIds}=await import("@/lib/youtube-intelligence.server");
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
@@ -82,7 +82,7 @@ export const syncYouTubeAnalytics=createServerFn({method:"POST"}).middleware([re
 });
 
 export const repairFailedYouTubeUpload=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{itemId:string})=>d).handler(async({data,context})=>{
+.validator((d:{itemId:string})=>d).handler(async({data,context})=>{
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
  const {data:item}=await (supabaseAdmin as any).from("campaign_items").select("id,user_id,status,youtube_video_id,active_upload_attempt_id").eq("id",data.itemId).eq("user_id",context.userId).maybeSingle();
  if(!item)throw new Error("Campaign item not found");

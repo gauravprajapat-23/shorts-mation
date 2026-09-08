@@ -55,7 +55,7 @@ export const getYouTubeAuthUrl = createServerFn({ method: "POST" })
 
 export const disconnectYouTubeChannel = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { connectionId: string }) => data)
+  .validator((data: { connectionId: string }) => data)
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { decryptToken } = await import("@/lib/token-crypto.server");

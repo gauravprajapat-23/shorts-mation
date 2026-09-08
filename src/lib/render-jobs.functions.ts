@@ -43,7 +43,7 @@ async function loadConcreteDocument(supabase: any, templateId: string | null, co
 
 export const startRenderJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; campaignItemId?: string | null; renderOptions?: Record<string, unknown> }) => d)
+  .validator((d: { campaignId: string; campaignItemId?: string | null; renderOptions?: Record<string, unknown> }) => d)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: campaign, error: cErr } = await supabase.from("campaigns").select("id,user_id,template_id").eq("id", data.campaignId).single();
@@ -66,7 +66,7 @@ export const startRenderJob = createServerFn({ method: "POST" })
 
 export const pollRenderJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { jobId: string }) => d)
+  .validator((d: { jobId: string }) => d)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: job, error } = await supabase.from("render_jobs").select("*").eq("id", data.jobId).single();
@@ -98,7 +98,7 @@ export const pollRenderJob = createServerFn({ method: "POST" })
  * use this command rather than bypassing the queue state machine. */
 export const attachBrowserRenderedOutput = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string; storagePath: string }) => d)
+  .validator((d: { itemId: string; storagePath: string }) => d)
   .handler(async ({ data, context }) => {
     const clean = String(data.storagePath ?? "").replace(/^\/+/, "");
     if (!clean.startsWith(`${context.userId}/`) || !clean.toLowerCase().endsWith(".mp4")) throw new Error("Invalid render storage path");

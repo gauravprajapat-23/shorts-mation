@@ -11,7 +11,7 @@ function assertOpsAccess(userId: string) {
 
 export const getOperationsDashboard = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: Record<string, never>) => d)
+  .validator((d: Record<string, never>) => d)
   .handler(async ({ context }) => {
     assertOpsAccess(context.userId);
     const control = await getControlPlaneHealth();

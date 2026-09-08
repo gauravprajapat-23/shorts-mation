@@ -22,7 +22,7 @@ export type QueueItemDetail = {
 
 export const retryQueueItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string }) => d)
+  .validator((d: { itemId: string }) => d)
   .handler(async ({ data, context }) => {
     const { data: row, error } = await (context.supabase as any).rpc("retry_campaign_item", { p_item_id: data.itemId });
     if (error) throw new Error(error.message);
@@ -33,7 +33,7 @@ export const retryQueueItem = createServerFn({ method: "POST" })
 
 export const bulkUpdateQueue = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; updates: ScheduleUpdate[] }) => d)
+  .validator((d: { campaignId: string; updates: ScheduleUpdate[] }) => d)
   .handler(async ({ data, context }) => {
     if (!Array.isArray(data.updates) || data.updates.length > 1000) throw new Error("Invalid bulk update");
     const clean = data.updates.map((u) => ({
@@ -75,7 +75,7 @@ async function youtubeAccessForItem(item: any) {
 
 export const updateQueueItemSchedule = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string; scheduleAt: string | null; privacy?: "private" | "unlisted" | "public" }) => d)
+  .validator((d: { itemId: string; scheduleAt: string | null; privacy?: "private" | "unlisted" | "public" }) => d)
   .handler(async ({ data, context }) => {
     const item = await ownedItem(context, data.itemId);
     if (item.status === "uploading" || item.active_upload_attempt_id) throw new Error("This video is currently uploading and cannot be changed.");
@@ -128,7 +128,7 @@ export const updateQueueItemSchedule = createServerFn({ method: "POST" })
 
 export const updateQueueItemPrivacy = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string; privacy: "private" | "unlisted" | "public" }) => d)
+  .validator((d: { itemId: string; privacy: "private" | "unlisted" | "public" }) => d)
   .handler(async ({ data, context }) => {
     const item = await ownedItem(context, data.itemId);
     if (item.status === "uploading" || item.active_upload_attempt_id) throw new Error("This video is currently uploading and cannot be changed.");
@@ -157,7 +157,7 @@ export const updateQueueItemPrivacy = createServerFn({ method: "POST" })
 
 export const getQueueItemDetail = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string }) => d)
+  .validator((d: { itemId: string }) => d)
   .handler(async ({ data, context }): Promise<QueueItemDetail> => {
     await ownedItem(context, data.itemId);
     const [renders, uploads, logs] = await Promise.all([

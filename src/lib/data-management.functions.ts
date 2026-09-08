@@ -14,7 +14,7 @@ async function removePaths(bucket: "renders" | "assets", paths: string[]) {
 
 export const deleteCampaignFully = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string }) => d)
+  .validator((d: { campaignId: string }) => d)
   .handler(async ({ data, context }) => {
     const { data: campaign, error } = await context.supabase.from("campaigns").select("id,user_id").eq("id", data.campaignId).single();
     if (error || !campaign || campaign.user_id !== context.userId) throw new Error("Campaign not found");

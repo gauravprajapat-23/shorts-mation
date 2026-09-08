@@ -16,7 +16,7 @@ export const getTtsSettings=createServerFn({method:"POST"}).middleware([requireS
 });
 
 export const saveTtsSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{provider:"openai"|"elevenlabs";apiKey:string;model:string;defaultVoice?:string})=>d)
+.validator((d:{provider:"openai"|"elevenlabs";apiKey:string;model:string;defaultVoice?:string})=>d)
 .handler(async({data,context})=>{
   const key=data.apiKey.trim(),model=data.model.trim(),voice=data.defaultVoice?.trim()||null;
   if(key.length<12||key.length>512||/\s/.test(key))return {ok:false,error:"That does not look like a valid API key."};
@@ -37,7 +37,7 @@ export const saveTtsSettings=createServerFn({method:"POST"}).middleware([require
 });
 
 export const clearTtsSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{provider:"openai"|"elevenlabs"})=>d)
+.validator((d:{provider:"openai"|"elevenlabs"})=>d)
 .handler(async({data,context})=>{
   const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
   await (supabaseAdmin as any).from("tts_providers").delete().eq("user_id",context.userId).eq("provider",data.provider);
@@ -45,7 +45,7 @@ export const clearTtsSettings=createServerFn({method:"POST"}).middleware([requir
 });
 
 export const generateSceneNarration=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{templateId:string;sceneId:string;text:string;provider:"openai"|"elevenlabs";voice:string;model?:string;speed?:number;instructions?:string;pronunciation?:Array<{find:string;sayAs:string}>;presetId?:string|null})=>d)
+.validator((d:{templateId:string;sceneId:string;text:string;provider:"openai"|"elevenlabs";voice:string;model?:string;speed?:number;instructions?:string;pronunciation?:Array<{find:string;sayAs:string}>;presetId?:string|null})=>d)
 .handler(async({data,context})=>{
   const text=data.text.trim();
   if(text.length<1||text.length>5000)throw new Error("Narration must contain 1–5000 characters");

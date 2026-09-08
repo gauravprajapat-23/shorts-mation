@@ -13,7 +13,7 @@ export type CampaignCreateItem = {
 
 export const createCampaignWithItems = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
+  .validator((d: {
     campaign: {
       name: string;
       youtube_connection_id: string | null;

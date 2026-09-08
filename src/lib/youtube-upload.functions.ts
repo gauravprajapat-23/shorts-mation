@@ -523,7 +523,7 @@ export async function uploadItemToYouTube(itemId: string, opts?: { publishAt?: s
 
 export const publishItemNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string }) => d)
+  .validator((d: { itemId: string }) => d)
   .handler(async ({ data, context }): Promise<PublishResult> => {
     // Verify ownership before granting admin path
     const { data: item, error } = await context.supabase

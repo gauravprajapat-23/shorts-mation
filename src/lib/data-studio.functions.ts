@@ -4,7 +4,7 @@ import type { CampaignCreateItem } from "@/lib/campaign-create.functions";
 
 export const generateDataStudioCampaign = createServerFn({ method:"POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d:{
+  .validator((d:{
     studioId?:string|null;
     campaign:{
       name:string;

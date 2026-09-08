@@ -41,7 +41,7 @@ export type AutomationStatus = {
  *  keeps advancing (and stays accurate) with the browser tab closed. */
 export const getAutomationStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string }) => d)
+  .validator((d: { campaignId: string }) => d)
   .handler(async ({ data, context }): Promise<AutomationStatus> => {
     const { supabase } = context;
     const { RENDER_LEAD_MINUTES, UPLOAD_LEAD_MINUTES } = await import("@/lib/render-pipeline.server");
@@ -105,7 +105,7 @@ export const getAutomationStatus = createServerFn({ method: "POST" })
  *  the earliest videos immediately instead of waiting for the next lead time. */
 export const kickCampaignAutomation = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; limit?: number }) => d)
+  .validator((d: { campaignId: string; limit?: number }) => d)
   .handler(async ({ data, context }): Promise<{ submitted: number; errors: number; skipped?: string }> => {
     const { data: campaign, error } = await context.supabase
       .from("campaigns").select("id, user_id").eq("id", data.campaignId).single();
@@ -115,7 +115,7 @@ export const kickCampaignAutomation = createServerFn({ method: "POST" })
   });
 export const renderCampaignItemNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; itemId: string; force?: boolean }) => d)
+  .validator((d: { campaignId: string; itemId: string; force?: boolean }) => d)
   .handler(async ({ data, context }): Promise<{ submitted: number; errors: number; skipped?: string }> => {
     const { data: item, error } = await context.supabase.from("campaign_items")
       .select("id,user_id,campaign_id,status,rendered_video_url,render_output_object_key,active_render_attempt_id,is_paused,youtube_video_id")
@@ -150,7 +150,7 @@ export type ManualRenderStatus = {
  * even when the background campaign cron is not currently running. */
 export const getCampaignItemRenderStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; itemId: string }) => d)
+  .validator((d: { campaignId: string; itemId: string }) => d)
   .handler(async ({ data, context }): Promise<ManualRenderStatus> => {
     const { data: item, error } = await context.supabase
       .from("campaign_items")
@@ -211,7 +211,7 @@ function safeMp4Name(value: string | null | undefined, itemId: string) {
  * R2 objects are never made public and infrastructure credentials stay server-side. */
 export const getCampaignItemRenderDownload = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { campaignId: string; itemId: string }) => d)
+  .validator((d: { campaignId: string; itemId: string }) => d)
   .handler(async ({ data, context }): Promise<{ url: string; fileName: string }> => {
     const { data: item, error } = await context.supabase
       .from("campaign_items")

@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 
-export const getWorkspaceOverview=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{organizationId?:string|null})=>d).handler(async({context,data})=>{
+export const getWorkspaceOverview=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).validator((d:{organizationId?:string|null})=>d).handler(async({context,data})=>{
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
  let orgId=data.organizationId;
  if(!orgId){const {data:id}=await (supabaseAdmin as any).rpc("phase12_default_org",{p_user:context.userId});orgId=id;}
@@ -23,14 +23,14 @@ export const getWorkspaceOverview=createServerFn({method:"POST"}).middleware([re
  return {organization:org,currentRole:member.role,members:(members??[]).map((m:any)=>({...m,profile:p.get(m.user_id)??null})),invitations:invites??[],channels:channels??[],audit:audit??[]};
 });
 
-export const createWorkspaceInvitation=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{organizationId:string;email:string;role:"admin"|"editor"|"analyst"})=>d).handler(async({data})=>{
+export const createWorkspaceInvitation=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).validator((d:{organizationId:string;email:string;role:"admin"|"editor"|"analyst"})=>d).handler(async({data})=>{
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server"); const token=randomBytes(32).toString("base64url"); const expires=new Date(Date.now()+7*86400000).toISOString();
  const {data:id,error}=await (supabaseAdmin as any).rpc("phase12_create_invitation",{p_org:data.organizationId,p_email:data.email,p_role:data.role,p_token_hash:hash(token),p_expires_at:expires}); if(error)throw error;
  return {id,token,expiresAt:expires};
 });
-export const acceptWorkspaceInvitation=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{token:string})=>d).handler(async({context,data})=>{
+export const acceptWorkspaceInvitation=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).validator((d:{token:string})=>d).handler(async({context,data})=>{
  const {supabaseAdmin}=await import("@/integrations/supabase/client.server"); const {data:profile}=await (supabaseAdmin as any).from("profiles").select("email").eq("id",context.userId).maybeSingle(); if(!profile?.email)throw new Error("Account email unavailable");
  const {data:org,error}=await (supabaseAdmin as any).rpc("phase12_accept_invitation",{p_token_hash:hash(data.token),p_user_email:profile.email}); if(error)throw error; return {organizationId:org};
 });
-export const updateWorkspaceMemberRole=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{organizationId:string;userId:string;role:"admin"|"editor"|"analyst"})=>d).handler(async({data})=>{const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {error}=await (supabaseAdmin as any).rpc("phase12_set_member_role",{p_org:data.organizationId,p_user:data.userId,p_role:data.role});if(error)throw error;return {ok:true};});
-export const removeWorkspaceMember=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).inputValidator((d:{organizationId:string;userId:string})=>d).handler(async({data})=>{const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {error}=await (supabaseAdmin as any).rpc("phase12_remove_member",{p_org:data.organizationId,p_user:data.userId});if(error)throw error;return {ok:true};});
+export const updateWorkspaceMemberRole=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).validator((d:{organizationId:string;userId:string;role:"admin"|"editor"|"analyst"})=>d).handler(async({data})=>{const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {error}=await (supabaseAdmin as any).rpc("phase12_set_member_role",{p_org:data.organizationId,p_user:data.userId,p_role:data.role});if(error)throw error;return {ok:true};});
+export const removeWorkspaceMember=createServerFn({method:"POST"}).middleware([requireSupabaseAuth]).validator((d:{organizationId:string;userId:string})=>d).handler(async({data})=>{const {supabaseAdmin}=await import("@/integrations/supabase/client.server");const {error}=await (supabaseAdmin as any).rpc("phase12_remove_member",{p_org:data.organizationId,p_user:data.userId});if(error)throw error;return {ok:true};});

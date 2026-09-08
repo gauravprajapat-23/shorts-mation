@@ -17,7 +17,7 @@ export const getAiSettings=createServerFn({method:"POST"}).middleware([requireSu
 });
 
 export const saveAiSettings=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{provider:"openai"|"openrouter";apiKey:string;model:string})=>d)
+.validator((d:{provider:"openai"|"openrouter";apiKey:string;model:string})=>d)
 .handler(async({data,context})=>{
   const apiKey=data.apiKey.trim(),model=data.model.trim();
   if(apiKey.length<12||apiKey.length>512||/\s/.test(apiKey))return {ok:false,error:"That does not look like a valid API key."};
@@ -44,7 +44,7 @@ export const clearAiSettings=createServerFn({method:"POST"}).middleware([require
 });
 
 export const generateCampaignDataset=createServerFn({method:"POST"}).middleware([requireSupabaseAuth])
-.inputValidator((d:{templateId:string;prompt:string;count:number;market?:string;audience?:string})=>d)
+.validator((d:{templateId:string;prompt:string;count:number;market?:string;audience?:string})=>d)
 .handler(async({data,context})=>{
   const count=Math.floor(Number(data.count));
   if(!Number.isFinite(count)||count<1||count>100)throw new Error("Generate between 1 and 100 videos");

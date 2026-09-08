@@ -87,7 +87,7 @@ export const getAutomationLimitControls = createServerFn({ method: "POST" })
 /** Upsert one account's override. Non-admins may only tighten their own account. */
 export const saveAutomationUserLimit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
+  .validator((d: {
     userId?: string;
     maxConcurrentRenders: number | null;
     maxConcurrentUploads: number | null;
@@ -127,7 +127,7 @@ export const saveAutomationUserLimit = createServerFn({ method: "POST" })
 /** Back to the global defaults for that account. */
 export const clearAutomationUserLimit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { userId?: string }) => d)
+  .validator((d: { userId?: string }) => d)
   .handler(async ({ data, context }): Promise<{ ok: boolean; error?: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const admin = await isAdmin(context.supabase as never, context.userId);
@@ -140,7 +140,7 @@ export const clearAutomationUserLimit = createServerFn({ method: "POST" })
 /** Admin-only: the global ceilings every account is measured against. */
 export const saveAutomationGlobalLimits = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
+  .validator((d: {
     maxGlobalConcurrentRenders: number;
     maxUserConcurrentRenders: number;
     maxRendersPerTick: number;

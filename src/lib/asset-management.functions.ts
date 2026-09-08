@@ -14,7 +14,7 @@ async function removeAssetPaths(paths: string[]) {
 
 export const cleanupUnusedAssets = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { olderThanDays?: number }) => d)
+  .validator((d: { olderThanDays?: number }) => d)
   .handler(async ({ data, context }) => {
     const days = Math.max(1, Math.min(365, Math.floor(data.olderThanDays ?? 7)));
     const { data: candidates, error } = await (context.supabase as any).rpc("list_unused_asset_candidates", { p_older_than_days: days });
@@ -53,7 +53,7 @@ export const cleanupUnusedAssets = createServerFn({ method: "POST" })
 
 export const deleteAssetSafely = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { assetId: string }) => d)
+  .validator((d: { assetId: string }) => d)
   .handler(async ({ data, context }) => {
     const { data: asset, error } = await (context.supabase as any).from("assets").select("id,user_id,storage_path,usage_count").eq("id", data.assetId).single();
     if (error || !asset || asset.user_id !== context.userId) throw new Error("Asset not found");
