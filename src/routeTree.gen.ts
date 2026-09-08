@@ -9,41 +9,48 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as McpRouteImport } from './routes/mcp'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AppYoutubeConnectRouteImport } from './routes/_app/youtube-connect'
-import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppDataStudioRouteImport } from './routes/_app/data-studio'
-import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
-import { Route as AppAssetsRouteImport } from './routes/_app/assets'
-import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
-import { Route as AppBillingRouteImport } from './routes/_app/billing'
-import { Route as AppTeamRouteImport } from './routes/_app/team'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
-import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates/index'
-import { Route as AppCampaignsIndexRouteImport } from './routes/_app/campaigns/index'
-import { Route as ApiPublicRenderManifestRouteImport } from './routes/api/public/render-manifest'
-import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new'
-import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
-import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
-import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
-import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
+import { Route as AppAssetsRouteImport } from './routes/_app/assets'
+import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppDataStudioRouteImport } from './routes/_app/data-studio'
+import { Route as AppOperationsRouteImport } from './routes/_app/operations'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppTeamRouteImport } from './routes/_app/team'
+import { Route as AppYoutubeConnectRouteImport } from './routes/_app/youtube-connect'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
-import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/public/youtube/callback'
-import { Route as ApiPublicBillingWebhookRouteImport } from './routes/api/public/billing/webhook'
-import { Route as ApiPublicHooksRenderCallbackRouteImport } from './routes/api/public/hooks/render-callback'
-import { Route as ApiPublicHooksProcessCampaignQueueRouteImport } from './routes/api/public/hooks/process-campaign-queue'
-import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
-import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
-import { Route as AppCampaignsCampaignIdCalendarRouteImport } from './routes/_app/campaigns/$campaignId.calendar'
+import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as AppCampaignsIndexRouteImport } from './routes/_app/campaigns/index'
+import { Route as AppCampaignsCampaignIdRouteImport } from './routes/_app/campaigns/$campaignId'
+import { Route as AppCampaignsNewRouteImport } from './routes/_app/campaigns/new'
+import { Route as AppEditorTemplateIdRouteImport } from './routes/_app/editor/$templateId'
+import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates/index'
+import { Route as AppTemplatesNewRouteImport } from './routes/_app/templates/new'
+import { Route as ApiPublicRenderManifestRouteImport } from './routes/api/public/render-manifest'
 import { Route as AppCampaignsCampaignIdAutomationRouteImport } from './routes/_app/campaigns/$campaignId.automation'
+import { Route as AppCampaignsCampaignIdCalendarRouteImport } from './routes/_app/campaigns/$campaignId.calendar'
+import { Route as AppCampaignsCampaignIdQueueRouteImport } from './routes/_app/campaigns/$campaignId.queue'
+import { Route as AppCampaignsCampaignIdTestRenderRouteImport } from './routes/_app/campaigns/$campaignId.test-render'
+import { Route as ApiPublicBillingWebhookRouteImport } from './routes/api/public/billing/webhook'
+import { Route as ApiPublicHooksProcessCampaignQueueRouteImport } from './routes/api/public/hooks/process-campaign-queue'
+import { Route as ApiPublicHooksProcessPublisherRouteImport } from './routes/api/public/hooks/process-publisher'
+import { Route as ApiPublicHooksProcessSchedulerRouteImport } from './routes/api/public/hooks/process-scheduler'
+import { Route as ApiPublicHooksRenderCallbackRouteImport } from './routes/api/public/hooks/render-callback'
+import { Route as ApiPublicYoutubeCallbackRouteImport } from './routes/api/public/youtube/callback'
 
-const McpRoute = McpRouteImport.update({
-  id: '/mcp',
-  path: '/mcp',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -51,33 +58,26 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppYoutubeConnectRoute = AppYoutubeConnectRouteImport.update({
-  id: '/youtube-connect',
-  path: '/youtube-connect',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppDataStudioRoute = AppDataStudioRouteImport.update({
-  id: '/data-studio',
-  path: '/data-studio',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppDashboardRoute = AppDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const Char91DotmcpChar93ListToolsRoute =
+  Char91DotmcpChar93ListToolsRouteImport.update({
+    id: '/.mcp/list-tools',
+    path: '/.mcp/list-tools',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAssetsRoute = AppAssetsRouteImport.update({
@@ -85,14 +85,29 @@ const AppAssetsRoute = AppAssetsRouteImport.update({
   path: '/assets',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppBillingRoute = AppBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDataStudioRoute = AppDataStudioRouteImport.update({
+  id: '/data-studio',
+  path: '/data-studio',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOperationsRoute = AppOperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTeamRoute = AppTeamRouteImport.update({
@@ -100,52 +115,15 @@ const AppTeamRoute = AppTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => AppRoute,
 } as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const Char91DotmcpChar93ListToolsRoute =
-  Char91DotmcpChar93ListToolsRouteImport.update({
-    id: '/.mcp/list-tools',
-    path: '/.mcp/list-tools',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AppTemplatesIndexRoute = AppTemplatesIndexRouteImport.update({
-  id: '/templates/',
-  path: '/templates/',
+const AppYoutubeConnectRoute = AppYoutubeConnectRouteImport.update({
+  id: '/youtube-connect',
+  path: '/youtube-connect',
   getParentRoute: () => AppRoute,
 } as any)
-const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
-  id: '/campaigns/',
-  path: '/campaigns/',
-  getParentRoute: () => AppRoute,
-} as any)
-const ApiPublicRenderManifestRoute = ApiPublicRenderManifestRouteImport.update({
-  id: '/api/public/render-manifest',
-  path: '/api/public/render-manifest',
+const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
+  id: '/.lovable/oauth/consent',
+  path: '/.lovable/oauth/consent',
   getParentRoute: () => rootRouteImport,
-} as any)
-const AppTemplatesNewRoute = AppTemplatesNewRouteImport.update({
-  id: '/templates/new',
-  path: '/templates/new',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppEditorTemplateIdRoute = AppEditorTemplateIdRouteImport.update({
-  id: '/editor/$templateId',
-  path: '/editor/$templateId',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
-  id: '/campaigns/new',
-  path: '/campaigns/new',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppCampaignsCampaignIdRoute = AppCampaignsCampaignIdRouteImport.update({
-  id: '/campaigns/$campaignId',
-  path: '/campaigns/$campaignId',
-  getParentRoute: () => AppRoute,
 } as any)
 const Char91DotmcpChar93InvokeToolToolRoute =
   Char91DotmcpChar93InvokeToolToolRouteImport.update({
@@ -153,44 +131,45 @@ const Char91DotmcpChar93InvokeToolToolRoute =
     path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
-const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
-  id: '/.lovable/oauth/consent',
-  path: '/.lovable/oauth/consent',
+const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsCampaignIdRoute = AppCampaignsCampaignIdRouteImport.update({
+  id: '/campaigns/$campaignId',
+  path: '/campaigns/$campaignId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
+  id: '/campaigns/new',
+  path: '/campaigns/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEditorTemplateIdRoute = AppEditorTemplateIdRouteImport.update({
+  id: '/editor/$templateId',
+  path: '/editor/$templateId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTemplatesIndexRoute = AppTemplatesIndexRouteImport.update({
+  id: '/templates/',
+  path: '/templates/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTemplatesNewRoute = AppTemplatesNewRouteImport.update({
+  id: '/templates/new',
+  path: '/templates/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiPublicRenderManifestRoute = ApiPublicRenderManifestRouteImport.update({
+  id: '/api/public/render-manifest',
+  path: '/api/public/render-manifest',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicYoutubeCallbackRoute =
-  ApiPublicYoutubeCallbackRouteImport.update({
-    id: '/api/public/youtube/callback',
-    path: '/api/public/youtube/callback',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicBillingWebhookRoute = ApiPublicBillingWebhookRouteImport.update({
-  id: '/api/public/billing/webhook',
-  path: '/api/public/billing/webhook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicHooksRenderCallbackRoute =
-  ApiPublicHooksRenderCallbackRouteImport.update({
-    id: '/api/public/hooks/render-callback',
-    path: '/api/public/hooks/render-callback',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksProcessCampaignQueueRoute =
-  ApiPublicHooksProcessCampaignQueueRouteImport.update({
-    id: '/api/public/hooks/process-campaign-queue',
-    path: '/api/public/hooks/process-campaign-queue',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AppCampaignsCampaignIdTestRenderRoute =
-  AppCampaignsCampaignIdTestRenderRouteImport.update({
-    id: '/test-render',
-    path: '/test-render',
-    getParentRoute: () => AppCampaignsCampaignIdRoute,
-  } as any)
-const AppCampaignsCampaignIdQueueRoute =
-  AppCampaignsCampaignIdQueueRouteImport.update({
-    id: '/queue',
-    path: '/queue',
+const AppCampaignsCampaignIdAutomationRoute =
+  AppCampaignsCampaignIdAutomationRouteImport.update({
+    id: '/automation',
+    path: '/automation',
     getParentRoute: () => AppCampaignsCampaignIdRoute,
   } as any)
 const AppCampaignsCampaignIdCalendarRoute =
@@ -199,11 +178,52 @@ const AppCampaignsCampaignIdCalendarRoute =
     path: '/calendar',
     getParentRoute: () => AppCampaignsCampaignIdRoute,
   } as any)
-const AppCampaignsCampaignIdAutomationRoute =
-  AppCampaignsCampaignIdAutomationRouteImport.update({
-    id: '/automation',
-    path: '/automation',
+const AppCampaignsCampaignIdQueueRoute =
+  AppCampaignsCampaignIdQueueRouteImport.update({
+    id: '/queue',
+    path: '/queue',
     getParentRoute: () => AppCampaignsCampaignIdRoute,
+  } as any)
+const AppCampaignsCampaignIdTestRenderRoute =
+  AppCampaignsCampaignIdTestRenderRouteImport.update({
+    id: '/test-render',
+    path: '/test-render',
+    getParentRoute: () => AppCampaignsCampaignIdRoute,
+  } as any)
+const ApiPublicBillingWebhookRoute = ApiPublicBillingWebhookRouteImport.update({
+  id: '/api/public/billing/webhook',
+  path: '/api/public/billing/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksProcessCampaignQueueRoute =
+  ApiPublicHooksProcessCampaignQueueRouteImport.update({
+    id: '/api/public/hooks/process-campaign-queue',
+    path: '/api/public/hooks/process-campaign-queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksProcessPublisherRoute =
+  ApiPublicHooksProcessPublisherRouteImport.update({
+    id: '/api/public/hooks/process-publisher',
+    path: '/api/public/hooks/process-publisher',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksProcessSchedulerRoute =
+  ApiPublicHooksProcessSchedulerRouteImport.update({
+    id: '/api/public/hooks/process-scheduler',
+    path: '/api/public/hooks/process-scheduler',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksRenderCallbackRoute =
+  ApiPublicHooksRenderCallbackRouteImport.update({
+    id: '/api/public/hooks/render-callback',
+    path: '/api/public/hooks/render-callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicYoutubeCallbackRoute =
+  ApiPublicYoutubeCallbackRouteImport.update({
+    id: '/api/public/youtube/callback',
+    path: '/api/public/youtube/callback',
+    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -213,12 +233,13 @@ export interface FileRoutesByFullPath {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/analytics': typeof AppAnalyticsRoute
-  '/billing': typeof AppBillingRoute
-  '/team': typeof AppTeamRoute
   '/assets': typeof AppAssetsRoute
+  '/billing': typeof AppBillingRoute
   '/dashboard': typeof AppDashboardRoute
   '/data-studio': typeof AppDataStudioRoute
+  '/operations': typeof AppOperationsRoute
   '/settings': typeof AppSettingsRoute
+  '/team': typeof AppTeamRoute
   '/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -233,10 +254,12 @@ export interface FileRoutesByFullPath {
   '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/process-publisher': typeof ApiPublicHooksProcessPublisherRoute
+  '/api/public/hooks/process-scheduler': typeof ApiPublicHooksProcessSchedulerRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
-  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -245,12 +268,13 @@ export interface FileRoutesByTo {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/analytics': typeof AppAnalyticsRoute
-  '/billing': typeof AppBillingRoute
-  '/team': typeof AppTeamRoute
   '/assets': typeof AppAssetsRoute
+  '/billing': typeof AppBillingRoute
   '/dashboard': typeof AppDashboardRoute
   '/data-studio': typeof AppDataStudioRoute
+  '/operations': typeof AppOperationsRoute
   '/settings': typeof AppSettingsRoute
+  '/team': typeof AppTeamRoute
   '/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -265,10 +289,12 @@ export interface FileRoutesByTo {
   '/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/process-publisher': typeof ApiPublicHooksProcessPublisherRoute
+  '/api/public/hooks/process-scheduler': typeof ApiPublicHooksProcessSchedulerRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
-  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -279,12 +305,13 @@ export interface FileRoutesById {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_app/analytics': typeof AppAnalyticsRoute
-  '/_app/billing': typeof AppBillingRoute
-  '/_app/team': typeof AppTeamRoute
   '/_app/assets': typeof AppAssetsRoute
+  '/_app/billing': typeof AppBillingRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/data-studio': typeof AppDataStudioRoute
+  '/_app/operations': typeof AppOperationsRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/team': typeof AppTeamRoute
   '/_app/youtube-connect': typeof AppYoutubeConnectRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -299,10 +326,12 @@ export interface FileRoutesById {
   '/_app/campaigns/$campaignId/calendar': typeof AppCampaignsCampaignIdCalendarRoute
   '/_app/campaigns/$campaignId/queue': typeof AppCampaignsCampaignIdQueueRoute
   '/_app/campaigns/$campaignId/test-render': typeof AppCampaignsCampaignIdTestRenderRoute
+  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
   '/api/public/hooks/process-campaign-queue': typeof ApiPublicHooksProcessCampaignQueueRoute
+  '/api/public/hooks/process-publisher': typeof ApiPublicHooksProcessPublisherRoute
+  '/api/public/hooks/process-scheduler': typeof ApiPublicHooksProcessSchedulerRoute
   '/api/public/hooks/render-callback': typeof ApiPublicHooksRenderCallbackRoute
   '/api/public/youtube/callback': typeof ApiPublicYoutubeCallbackRoute
-  '/api/public/billing/webhook': typeof ApiPublicBillingWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -313,12 +342,13 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/analytics'
-    | '/billing'
-    | '/team'
     | '/assets'
+    | '/billing'
     | '/dashboard'
     | '/data-studio'
+    | '/operations'
     | '/settings'
+    | '/team'
     | '/youtube-connect'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -333,10 +363,12 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/billing/webhook'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/process-publisher'
+    | '/api/public/hooks/process-scheduler'
     | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
-    | '/api/public/billing/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -345,12 +377,13 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/analytics'
-    | '/billing'
-    | '/team'
     | '/assets'
+    | '/billing'
     | '/dashboard'
     | '/data-studio'
+    | '/operations'
     | '/settings'
+    | '/team'
     | '/youtube-connect'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -365,10 +398,12 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId/calendar'
     | '/campaigns/$campaignId/queue'
     | '/campaigns/$campaignId/test-render'
+    | '/api/public/billing/webhook'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/process-publisher'
+    | '/api/public/hooks/process-scheduler'
     | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
-    | '/api/public/billing/webhook'
   id:
     | '__root__'
     | '/'
@@ -378,12 +413,13 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/_app/analytics'
-    | '/_app/billing'
-    | '/_app/team'
     | '/_app/assets'
+    | '/_app/billing'
     | '/_app/dashboard'
     | '/_app/data-studio'
+    | '/_app/operations'
     | '/_app/settings'
+    | '/_app/team'
     | '/_app/youtube-connect'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -398,10 +434,12 @@ export interface FileRouteTypes {
     | '/_app/campaigns/$campaignId/calendar'
     | '/_app/campaigns/$campaignId/queue'
     | '/_app/campaigns/$campaignId/test-render'
+    | '/api/public/billing/webhook'
     | '/api/public/hooks/process-campaign-queue'
+    | '/api/public/hooks/process-publisher'
+    | '/api/public/hooks/process-scheduler'
     | '/api/public/hooks/render-callback'
     | '/api/public/youtube/callback'
-    | '/api/public/billing/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -414,26 +452,21 @@ export interface RootRouteChildren {
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicRenderManifestRoute: typeof ApiPublicRenderManifestRoute
+  ApiPublicBillingWebhookRoute: typeof ApiPublicBillingWebhookRoute
   ApiPublicHooksProcessCampaignQueueRoute: typeof ApiPublicHooksProcessCampaignQueueRoute
+  ApiPublicHooksProcessPublisherRoute: typeof ApiPublicHooksProcessPublisherRoute
+  ApiPublicHooksProcessSchedulerRoute: typeof ApiPublicHooksProcessSchedulerRoute
   ApiPublicHooksRenderCallbackRoute: typeof ApiPublicHooksRenderCallbackRoute
   ApiPublicYoutubeCallbackRoute: typeof ApiPublicYoutubeCallbackRoute
-  ApiPublicBillingWebhookRoute: typeof ApiPublicBillingWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/mcp': {
-      id: '/mcp'
-      path: '/mcp'
-      fullPath: '/mcp'
-      preLoaderRoute: typeof McpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -443,60 +476,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/youtube-connect': {
-      id: '/_app/youtube-connect'
-      path: '/youtube-connect'
-      fullPath: '/youtube-connect'
-      preLoaderRoute: typeof AppYoutubeConnectRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings': {
-      id: '/_app/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/data-studio': {
-      id: '/_app/data-studio'
-      path: '/data-studio'
-      fullPath: '/data-studio'
-      preLoaderRoute: typeof AppDataStudioRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/dashboard': {
-      id: '/_app/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AppDashboardRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/assets': {
-      id: '/_app/assets'
-      path: '/assets'
-      fullPath: '/assets'
-      preLoaderRoute: typeof AppAssetsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/analytics': {
-      id: '/_app/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AppAnalyticsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.mcp/list-tools': {
@@ -506,46 +497,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/templates/': {
-      id: '/_app/templates/'
-      path: '/templates'
-      fullPath: '/templates/'
-      preLoaderRoute: typeof AppTemplatesIndexRouteImport
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/analytics': {
+      id: '/_app/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AppAnalyticsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/assets': {
+      id: '/_app/assets'
+      path: '/assets'
+      fullPath: '/assets'
+      preLoaderRoute: typeof AppAssetsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/billing': {
+      id: '/_app/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/data-studio': {
+      id: '/_app/data-studio'
+      path: '/data-studio'
+      fullPath: '/data-studio'
+      preLoaderRoute: typeof AppDataStudioRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/operations': {
+      id: '/_app/operations'
+      path: '/operations'
+      fullPath: '/operations'
+      preLoaderRoute: typeof AppOperationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/team': {
+      id: '/_app/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof AppTeamRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/youtube-connect': {
+      id: '/_app/youtube-connect'
+      path: '/youtube-connect'
+      fullPath: '/youtube-connect'
+      preLoaderRoute: typeof AppYoutubeConnectRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/.lovable/oauth/consent': {
+      id: '/.lovable/oauth/consent'
+      path: '/.lovable/oauth/consent'
+      fullPath: '/.lovable/oauth/consent'
+      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.mcp/invoke-tool/$tool': {
+      id: '/.mcp/invoke-tool/$tool'
+      path: '/.mcp/invoke-tool/$tool'
+      fullPath: '/.mcp/invoke-tool/$tool'
+      preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/campaigns/': {
       id: '/_app/campaigns/'
       path: '/campaigns'
       fullPath: '/campaigns/'
       preLoaderRoute: typeof AppCampaignsIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/api/public/render-manifest': {
-      id: '/api/public/render-manifest'
-      path: '/api/public/render-manifest'
-      fullPath: '/api/public/render-manifest'
-      preLoaderRoute: typeof ApiPublicRenderManifestRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/templates/new': {
-      id: '/_app/templates/new'
-      path: '/templates/new'
-      fullPath: '/templates/new'
-      preLoaderRoute: typeof AppTemplatesNewRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/editor/$templateId': {
-      id: '/_app/editor/$templateId'
-      path: '/editor/$templateId'
-      fullPath: '/editor/$templateId'
-      preLoaderRoute: typeof AppEditorTemplateIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/campaigns/new': {
-      id: '/_app/campaigns/new'
-      path: '/campaigns/new'
-      fullPath: '/campaigns/new'
-      preLoaderRoute: typeof AppCampaignsNewRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/campaigns/$campaignId': {
@@ -555,53 +595,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsCampaignIdRouteImport
       parentRoute: typeof AppRoute
     }
-    '/.mcp/invoke-tool/$tool': {
-      id: '/.mcp/invoke-tool/$tool'
-      path: '/.mcp/invoke-tool/$tool'
-      fullPath: '/.mcp/invoke-tool/$tool'
-      preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
+    '/_app/campaigns/new': {
+      id: '/_app/campaigns/new'
+      path: '/campaigns/new'
+      fullPath: '/campaigns/new'
+      preLoaderRoute: typeof AppCampaignsNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/editor/$templateId': {
+      id: '/_app/editor/$templateId'
+      path: '/editor/$templateId'
+      fullPath: '/editor/$templateId'
+      preLoaderRoute: typeof AppEditorTemplateIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/templates/': {
+      id: '/_app/templates/'
+      path: '/templates'
+      fullPath: '/templates/'
+      preLoaderRoute: typeof AppTemplatesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/templates/new': {
+      id: '/_app/templates/new'
+      path: '/templates/new'
+      fullPath: '/templates/new'
+      preLoaderRoute: typeof AppTemplatesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/public/render-manifest': {
+      id: '/api/public/render-manifest'
+      path: '/api/public/render-manifest'
+      fullPath: '/api/public/render-manifest'
+      preLoaderRoute: typeof ApiPublicRenderManifestRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.lovable/oauth/consent': {
-      id: '/.lovable/oauth/consent'
-      path: '/.lovable/oauth/consent'
-      fullPath: '/.lovable/oauth/consent'
-      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/youtube/callback': {
-      id: '/api/public/youtube/callback'
-      path: '/api/public/youtube/callback'
-      fullPath: '/api/public/youtube/callback'
-      preLoaderRoute: typeof ApiPublicYoutubeCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/render-callback': {
-      id: '/api/public/hooks/render-callback'
-      path: '/api/public/hooks/render-callback'
-      fullPath: '/api/public/hooks/render-callback'
-      preLoaderRoute: typeof ApiPublicHooksRenderCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/process-campaign-queue': {
-      id: '/api/public/hooks/process-campaign-queue'
-      path: '/api/public/hooks/process-campaign-queue'
-      fullPath: '/api/public/hooks/process-campaign-queue'
-      preLoaderRoute: typeof ApiPublicHooksProcessCampaignQueueRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/campaigns/$campaignId/test-render': {
-      id: '/_app/campaigns/$campaignId/test-render'
-      path: '/test-render'
-      fullPath: '/campaigns/$campaignId/test-render'
-      preLoaderRoute: typeof AppCampaignsCampaignIdTestRenderRouteImport
-      parentRoute: typeof AppCampaignsCampaignIdRoute
-    }
-    '/_app/campaigns/$campaignId/queue': {
-      id: '/_app/campaigns/$campaignId/queue'
-      path: '/queue'
-      fullPath: '/campaigns/$campaignId/queue'
-      preLoaderRoute: typeof AppCampaignsCampaignIdQueueRouteImport
+    '/_app/campaigns/$campaignId/automation': {
+      id: '/_app/campaigns/$campaignId/automation'
+      path: '/automation'
+      fullPath: '/campaigns/$campaignId/automation'
+      preLoaderRoute: typeof AppCampaignsCampaignIdAutomationRouteImport
       parentRoute: typeof AppCampaignsCampaignIdRoute
     }
     '/_app/campaigns/$campaignId/calendar': {
@@ -611,12 +644,61 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsCampaignIdCalendarRouteImport
       parentRoute: typeof AppCampaignsCampaignIdRoute
     }
-    '/_app/campaigns/$campaignId/automation': {
-      id: '/_app/campaigns/$campaignId/automation'
-      path: '/automation'
-      fullPath: '/campaigns/$campaignId/automation'
-      preLoaderRoute: typeof AppCampaignsCampaignIdAutomationRouteImport
+    '/_app/campaigns/$campaignId/queue': {
+      id: '/_app/campaigns/$campaignId/queue'
+      path: '/queue'
+      fullPath: '/campaigns/$campaignId/queue'
+      preLoaderRoute: typeof AppCampaignsCampaignIdQueueRouteImport
       parentRoute: typeof AppCampaignsCampaignIdRoute
+    }
+    '/_app/campaigns/$campaignId/test-render': {
+      id: '/_app/campaigns/$campaignId/test-render'
+      path: '/test-render'
+      fullPath: '/campaigns/$campaignId/test-render'
+      preLoaderRoute: typeof AppCampaignsCampaignIdTestRenderRouteImport
+      parentRoute: typeof AppCampaignsCampaignIdRoute
+    }
+    '/api/public/billing/webhook': {
+      id: '/api/public/billing/webhook'
+      path: '/api/public/billing/webhook'
+      fullPath: '/api/public/billing/webhook'
+      preLoaderRoute: typeof ApiPublicBillingWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/process-campaign-queue': {
+      id: '/api/public/hooks/process-campaign-queue'
+      path: '/api/public/hooks/process-campaign-queue'
+      fullPath: '/api/public/hooks/process-campaign-queue'
+      preLoaderRoute: typeof ApiPublicHooksProcessCampaignQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/process-publisher': {
+      id: '/api/public/hooks/process-publisher'
+      path: '/api/public/hooks/process-publisher'
+      fullPath: '/api/public/hooks/process-publisher'
+      preLoaderRoute: typeof ApiPublicHooksProcessPublisherRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/process-scheduler': {
+      id: '/api/public/hooks/process-scheduler'
+      path: '/api/public/hooks/process-scheduler'
+      fullPath: '/api/public/hooks/process-scheduler'
+      preLoaderRoute: typeof ApiPublicHooksProcessSchedulerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/render-callback': {
+      id: '/api/public/hooks/render-callback'
+      path: '/api/public/hooks/render-callback'
+      fullPath: '/api/public/hooks/render-callback'
+      preLoaderRoute: typeof ApiPublicHooksRenderCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/youtube/callback': {
+      id: '/api/public/youtube/callback'
+      path: '/api/public/youtube/callback'
+      fullPath: '/api/public/youtube/callback'
+      preLoaderRoute: typeof ApiPublicYoutubeCallbackRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -645,12 +727,13 @@ const AppCampaignsCampaignIdRouteWithChildren =
 
 interface AppRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
-  AppBillingRoute: typeof AppBillingRoute
-  AppTeamRoute: typeof AppTeamRoute
   AppAssetsRoute: typeof AppAssetsRoute
+  AppBillingRoute: typeof AppBillingRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDataStudioRoute: typeof AppDataStudioRoute
+  AppOperationsRoute: typeof AppOperationsRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppTeamRoute: typeof AppTeamRoute
   AppYoutubeConnectRoute: typeof AppYoutubeConnectRoute
   AppCampaignsCampaignIdRoute: typeof AppCampaignsCampaignIdRouteWithChildren
   AppCampaignsNewRoute: typeof AppCampaignsNewRoute
@@ -662,12 +745,13 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAnalyticsRoute: AppAnalyticsRoute,
-  AppBillingRoute: AppBillingRoute,
-  AppTeamRoute: AppTeamRoute,
   AppAssetsRoute: AppAssetsRoute,
+  AppBillingRoute: AppBillingRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDataStudioRoute: AppDataStudioRoute,
+  AppOperationsRoute: AppOperationsRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppTeamRoute: AppTeamRoute,
   AppYoutubeConnectRoute: AppYoutubeConnectRoute,
   AppCampaignsCampaignIdRoute: AppCampaignsCampaignIdRouteWithChildren,
   AppCampaignsNewRoute: AppCampaignsNewRoute,
@@ -690,11 +774,13 @@ const rootRouteChildren: RootRouteChildren = {
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicRenderManifestRoute: ApiPublicRenderManifestRoute,
+  ApiPublicBillingWebhookRoute: ApiPublicBillingWebhookRoute,
   ApiPublicHooksProcessCampaignQueueRoute:
     ApiPublicHooksProcessCampaignQueueRoute,
+  ApiPublicHooksProcessPublisherRoute: ApiPublicHooksProcessPublisherRoute,
+  ApiPublicHooksProcessSchedulerRoute: ApiPublicHooksProcessSchedulerRoute,
   ApiPublicHooksRenderCallbackRoute: ApiPublicHooksRenderCallbackRoute,
   ApiPublicYoutubeCallbackRoute: ApiPublicYoutubeCallbackRoute,
-  ApiPublicBillingWebhookRoute: ApiPublicBillingWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
